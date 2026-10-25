@@ -8,6 +8,7 @@
 
 .vc-gts-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
 }
 
@@ -152,4 +153,18 @@
 
 .vc-gts-count {
     margin-bottom: 12px;
+}
+
+.vc-gts-star:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--focus-primary);
+}
+
+.vc-gts-cover:focus-visible {
+    outline: 2px solid var(--focus-primary);
+    outline-offset: 2px;
+}
+
+.vc-gts-retry {
+    margin: 12px auto 0;
 }
