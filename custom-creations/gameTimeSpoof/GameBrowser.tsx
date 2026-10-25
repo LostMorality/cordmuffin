@@ -10,7 +10,7 @@ import { GameControllerIcon } from "@components/Icons";
 import { classNameFactory } from "@utils/css";
 import type { RenderModalProps } from "@vencord/discord-types";
 import { findByPropsLazy } from "@webpack";
-import { Modal, openModal, RunningGameStore, Select, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
+import { Modal, openModal, RunningGameStore, Select, showToast, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
 
 import { DetectableApp, isSpoofing, loadDetectable, settings } from ".";
 import { openAddTime } from "./AddTime";
@@ -36,9 +36,7 @@ function stopSpoof(app: DetectableApp) {
 
 function toggleFavorite(id: string) {
     const { favorites } = settings.store;
-    const index = favorites.indexOf(id);
-    if (index === -1) favorites.push(id);
-    else favorites.splice(index, 1);
+    settings.store.favorites = favorites.includes(id) ? favorites.filter(f => f !== id) : [...favorites, id];
 }
 
 function StarIcon({ filled }: { filled: boolean; }) {
@@ -55,14 +53,38 @@ function StarIcon({ filled }: { filled: boolean; }) {
     );
 }
 
+function scrollParent(el: Element | null) {
+    for (let p = el?.parentElement; p; p = p.parentElement) {
+        const { overflowY } = getComputedStyle(p);
+        if (overflowY === "auto" || overflowY === "scroll") return p;
+    }
+    return null;
+}
+
 function openGameProfile(id: string) {
-    GameProfileActions.openGameProfileModal({ gameId: id, gameProfileModalChecks: { shouldOpenGameProfile: true, gameId: id }, source: "quick_switcher" });
+    try {
+        GameProfileActions.openGameProfileModal({ gameId: id, gameProfileModalChecks: { shouldOpenGameProfile: true, gameId: id }, source: "quick_switcher" });
+    } catch {
+        showToast({ text: "Discord's game page couldn't be opened.", variant: "critical" });
+    }
 }
 
 function GameCard({ app, spoofing, favorite }: { app: DetectableApp; spoofing: boolean; favorite: boolean; }) {
     return (
         <div className={cl("card", spoofing && "card-active")}>
-            <div className={cl("cover")} role="button" title="View game page" onClick={() => openGameProfile(app.id)}>
+            <div
+                className={cl("cover")}
+                role="button"
+                tabIndex={0}
+                title="View game page"
+                onClick={() => openGameProfile(app.id)}
+                onKeyDown={e => {
+                    if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                        e.preventDefault();
+                        openGameProfile(app.id);
+                    }
+                }}
+            >
                 {app.cover_image_hash
                     ? <img src={appImage(app.id, app.cover_image_hash, 300)} loading="lazy" alt="" />
                     : app.icon_hash
@@ -75,6 +97,7 @@ function GameCard({ app, spoofing, favorite }: { app: DetectableApp; spoofing: b
                         toggleFavorite(app.id);
                     }}
                     aria-label={favorite ? "Remove from favorites" : "Add to favorites"}
+                    aria-pressed={favorite}
                 >
                     <StarIcon filled={favorite} />
                 </button>
@@ -101,17 +124,23 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
     const { games, favorites } = settings.use(["games", "favorites"]);
     const [apps, setApps] = useState<DetectableApp[] | null>(null);
     const [error, setError] = useState(false);
-    const [tab, setTab] = useState<Tab>("all");
-    const [query, setQuery] = useState("");
-    const [genre, setGenre] = useState("");
+    const [tab, setTabState] = useState<Tab>("all");
+    const [query, setQueryState] = useState("");
+    const [genre, setGenreState] = useState("");
     const [limit, setLimit] = useState(PAGE_SIZE);
+    const [attempt, setAttempt] = useState(0);
     const sentinel = useRef<HTMLDivElement>(null);
 
+    const setTab = (value: Tab) => { setLimit(PAGE_SIZE); setTabState(value); };
+    const setQuery = (value: string) => { setLimit(PAGE_SIZE); setQueryState(value); };
+    const setGenre = (value: string) => { setLimit(PAGE_SIZE); setGenreState(value); };
+
     useEffect(() => {
+        setError(false);
         loadDetectable()
             .then(list => setApps([...list].sort((a, b) => Number(!a.cover_image_hash) - Number(!b.cover_image_hash) || a.name.localeCompare(b.name))))
             .catch(() => setError(true));
-    }, []);
+    }, [attempt]);
 
     const genres = useMemo(() => {
         const counts = new Map<string, number>();
@@ -119,7 +148,9 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
         return [...counts.keys()].sort();
     }, [apps]);
 
-    const favoriteSet = useMemo(() => new Set(favorites), [favorites.length, favorites]);
+    const favoriteKey = favorites.join(",");
+    const appIds = useMemo(() => new Set(apps?.map(a => a.id)), [apps]);
+    const favoriteSet = useMemo(() => new Set(favorites.filter(id => !apps || appIds.has(id))), [favoriteKey, appIds]);
     const detectedSet = useMemo(() => new Set(RunningGameStore.getGamesSeen(true).map(g => g.id)), []);
 
     const filtered = useMemo(() => {
@@ -137,22 +168,20 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
         return [...pinned, ...matches];
     }, [apps, tab, query, genre, favoriteSet, detectedSet, games]);
 
-    useEffect(() => setLimit(PAGE_SIZE), [tab, query, genre]);
-
     useEffect(() => {
         if (!sentinel.current) return;
         const observer = new IntersectionObserver(([entry]) => {
             if (entry.isIntersecting) setLimit(l => l + PAGE_SIZE);
-        }, { rootMargin: "400px" });
+        }, { root: scrollParent(sentinel.current), rootMargin: "400px" });
         observer.observe(sentinel.current);
         return () => observer.disconnect();
-    }, [filtered]);
+    }, [filtered, limit]);
 
     const emptyText = error
-        ? "Couldn't load Discord's game list. Try again later."
+        ? "Couldn't load Discord's game list."
         : !apps
             ? "Loading games..."
-            : tab === "favorites" && !favorites.length
+            : tab === "favorites" && !favoriteSet.size
                 ? "No favorites yet. Click the star on a game to add it here."
                 : "No games match your search.";
 
@@ -162,21 +191,22 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
             size="xxl"
             title="Game Browser"
             subtitle={apps ? `${filtered.length.toLocaleString()} games` : undefined}
-            actions={[{ text: "Close", variant: "secondary", onClick: modalProps.onClose }]}
         >
             <div className={cl("toolbar")}>
                 <div className={cl("tabs")}>
                     {(Object.keys(TABS) as Tab[]).map(key => (
-                        <Button key={key} size="small" variant={tab === key ? "primary" : "secondary"} onClick={() => setTab(key)}>
-                            {TABS[key]}{key === "favorites" && favorites.length ? ` (${favorites.length})` : ""}
+                        <Button key={key} size="small" variant={tab === key ? "primary" : "secondary"} aria-pressed={tab === key} onClick={() => setTab(key)}>
+                            {TABS[key]}{key === "favorites" && favoriteSet.size ? ` (${favoriteSet.size})` : ""}
                         </Button>
                     ))}
+                </div>
+                <div className={cl("tabs")}>
                     {apps && (
                         <Button size="small" variant="positive" onClick={() => openAddTime([], "random games", apps.filter(a => a.cover_image_hash))}>
                             Add Random Games
                         </Button>
                     )}
-                    {tab === "favorites" && favorites.length > 0 && apps && (
+                    {tab === "favorites" && favoriteSet.size > 0 && apps && (
                         <Button size="small" variant="positive" onClick={() => openAddTime(apps.filter(a => favoriteSet.has(a.id)), "your favorites")}>
                             Add Time to All
                         </Button>
@@ -204,7 +234,12 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
                         ))}
                     </div>
                 )
-                : <div className={cl("empty")}>{emptyText}</div>}
+                : (
+                    <div className={cl("empty")}>
+                        {emptyText}
+                        {error && <Button size="small" variant="secondary" className={cl("retry")} onClick={() => setAttempt(a => a + 1)}>Try again</Button>}
+                    </div>
+                )}
             {limit < filtered.length && <div ref={sentinel} className={cl("sentinel")} />}
         </Modal>
     );
