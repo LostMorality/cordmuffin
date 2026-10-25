@@ -49,6 +49,8 @@ Nothing is uploaded anywhere.
 
 Makes Discord think you're playing any game Discord can detect, so your Game Time and Game Variety profile badges keep counting.
 
+![The Game Browser](docs/game-browser.png)
+
 - **Game Browser:** the controller button in Discord's top bar. It lists all of Discord's detectable games with cover art, search, genre filter, favorites and a Detected tab.
 - **Click a cover** to open that game's real Discord page.
 - **Spoof** switches to that game right away. The game you're spoofing always stays at the top.
