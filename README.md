@@ -83,4 +83,4 @@ go build -trimpath -ldflags "-s -w" -o "Cordmuffin Equicord Installer.exe" .
 
 ## License
 
-GPL-3.0, the same as Equicord and Vencord. See [LICENSE](LICENSE).
+GPL-3.0. See [LICENSE](LICENSE).
