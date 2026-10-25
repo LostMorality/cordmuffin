@@ -18,7 +18,7 @@ import { RunningGame } from "@vencord/discord-types";
 import { FluxDispatcher, RestAPI, RunningGameStore, showToast } from "@webpack/common";
 
 import { openGameBrowser } from "./GameBrowser";
-import { ReportedGame,reportPlaytime } from "./science";
+import { ReportedGame, reportPlaytime } from "./science";
 
 const logger = new Logger("GameTimeSpoof");
 
@@ -36,12 +36,15 @@ type FakeGame = RunningGame & { id: string; pidPath: number[]; processName: stri
 type TrackedGame = ReportedGame & { reportedAt: number; };
 
 const REPORT_INTERVAL = 10 * 60_000;
+const MAX_REPORT = REPORT_INTERVAL + 2 * 60_000;
+const FAKE_PID_BASE = 0x7f000001;
+const LOAD_RETRY_MS = 60_000;
 
 export const settings = definePluginSettings({
     games: {
         type: OptionType.STRING,
-        description: "Games to fake as running. Use application IDs or exact game names from Discord's detectable list, separated by commas.",
-        default: "Minecraft",
+        description: "Games to fake as running. Use application IDs or exact game names from Discord's detectable list, separated by commas. Rotation replaces this with one game at a time.",
+        default: "",
         onChange: () => restart()
     },
     rotation: {
@@ -68,37 +71,54 @@ export const settings = definePluginSettings({
     }
 });
 
+let active = false;
+let generation = 0;
+let trackRealPlay = false;
 let rotationTimer: ReturnType<typeof setInterval> | undefined;
+let reportTimer: ReturnType<typeof setInterval> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let lastTick = 0;
+let appliedKey = "";
+
+let detectable: Promise<DetectableApp[]> | null = null;
+let fakeGames: FakeGame[] = [];
+const realGames = new Map<number, TrackedGame>();
+let original: Pick<typeof RunningGameStore, "getRunningGames" | "getGameForPID" | "getGameOrTransformedSubgameForPID" | "getVisibleGame" | "getVisibleRunningGames"> | null = null;
+
+export function loadDetectable() {
+    detectable ??= RestAPI.get({ url: "/applications/detectable" }).then(res => res.body as DetectableApp[]);
+    detectable.catch(() => detectable = null);
+    return detectable;
+}
+
+const parseGames = (value: string) => value.split(",").map(s => s.trim()).filter(Boolean);
+const isFakePid = (pid: number | undefined) => pid != null && pid >= FAKE_PID_BASE && pid % 2 === 1;
 
 async function rotate() {
-    const { favorites, games, rotation } = settings.store;
-    if (rotation === "random") {
-        const apps = (await loadDetectable()).filter(a => a.cover_image_hash && a.id !== games.trim());
-        settings.store.games = apps[Math.floor(Math.random() * apps.length)].id;
-    } else if (favorites.length) {
-        settings.store.games = favorites[(favorites.indexOf(games.trim()) + 1) % favorites.length];
+    if (!active) return;
+    try {
+        const { favorites, games, rotation } = settings.store;
+        if (rotation === "random") {
+            const apps = (await loadDetectable()).filter(a => a.cover_image_hash && a.id !== games.trim());
+            if (active && apps.length) settings.store.games = apps[Math.floor(Math.random() * apps.length)].id;
+        } else if (favorites.length) {
+            const ids = new Set((await loadDetectable()).map(a => a.id));
+            const valid = favorites.filter(id => ids.has(id));
+            if (active && valid.length) settings.store.games = valid[(valid.indexOf(games.trim()) + 1) % valid.length];
+        }
+    } catch (e) {
+        logger.error("Couldn't switch games", e);
     }
 }
 
 function updateRotation(switchNow: boolean) {
     clearInterval(rotationTimer);
     rotationTimer = undefined;
+    if (!active) return;
     const { rotation, favorites, games, rotateMinutes } = settings.store;
     if (rotation === "off") return;
     if (switchNow || rotation === "favorites" && !favorites.includes(games.trim())) rotate();
     rotationTimer = setInterval(rotate, rotateMinutes * 60_000);
-}
-
-let detectable: DetectableApp[] | null = null;
-let fakeGames: FakeGame[] = [];
-const realGames = new Map<number, TrackedGame>();
-let original: Pick<typeof RunningGameStore, "getRunningGames" | "getGameForPID" | "getGameOrTransformedSubgameForPID" | "getVisibleGame" | "getVisibleRunningGames"> | null = null;
-
-export async function loadDetectable() {
-    if (detectable) return detectable;
-    const res = await RestAPI.get({ url: "/applications/detectable" });
-    detectable = res.body as DetectableApp[];
-    return detectable;
 }
 
 function resolveApp(apps: DetectableApp[], entry: string) {
@@ -123,7 +143,7 @@ export function exeName(app: DetectableApp) {
 function makeFakeGame(app: DetectableApp, index: number): FakeGame {
     const exe = exeName(app);
     const exePath = `c:/program files/${exe}`;
-    const pid = 90000 + index;
+    const pid = FAKE_PID_BASE + index * 2;
     const now = Date.now();
 
     return {
@@ -147,7 +167,7 @@ function makeFakeGame(app: DetectableApp, index: number): FakeGame {
 
 function withFakes(games: RunningGame[] = []) {
     const fakeIds = new Set(fakeGames.map(g => g.id));
-    return [...games.filter(g => !g.id || !fakeIds.has(g.id)), ...fakeGames];
+    return [...games.filter(g => !isFakePid(g.pid) && (!g.id || !fakeIds.has(g.id))), ...fakeGames];
 }
 
 interface GamesAction {
@@ -158,12 +178,12 @@ interface GamesAction {
 }
 
 function trackRealGames(games: RunningGame[]) {
-    if (Settings.plugins.NoTrack?.disableAnalytics === false) return;
-    const fakePids = new Set(fakeGames.map(g => g.pid));
+    if (!trackRealPlay) return;
+    const fakeIds = new Set(fakeGames.map(g => g.id));
     const livePids = new Set<number>();
 
     for (const game of games) {
-        if (!game.id || game.pid == null || fakePids.has(game.pid) || game.hidden || game.isLauncher) continue;
+        if (!game.id || game.pid == null || isFakePid(game.pid) || fakeIds.has(game.id) || game.hidden || game.isLauncher) continue;
         livePids.add(game.pid);
         if (realGames.has(game.pid)) continue;
         realGames.set(game.pid, {
@@ -187,10 +207,7 @@ function interceptor(action: GamesAction) {
     trackRealGames(action.games ?? []);
     if (!fakeGames.length) return false;
     action.games = withFakes(action.games);
-    if (Array.isArray(action.removed)) {
-        const fakePids = new Set(fakeGames.map(g => g.pid));
-        action.removed = action.removed.filter(g => !fakePids.has(g.pid));
-    }
+    if (Array.isArray(action.removed)) action.removed = action.removed.filter(g => !isFakePid(g.pid));
     return false;
 }
 
@@ -199,7 +216,7 @@ function dispatchChange(added: RunningGame[], removed: RunningGame[]) {
         type: "RUNNING_GAMES_CHANGE",
         added,
         removed,
-        games: RunningGameStore.getRunningGames(),
+        games: original ? RunningGameStore.getRunningGames() : RunningGameStore.getRunningGames().filter(g => !isFakePid(g.pid)),
         __gameTimeSpoof: true
     });
 }
@@ -239,17 +256,21 @@ function unpatchStore() {
 }
 
 async function apply() {
-    const entries = settings.store.games.split(",").map(s => s.trim()).filter(Boolean);
-    if (!entries.length) return;
+    const entries = parseGames(settings.store.games);
+    if (!active || !entries.length) return;
+    const run = generation;
 
     let apps: DetectableApp[];
     try {
         apps = await loadDetectable();
     } catch (e) {
+        if (run !== generation || !active) return;
         logger.error("Failed to fetch detectable games", e);
-        showToast({ text: "GameTimeSpoof: couldn't load Discord's game list", variant: "critical" });
+        showToast({ text: "GameTimeSpoof couldn't load Discord's game list. It'll try again in a minute.", variant: "critical" });
+        retryTimer = setTimeout(() => run === generation && apply(), LOAD_RETRY_MS);
         return;
     }
+    if (run !== generation || !active) return;
 
     const resolved: DetectableApp[] = [];
     for (const entry of entries) {
@@ -265,19 +286,38 @@ async function apply() {
     logger.info("Faking", fakeGames.map(g => g.name).join(", "));
 }
 
-let reportTimer: ReturnType<typeof setInterval> | undefined;
-
 function reportElapsed(games: TrackedGame[]) {
     const now = Date.now();
     for (const game of games) {
         const elapsed = now - game.reportedAt;
+        if (elapsed < 0) {
+            game.reportedAt = now;
+            continue;
+        }
         if (elapsed < 60_000) continue;
+        const from = game.reportedAt;
         game.reportedAt = now;
-        reportPlaytime(game, elapsed).catch(e => logger.error(`Failed to report play time for ${game.name}`, e));
+        reportPlaytime(game, Math.min(elapsed, MAX_REPORT)).catch(e => {
+            logger.error(`Failed to report play time for ${game.name}`, e);
+            if (game.reportedAt === now) game.reportedAt = Math.max(from, now - MAX_REPORT);
+        });
     }
 }
 
+function tick() {
+    const now = Date.now();
+    const games = [...fakeGames, ...realGames.values()];
+    if (now - lastTick > 2 * REPORT_INTERVAL || now < lastTick) {
+        for (const game of games) game.reportedAt = now;
+    } else {
+        reportElapsed(games);
+    }
+    lastTick = now;
+}
+
 function clear() {
+    generation++;
+    clearTimeout(retryTimer);
     const removed = fakeGames;
     reportElapsed(removed);
     fakeGames = [];
@@ -286,6 +326,10 @@ function clear() {
 }
 
 function restart() {
+    if (!active) return;
+    const key = parseGames(settings.store.games).join(",").toLowerCase();
+    if (key === appliedKey) return;
+    appliedKey = key;
     clear();
     apply();
 }
@@ -294,8 +338,7 @@ export default definePlugin({
     name: "GameTimeSpoof",
     description: "Makes Discord think detectable PC games are running so your Game Time badge hours keep counting.",
     tags: ["Activity", "Fun"],
-    authors: [{ name: "Unknown", id: 0n }],
-    enabledByDefault: true,
+    authors: [{ name: "cordmuffin", id: 0n }],
     settings,
 
     settingsAboutComponent: () => (
@@ -313,20 +356,27 @@ export default definePlugin({
     },
 
     start() {
+        active = true;
+        trackRealPlay = Settings.plugins.NoTrack?.disableAnalytics !== false;
+        lastTick = Date.now();
+        appliedKey = parseGames(settings.store.games).join(",").toLowerCase();
         FluxDispatcher.addInterceptor(interceptor);
         trackRealGames(RunningGameStore.getRunningGames());
         apply();
         updateRotation(false);
-        reportTimer = setInterval(() => reportElapsed([...fakeGames, ...realGames.values()]), REPORT_INTERVAL);
+        reportTimer = setInterval(tick, REPORT_INTERVAL);
     },
 
     stop() {
+        active = false;
         clearInterval(rotationTimer);
         clearInterval(reportTimer);
+        rotationTimer = reportTimer = undefined;
         const index = FluxDispatcher._interceptors.indexOf(interceptor);
         if (index !== -1) FluxDispatcher._interceptors.splice(index, 1);
         reportElapsed([...realGames.values()]);
         realGames.clear();
         clear();
+        appliedKey = "";
     }
 });
