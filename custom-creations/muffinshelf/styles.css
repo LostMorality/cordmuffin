@@ -1,0 +1,223 @@
+.vc-muffinshelf-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.vc-muffinshelf-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.vc-muffinshelf-search {
+    flex: 1;
+    min-width: 220px;
+}
+
+.vc-muffinshelf-select {
+    width: 190px;
+}
+
+.vc-muffinshelf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+.vc-muffinshelf-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--background-mod-subtle);
+    border: 1px solid var(--border-subtle);
+}
+
+.vc-muffinshelf-card:hover {
+    background: var(--background-mod-normal);
+}
+
+.vc-muffinshelf-card-browse {
+    opacity: 0.8;
+}
+
+.vc-muffinshelf-thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 6px;
+    background: var(--background-mod-strong);
+}
+
+.vc-muffinshelf-card-head {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: space-between;
+}
+
+.vc-muffinshelf-card-title {
+    overflow-wrap: anywhere;
+}
+
+.vc-muffinshelf-badge {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--white);
+}
+
+.vc-muffinshelf-badge-userplugin {
+    background: var(--brand-500);
+}
+
+.vc-muffinshelf-badge-bd {
+    background: #3e82e5;
+}
+
+.vc-muffinshelf-badge-browse {
+    background: var(--background-mod-strong);
+    color: var(--text-muted);
+}
+
+.vc-muffinshelf-desc {
+    flex: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.vc-muffinshelf-meta {
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+}
+
+.vc-muffinshelf-card-actions,
+.vc-muffinshelf-row-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.vc-muffinshelf-row-buttons {
+    margin: 8px 0;
+}
+
+.vc-muffinshelf-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.vc-muffinshelf-row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.vc-muffinshelf-section {
+    margin-top: 24px;
+}
+
+.vc-muffinshelf-banner,
+.vc-muffinshelf-note {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    background: var(--background-mod-normal);
+}
+
+.vc-muffinshelf-banner {
+    border-left: 4px solid var(--status-positive);
+}
+
+.vc-muffinshelf-note {
+    border-left: 4px solid var(--status-warning);
+}
+
+.vc-muffinshelf-note-error {
+    border-left-color: var(--status-danger);
+}
+
+.vc-muffinshelf-error {
+    color: var(--text-feedback-critical);
+}
+
+.vc-muffinshelf-empty {
+    padding: 40px 0;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.vc-muffinshelf-more {
+    display: flex;
+    justify-content: center;
+    margin-top: 16px;
+}
+
+.vc-muffinshelf-log {
+    max-height: 240px;
+    overflow: auto;
+    padding: 8px;
+    margin-top: 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    background: var(--background-mod-strong);
+}
+
+.vc-muffinshelf-about p {
+    margin-bottom: 8px;
+}
+
+.vc-muffinshelf-list {
+    margin: 4px 0 8px 20px;
+    list-style: disc;
+}
+
+.vc-muffinshelf-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vc-muffinshelf-category summary {
+    cursor: pointer;
+    margin-bottom: 8px;
+}
+
+.vc-muffinshelf-changelog ul {
+    margin: 4px 0 12px 20px;
+    list-style: disc;
+}
+
+.vc-muffinshelf-builtin {
+    padding: 4px 6px;
+    border-radius: 4px;
+    color: var(--text-default);
+    background: var(--background-mod-normal);
+    border-left: 3px solid var(--status-warning);
+}
+
+.vc-muffinshelf-body {
+    min-height: 70vh;
+}
+
+.vc-muffinshelf-banner-busy {
+    border-left-color: var(--brand-500);
+}
