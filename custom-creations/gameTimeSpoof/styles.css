@@ -1,0 +1,155 @@
+.vc-gts-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.vc-gts-tabs {
+    display: flex;
+    gap: 6px;
+}
+
+.vc-gts-search {
+    flex: 1;
+    min-width: 200px;
+}
+
+.vc-gts-genre {
+    width: 200px;
+}
+
+.vc-gts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.vc-gts-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--background-mod-subtle);
+    border: 1px solid transparent;
+}
+
+.vc-gts-card:hover {
+    background: var(--background-mod-normal);
+}
+
+.vc-gts-card-active {
+    border-color: var(--status-positive);
+}
+
+.vc-gts-cover {
+    position: relative;
+    aspect-ratio: 3 / 4;
+    border-radius: 6px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--background-mod-strong);
+    color: var(--interactive-icon-default);
+    cursor: pointer;
+}
+
+.vc-gts-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.vc-gts-cover img.vc-gts-cover-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    object-fit: contain;
+}
+
+.vc-gts-star {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    padding: 4px;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.vc-gts-card:hover .vc-gts-star,
+.vc-gts-star-on {
+    opacity: 1;
+}
+
+.vc-gts-star-on {
+    color: #f0b232;
+}
+
+.vc-gts-badge {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--status-positive);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.vc-gts-name {
+    color: var(--text-default);
+    font-weight: 600;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vc-gts-themes {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vc-gts-spoof {
+    margin-top: 4px;
+    width: 100%;
+}
+
+.vc-gts-empty {
+    padding: 48px 0;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.vc-gts-sentinel {
+    height: 1px;
+}
+
+.vc-gts-time-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.vc-gts-time-input {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vc-gts-count {
+    margin-bottom: 12px;
+}
