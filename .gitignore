@@ -1,0 +1,5 @@
+tests/
+*.exe
+*.zip
+payload/
+release/
