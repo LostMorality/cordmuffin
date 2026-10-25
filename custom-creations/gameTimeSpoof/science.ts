@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { sleep } from "@utils/misc";
 import { findByPropsLazy } from "@webpack";
-import { RestAPI } from "@webpack/common";
+import { RestAPI, UserStore } from "@webpack/common";
 
 const SuperProperties: { getSuperProperties(): Record<string, unknown>; } = findByPropsLazy("getSuperProperties");
 
@@ -16,32 +17,35 @@ export interface ReportedGame {
     fingerprint?: string;
 }
 
-let analyticsToken: string | null = null;
+const MAX_SESSION_MS = 24 * 60 * 60_000;
+const SESSIONS_PER_REQUEST = 10;
+
+let token: { userId: string; value: string; } | null = null;
 let sequence = 0;
+const fallbackIds = { client_heartbeat_session_id: crypto.randomUUID(), launch_signature: crypto.randomUUID() };
 
 async function getAnalyticsToken() {
-    if (analyticsToken) return analyticsToken;
+    const userId = UserStore.getCurrentUser()?.id ?? "";
+    if (token?.userId === userId) return token.value;
     const { body } = await RestAPI.get({ url: "/users/@me", query: { with_analytics_token: true } });
-    analyticsToken = body.analytics_token as string;
-    return analyticsToken;
+    token = { userId, value: body.analytics_token as string };
+    return token.value;
 }
 
 function sessionIds() {
     const props = SuperProperties.getSuperProperties();
     return {
-        client_heartbeat_session_id: props.client_heartbeat_session_id ?? crypto.randomUUID(),
-        launch_signature: props.launch_signature ?? crypto.randomUUID(),
-        rendered_locale: props.system_locale ?? "en-US"
+        client_heartbeat_session_id: props.client_heartbeat_session_id ?? fallbackIds.client_heartbeat_session_id,
+        launch_signature: props.launch_signature ?? fallbackIds.launch_signature
     };
 }
 
-function heartbeat(game: ReportedGame, durationMs: number, sessionId: string, initial: boolean, at: number) {
-    const { client_heartbeat_session_id, launch_signature } = sessionIds();
+function heartbeat(game: ReportedGame, durationMs: number, sessionId: string, initial: boolean, at: number, sentAt: number) {
     return {
         type: "running_game_heartbeat",
         properties: {
             client_track_timestamp: at,
-            client_heartbeat_session_id,
+            ...sessionIds(),
             event_sequence_number: ++sequence,
             game_id: game.id,
             game_name: game.name,
@@ -54,18 +58,18 @@ function heartbeat(game: ReportedGame, durationMs: number, sessionId: string, in
             duration_tracked_ms: durationMs,
             rtc_connection_id: null,
             media_session_id: null,
-            launch_signature,
             client_app_state: "focused",
-            client_send_timestamp: at
+            client_send_timestamp: sentAt
         }
     };
 }
 
-function launch(game: ReportedGame, at: number) {
+function launch(game: ReportedGame, at: number, sentAt: number) {
     return {
         type: "launch_game",
         properties: {
             ...sessionIds(),
+            rendered_locale: SuperProperties.getSuperProperties().system_locale ?? "en-US",
             client_track_timestamp: at,
             event_sequence_number: ++sequence,
             game: game.name,
@@ -98,37 +102,60 @@ function launch(game: ReportedGame, at: number) {
             accessibility_features: 0,
             client_rtc_state: null,
             client_app_state: "focused",
-            client_send_timestamp: at,
+            client_send_timestamp: sentAt,
             ...game.fingerprint && { executable_fingerprint: game.fingerprint }
         }
     };
 }
 
-function session(game: ReportedGame, durationMs: number, end: number) {
+function session(game: ReportedGame, durationMs: number, end: number, sentAt: number) {
     const sessionId = crypto.randomUUID();
     const start = end - durationMs;
-    return [heartbeat(game, 0, sessionId, true, start), launch(game, start), heartbeat(game, durationMs, sessionId, false, end)];
+    return [heartbeat(game, 0, sessionId, true, start, sentAt), launch(game, start, sentAt), heartbeat(game, durationMs, sessionId, false, end, sentAt)];
 }
 
 export async function reportPlaytime(game: ReportedGame, durationMs: number) {
-    await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: session(game, durationMs, Date.now()) } });
+    const now = Date.now();
+    await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: session(game, Math.min(durationMs, MAX_SESSION_MS), now, now) } });
 }
 
-const MAX_SESSION_MS = 24 * 60 * 60_000;
-const SESSIONS_PER_REQUEST = 10;
+export interface CreditPlan {
+    game: ReportedGame;
+    durationMs: number;
+    end: number;
+}
 
-export async function creditPlaytime(games: ReportedGame[], durationMs: number, onProgress?: (done: number, total: number) => void) {
+export function planCredit(games: ReportedGame[], durationMs: number) {
     const now = Date.now();
-    const sessions: ReturnType<typeof session>[] = [];
+    const plan: CreditPlan[] = [];
     for (const game of games) {
-        for (let offset = 0; offset < durationMs; offset += MAX_SESSION_MS) {
-            sessions.push(session(game, Math.min(MAX_SESSION_MS, durationMs - offset), now - offset));
+        for (let offset = Math.ceil(durationMs / MAX_SESSION_MS) * MAX_SESSION_MS - MAX_SESSION_MS; offset >= 0; offset -= MAX_SESSION_MS) {
+            plan.push({ game, durationMs: Math.min(MAX_SESSION_MS, durationMs - offset), end: now - offset });
         }
     }
+    return plan;
+}
 
-    for (let i = 0; i < sessions.length; i += SESSIONS_PER_REQUEST) {
-        await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: sessions.slice(i, i + SESSIONS_PER_REQUEST).flat() } });
-        onProgress?.(Math.min(i + SESSIONS_PER_REQUEST, sessions.length), sessions.length);
-        await new Promise(r => setTimeout(r, 500));
+export class CreditError extends Error {
+    constructor(public sent: number, public total: number, cause: unknown) {
+        super(`Sent ${sent} of ${total}`, { cause });
     }
+}
+
+export async function creditPlaytime(plan: CreditPlan[], signal: AbortSignal, onProgress?: (done: number, total: number) => void) {
+    let sent = 0;
+    try {
+        for (let i = 0; i < plan.length; i += SESSIONS_PER_REQUEST) {
+            if (signal.aborted) return sent;
+            const sentAt = Date.now();
+            const events = plan.slice(i, i + SESSIONS_PER_REQUEST).flatMap(p => session(p.game, p.durationMs, p.end, sentAt));
+            await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events } });
+            sent = Math.min(i + SESSIONS_PER_REQUEST, plan.length);
+            onProgress?.(sent, plan.length);
+            await sleep(500);
+        }
+    } catch (e) {
+        throw new CreditError(sent, plan.length, e);
+    }
+    return sent;
 }
