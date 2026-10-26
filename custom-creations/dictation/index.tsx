@@ -387,7 +387,7 @@ const DictationButton: ChatBarButtonFactory = ({ isMainChat }) => {
 export default definePlugin({
     name: "Dictation",
     description: "Talk instead of typing. A free speech model turns your voice into text on your PC, with commas and punctuation added for you.",
-    authors: [{ name: "cordmuffin", id: 0n }],
+    authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
 
     chatBarButton: {
