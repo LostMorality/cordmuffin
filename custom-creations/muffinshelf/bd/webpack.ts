@@ -184,6 +184,17 @@ function getDeclaration(module: any, filter: Filter, withKey: boolean) {
     return undefined;
 }
 
+// Adds the readable class names to a CSS class module as hidden properties, so lookups like m.container work again
+// (BDFDB, for one, searches all of Discord's modules on every render until they do). Object.keys stays unchanged.
+function aliasClassNames(exports: any) {
+    const view = classView(exports);
+    if (!view) return;
+    for (const name of Object.keys(view)) {
+        if (name in exports) continue;
+        Object.defineProperty(exports, name, { value: view[name], enumerable: false, configurable: true, writable: true });
+    }
+}
+
 function writableExports(exports: any) {
     if (!exports || (typeof exports !== "object" && typeof exports !== "function") || skip(exports)) return;
     recordNames(exports);
@@ -205,6 +216,7 @@ const onModuleLoaded = (exports: any, id: PropertyKey) => {
     try {
         addDeclarations(cache[id as any]);
         writableExports(exports);
+        aliasClassNames(exports);
     } catch { }
 };
 let exportsHooked = false;
@@ -216,6 +228,7 @@ export function makeExportsWritable() {
         try {
             addDeclarations(cache[id]);
             writableExports(cache[id]?.exports);
+            aliasClassNames(cache[id]?.exports);
         } catch { }
     }
     moduleListeners.add(onModuleLoaded);
