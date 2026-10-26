@@ -100,8 +100,13 @@ function makePatch(module: any, functionName: PropertyKey): Patch {
 
 function revert(patch: Patch) {
     if (patch.module[patch.functionName] === patch.proxy) {
-        if (patch.descriptor) Object.defineProperty(patch.module, patch.functionName, patch.descriptor);
-        else setProperty(patch.module, patch.functionName, patch.original);
+        // Assign first so a setter (mapped objects, writable webpack exports) puts the original back underneath too.
+        setProperty(patch.module, patch.functionName, patch.original);
+        if (patch.descriptor?.configurable) {
+            try {
+                Object.defineProperty(patch.module, patch.functionName, patch.descriptor);
+            } catch { }
+        }
     }
     patches.splice(patches.indexOf(patch), 1);
 }
