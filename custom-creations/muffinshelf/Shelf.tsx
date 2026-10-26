@@ -17,13 +17,14 @@ import { Alerts, Modal, openModal, Select, showToast, TextInput, useEffect, useM
 import { BdApi, toNode } from "./bd/api";
 import * as Runtime from "./bd/runtime";
 import { BuildResult, installBdEntry, installUserpluginEntries, rebuild, removeBdFile, removeUserplugin } from "./install";
-import { getBdOrigin, Native, settings } from "./settings";
+import { getBdOrigin, getBroken, Native, settings } from "./settings";
 import { allSources, checkSourceUrl, customSource, equicordEquivalent, loadSource, ShelfEntry, SourceDef } from "./sources";
 
 const cl = classNameFactory("vc-muffinshelf-");
 const PAGE_SIZE = 60;
 const SOURCE_KEYS: ("customSources" | "disabledSources")[] = ["customSources", "disabledSources"];
 const RUN_KEYS: "runBetterDiscord"[] = ["runBetterDiscord"];
+const BROKEN_KEYS: "bdBroken"[] = ["bdBroken"];
 
 const TABS = { browse: "Browse", installed: "Installed", sources: "Sources", about: "How it works" } as const;
 type Tab = keyof typeof TABS;
@@ -147,6 +148,7 @@ function EntryCard({ entry, source, installed, bdFiles, busy, onInstall }: CardP
         : upInstalled?.version;
     const hasUpdate = !!(isInstalled && entry.version && installedVersion && isNewer(installedVersion, entry.version));
     const builtIn = isInstalled ? undefined : equicordEquivalent(entry.name);
+    const broken = entry.bd && !isInstalled ? getBroken(entry.name, entry.version) : undefined;
     const meta = [entry.author && `by ${entry.author}`, entry.version && (/^[0-9a-f]{7}$/.test(entry.version) ? entry.version : `v${entry.version}`), entry.downloads ? `${entry.downloads.toLocaleString()} downloads` : null].filter(Boolean).join(" · ");
 
     return (
@@ -159,16 +161,17 @@ function EntryCard({ entry, source, installed, bdFiles, busy, onInstall }: CardP
             {meta && <Paragraph size="xs" className={cl("meta")}>{meta}</Paragraph>}
             <Paragraph size="sm" className={cl("desc")}>{entry.description || "No description."}</Paragraph>
             {builtIn && <Paragraph size="xs" className={cl("builtin")}>Equicord already has this as {builtIn}. Turn it on in Equicord's Plugins page.</Paragraph>}
+            {broken && <Paragraph size="xs" className={cl("error")}>Won't work in Muffinshelf: {broken.reason}</Paragraph>}
             <Paragraph size="xs" className={cl("meta")}>From {source?.name ?? entry.sourceId}</Paragraph>
             <div className={cl("card-actions")}>
                 {entry.kind !== "browse" && (
                     <Button
                         size="small"
                         variant={hasUpdate ? "positive" : isInstalled ? "secondary" : "primary"}
-                        disabled={busy || (isInstalled && !hasUpdate)}
+                        disabled={busy || !!broken || (isInstalled && !hasUpdate)}
                         onClick={() => onInstall(entry)}
                     >
-                        {hasUpdate ? "Update" : isInstalled ? "Installed" : "Install"}
+                        {hasUpdate ? "Update" : isInstalled ? "Installed" : broken ? "Won't work" : "Install"}
                     </Button>
                 )}
                 {entry.homepage && (
@@ -195,6 +198,7 @@ const KINDS = [
     { label: "Equicord plugins", value: "userplugin" },
     { label: "BetterDiscord plugins", value: "bd" },
     { label: "Can't run here", value: "browse" },
+    { label: "Won't work in Muffinshelf", value: "broken" },
 ];
 
 interface BrowseProps {
@@ -214,17 +218,26 @@ function BrowseTab({ states, sources, installed, bdFiles, info, busy, onInstall 
     const [sort, setSort] = useState("popular");
     const [limit, setLimit] = useState(PAGE_SIZE);
 
-    const { entries, hiddenBuiltIn } = useMemo(() => {
+    const { bdBroken } = settings.use(BROKEN_KEYS);
+
+    const { entries, hiddenBuiltIn, hiddenBroken } = useMemo(() => {
         const q = query.trim().toLowerCase();
         const word = q ? new RegExp(`\\b${escapeRegExp(q)}`, "i") : null;
         const ours = (e: ShelfEntry) => e.bd ? bdFiles.has(e.bd.file) : installed.some(p => p.entryKey === e.key);
         const isBuiltIn = (e: ShelfEntry) => !ours(e) && !!equicordEquivalent(e.name);
+        const isBroken = (e: ShelfEntry) => !!e.bd && !ours(e) && !!getBroken(e.name, e.version);
         const nameHit = (e: ShelfEntry) => !q || e.name.toLowerCase().includes(q);
         const matches = (e: ShelfEntry) => !word || nameHit(e) || e.author.toLowerCase().includes(q) || word.test(e.description);
 
         let hidden = 0;
+        let broken = 0;
         const list = sources.flatMap(s => states[s.id]?.entries ?? []).filter(e => {
             if (e.hidden || (sourceId && e.sourceId !== sourceId)) return false;
+            if (kind === "broken") return isBroken(e) && matches(e);
+            if (kind !== "all" && isBroken(e)) {
+                if (matches(e)) broken++;
+                return false;
+            }
             if (kind === "new" || kind === "builtin") {
                 if (e.kind === "browse") return false;
                 if (isBuiltIn(e) !== (kind === "builtin")) {
@@ -240,8 +253,8 @@ function BrowseTab({ states, sources, installed, bdFiles, info, busy, onInstall 
             || (sort === "name" ? a.name.localeCompare(b.name)
                 : sort === "updated" ? (b.updated ?? 0) - (a.updated ?? 0)
                     : (b.downloads ?? 0) - (a.downloads ?? 0) || a.name.localeCompare(b.name)));
-        return { entries: list, hiddenBuiltIn: hidden };
-    }, [states, sources, installed, bdFiles, query, sourceId, kind, sort]);
+        return { entries: list, hiddenBuiltIn: hidden, hiddenBroken: broken };
+    }, [states, sources, installed, bdFiles, query, sourceId, kind, sort, bdBroken]);
 
     useEffect(() => setLimit(PAGE_SIZE), [query, sourceId, kind, sort]);
 
@@ -279,6 +292,12 @@ function BrowseTab({ states, sources, installed, bdFiles, info, busy, onInstall 
                 <div className={cl("note")}>
                     <Paragraph size="sm">{hiddenBuiltIn} more {hiddenBuiltIn === 1 ? "match is" : "matches are"} already in Equicord, so {hiddenBuiltIn === 1 ? "it's" : "they're"} hidden.</Paragraph>
                     <Button size="small" variant="secondary" onClick={() => setKind("builtin")}>Show {hiddenBuiltIn === 1 ? "it" : "them"}</Button>
+                </div>
+            )}
+            {hiddenBroken > 0 && (
+                <div className={cl("note")}>
+                    <Paragraph size="sm">{hiddenBroken === 1 ? "1 plugin that doesn't work in Muffinshelf is hidden." : `${hiddenBroken} plugins that don't work in Muffinshelf are hidden.`}</Paragraph>
+                    <Button size="small" variant="secondary" onClick={() => setKind("broken")}>Show {hiddenBroken === 1 ? "it" : "them"}</Button>
                 </div>
             )}
             {entries.length
@@ -475,7 +494,17 @@ function AboutTab({ info }: { info: Info | null; }) {
             <Paragraph>
                 <b>BetterDiscord plugins</b> are single .plugin.js files. Muffinshelf saves the file and runs it through its own BetterDiscord layer,
                 which provides the BdApi these plugins expect. No rebuild or restart is needed. Plugins that need ZeresPluginLibrary, BDFDB or XenoLib
-                get that library installed with them. Most BetterDiscord plugins work, but ones that dig into BetterDiscord's own internals or need Node file access may not.
+                get that library installed with them. Plugins also get the same Node.js modules BetterDiscord gives them, and can use files inside
+                the BetterDiscord plugins folder, but nothing outside it.
+            </Paragraph>
+            <Paragraph>
+                Most BetterDiscord plugins work. Every plugin in the BetterDiscord store was tried in Muffinshelf, and the versions that failed are
+                hidden from Browse (pick "Won't work in Muffinshelf" to see them and why). When a plugin you install fails to load or start, that
+                version is hidden too. A newer version of the plugin shows up again, in case it was fixed.
+            </Paragraph>
+            <Paragraph>
+                Some plugins were made for an older Discord. For those, Muffinshelf fixes the parts that no longer match (BetterAnimations is one).
+                A few plugins use hidden parts of Discord's code; the first time one asks for them, Muffinshelf asks you to restart Discord once so it can reach them.
             </Paragraph>
             <Paragraph>
                 <b>shelter, Moonlight, Replugged and Evi</b> plugins are built for different mods with different ways of changing Discord. Nothing can run them on Equicord,
