@@ -221,3 +221,53 @@
 .vc-muffinshelf-banner-busy {
     border-left-color: var(--brand-500);
 }
+
+.vc-muffinshelf-spinner {
+    display: inline-flex;
+    padding: 8px;
+}
+
+.vc-muffinshelf-spinner span {
+    width: 24px;
+    height: 24px;
+    border: 3px solid var(--background-mod-strong);
+    border-top-color: var(--brand-500);
+    border-radius: 50%;
+    animation: vc-muffinshelf-spin 0.8s linear infinite;
+}
+
+@keyframes vc-muffinshelf-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.vc-muffinshelf-radio {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.vc-muffinshelf-radio-option {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    cursor: pointer;
+}
+
+.vc-muffinshelf-modal-header,
+.vc-muffinshelf-modal-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.vc-muffinshelf-modal-footer {
+    justify-content: flex-end;
+}
+
+.vc-muffinshelf-modal-content {
+    padding: 4px 0;
+}
