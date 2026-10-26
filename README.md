@@ -125,6 +125,25 @@ Does your Discord quests for you. Press Accept on a quest and QuestRunner finish
 
 **To install it:** copy the `custom-creations/questRunner` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### Dictation (`dictation`)
+
+Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk, and your words show up in the message box with commas, periods and capitals already in place.
+
+- **Free and private.** Everything runs on your own computer. No account, no API key, and your voice never leaves your PC.
+- **Picks the right setup for your computer.** On first use it downloads a speech engine and model that suit your PC: [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard, on stronger PCs, or the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) on older ones. You can choose either one yourself.
+- **Fix Grammar (optional):** turns on a small AI model that cleans up grammar as well. It uses Qwen3 4B (or Qwen2.5 1.5B on PCs with under 8 GB of memory), and runs on your graphics card when it has room, or on the processor otherwise. Each fix takes well under a second on a graphics card and about a second on a modern processor.
+- **Uses your Discord mic settings:** the same input device, input profile and input volume as your voice calls.
+- **Right-click the mic** for Discord's own mic menu, plus Add Punctuation, Fix Grammar and Speech Model.
+- **Hold-to-talk shortcut:** Alt+D by default. Change it in the plugin's settings. It works while Discord is focused.
+
+Works on Windows, Linux and macOS.
+
+**What it talks to:** only **github.com** and **huggingface.co**, once, to download the engines and models ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and [llama.cpp](https://github.com/ggml-org/llama.cpp)). After that it works offline.
+
+**Where files go:** `%APPDATA%\Equicord\dictation` (about 1.7 GB, plus about 2.5 GB if you turn on Fix Grammar). While in use, the speech engine takes around 3.5 GB of memory, and it unloads itself after 15 minutes without use.
+
+**To install it:** copy the `custom-creations/dictation` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
