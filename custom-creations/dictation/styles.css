@@ -1,6 +1,13 @@
 .vc-dictation-recording {
+    --vc-dictation-level: 0;
+
     color: var(--status-danger);
-    animation: vc-dictation-pulse 1.2s ease-in-out infinite;
+    opacity: calc(0.6 + var(--vc-dictation-level) * 0.4);
+    transition: opacity 80ms linear, filter 80ms linear;
+}
+
+.vc-dictation-recording.vc-dictation-talking {
+    filter: drop-shadow(0 0 calc(1px + var(--vc-dictation-level) * 5px) var(--status-danger));
 }
 
 .vc-dictation-working,
@@ -19,4 +26,75 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+}
+
+.vc-dictation-live {
+    position: fixed;
+    z-index: 1000;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    box-sizing: border-box;
+    max-height: 30vh;
+    padding: 10px 14px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle, transparent);
+    border-radius: 8px;
+    background: var(--background-floating, var(--background-base-lowest, #111214));
+    box-shadow: var(--shadow-high, 0 8px 16px rgb(0 0 0 / 24%));
+    color: var(--text-normal, var(--text-default));
+    font-size: 15px;
+    line-height: 20px;
+    pointer-events: none;
+}
+
+.vc-dictation-live-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.vc-dictation-placeholder {
+    color: var(--text-muted);
+}
+
+.vc-dictation-meter {
+    --vc-dictation-level: 0;
+
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 2px;
+    height: 20px;
+}
+
+.vc-dictation-meter span {
+    width: 3px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--interactive-muted, var(--text-muted));
+    transition: height 80ms linear, background-color 120ms;
+}
+
+.vc-dictation-meter.vc-dictation-talking span {
+    background: var(--status-positive, #23a55a);
+}
+
+.vc-dictation-meter span:nth-child(1),
+.vc-dictation-meter span:nth-child(5) {
+    height: calc(4px + var(--vc-dictation-level) * 6px);
+}
+
+.vc-dictation-meter span:nth-child(2),
+.vc-dictation-meter span:nth-child(4) {
+    height: calc(4px + var(--vc-dictation-level) * 11px);
+}
+
+.vc-dictation-meter span:nth-child(3) {
+    height: calc(4px + var(--vc-dictation-level) * 16px);
+}
+
+.vc-dictation-meter.vc-dictation-done span {
+    animation: vc-dictation-pulse 0.8s ease-in-out infinite;
 }
