@@ -18,7 +18,7 @@ import { sleep } from "@utils/misc";
 import { useForceUpdater } from "@utils/react";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
-import { Alerts, ContextMenuApi, MediaEngineStore, Menu, showToast, useEffect, useState } from "@webpack/common";
+import { Alerts, ContextMenuApi, MediaEngineStore, Menu, ReactDOM, showToast, useEffect, useState } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.Dictation as PluginNative<typeof import("./native")>;
 const logger = new Logger("Dictation");
@@ -119,14 +119,75 @@ const settings = definePluginSettings({
             { label: "Fastest (460 MB, fine on older PCs)", value: "parakeet" },
         ],
     },
+    liveText: {
+        type: OptionType.BOOLEAN,
+        description: "Show the words above the chat box while you talk. The final text still goes in when you stop.",
+        default: true,
+    },
 });
 
 type Phase = "idle" | "downloading" | "recording" | "working";
 
+// Audio is checked in 16 ms frames to tell talking apart from background sound.
+const FRAME = 256;
+const FRAME_SEC = FRAME / SAMPLE_RATE;
+const LOUD_DB = -35;
+const QUIET_DB = -52;
+const ABOVE_FLOOR_DB = 15;
+const DIGITAL_SILENCE_DB = -90;
+const MIN_RUN_FRAMES = 6;
+const MIN_VOICE_FRAMES = 12;
+const PAUSE_FRAMES = 40;
+const HINT_AFTER_MS = 2500;
+const PREVIEW_EVERY = SAMPLE_RATE * 0.6;
+const MAX_SEGMENT = SAMPLE_RATE * 25;
+
+interface Recording {
+    stream: MediaStream;
+    ctx: AudioContext;
+    timer: ReturnType<typeof setTimeout>;
+    started: number;
+    buf: Float32Array;
+    length: number;
+    carry: number;
+    frames: number[];
+    floor: number;
+    voiceRun: number;
+    silentRun: number;
+    talking: boolean;
+    heardVoice: boolean;
+    segStart: number;
+    segVoiced: number;
+    lastPreview: number;
+    busy: boolean;
+    commits: { start: number; end: number; index: number; }[];
+    texts: string[];
+    tentative: string;
+}
+
 let phase: Phase = "idle";
 let progress = "";
-let recording: { stream: MediaStream; ctx: AudioContext; chunks: Float32Array[]; timer: ReturnType<typeof setTimeout>; } | null = null;
+let recording: Recording | null = null;
+let liveText = "";
+let liveHint = "";
 const listeners = new Set<() => void>();
+const meters = new Set<HTMLElement>();
+
+const isVoiced = (db: number, floor: number) => db > LOUD_DB || (db > QUIET_DB && db > floor + ABOVE_FLOOR_DB);
+
+function setLive(text: string, hint = "") {
+    if (text === liveText && hint === liveHint) return;
+    liveText = text;
+    liveHint = hint;
+    listeners.forEach(fn => fn());
+}
+
+function showLevel(level: number, talking: boolean) {
+    for (const el of meters) {
+        el.style.setProperty("--vc-dictation-level", level.toFixed(2));
+        el.classList.toggle(cl("talking"), talking);
+    }
+}
 
 function setPhase(next: Phase, text = "") {
     phase = next;
@@ -196,6 +257,132 @@ function fixMishears(text: string) {
     return text.replace(/\bMike(?= (?:test|check|testing)\b)/g, (_, offset: number) => offset === 0 || /[.!?]\s*$/.test(text.slice(0, offset)) ? "Mic" : "mic");
 }
 
+// Both models are set to English, so text in another alphabet is the model making things up from noise.
+function cleanText(text: string) {
+    const letters = text.match(/\p{L}/gu) ?? [];
+    const latin = text.match(/\p{Script=Latin}/gu) ?? [];
+    if (!letters.length || latin.length / letters.length < 0.8) return "";
+    return fixMishears(text);
+}
+
+function samplesOf(rec: Recording, start: number, end: number) {
+    return rec.buf.slice(start, end);
+}
+
+// The part of the clip with talking in it, padded a little, or null when nobody talked.
+function voicedRange(rec: Recording) {
+    const { frames } = rec;
+    const heard = frames.filter(db => db > DIGITAL_SILENCE_DB).sort((a, b) => a - b);
+    const floor = heard[Math.floor(heard.length / 10)] ?? QUIET_DB;
+    let first = -1, last = -1, voiced = 0, run = 0;
+    for (let i = 0; i <= frames.length; i++) {
+        if (i < frames.length && isVoiced(frames[i], floor)) {
+            run++;
+            continue;
+        }
+        if (run >= MIN_RUN_FRAMES) {
+            voiced += run;
+            if (first < 0) first = i - run;
+            last = i;
+        }
+        run = 0;
+    }
+    if (voiced < MIN_VOICE_FRAMES) return null;
+    return {
+        start: Math.max(0, (first - 20) * FRAME),
+        end: Math.min(rec.length, (last + 30) * FRAME),
+    };
+}
+
+function onAudio(rec: Recording, input: Float32Array) {
+    if (rec.length + input.length > rec.buf.length) {
+        const bigger = new Float32Array(rec.buf.length * 2);
+        bigger.set(rec.buf.subarray(0, rec.length));
+        rec.buf = bigger;
+    }
+    rec.buf.set(input, rec.length);
+    rec.length += input.length;
+
+    let level = 0;
+    while (rec.carry + FRAME <= rec.length) {
+        let sum = 0;
+        for (let i = rec.carry; i < rec.carry + FRAME; i++) sum += rec.buf[i] * rec.buf[i];
+        rec.carry += FRAME;
+        const db = 10 * Math.log10(sum / FRAME + 1e-12);
+        rec.frames.push(db);
+        level = Math.max(level, Math.min(1, Math.max(0, (db + 60) / 45)));
+
+        // Mics start with a moment of pure digital silence, which isn't the room's real noise level.
+        if (db > DIGITAL_SILENCE_DB) {
+            if (rec.floor <= DIGITAL_SILENCE_DB) rec.floor = db;
+            rec.floor = db < rec.floor ? rec.floor * 0.7 + db * 0.3 : rec.floor + 0.1;
+        }
+
+        if (isVoiced(db, rec.floor)) {
+            rec.voiceRun++;
+            rec.silentRun = 0;
+            if (rec.voiceRun >= MIN_RUN_FRAMES) rec.talking = true;
+            if (rec.voiceRun === MIN_RUN_FRAMES) rec.segVoiced += MIN_RUN_FRAMES;
+            else if (rec.voiceRun > MIN_RUN_FRAMES) rec.segVoiced++;
+            if (rec.segVoiced >= MIN_VOICE_FRAMES) rec.heardVoice = true;
+        } else {
+            rec.voiceRun = 0;
+            rec.silentRun++;
+            if (rec.silentRun >= 15) rec.talking = false;
+        }
+
+        const segLength = rec.carry - rec.segStart;
+        const paused = rec.silentRun >= PAUSE_FRAMES;
+        if (rec.segVoiced < MIN_VOICE_FRAMES) {
+            // Only background sound so far: drop it so it's never sent to the model.
+            if (paused) {
+                rec.segStart = rec.carry - (PAUSE_FRAMES / 2) * FRAME;
+                rec.segVoiced = 0;
+            }
+        } else if (paused || segLength >= MAX_SEGMENT) {
+            const end = paused ? rec.carry - (PAUSE_FRAMES / 2) * FRAME : rec.carry;
+            rec.texts.push(rec.tentative);
+            rec.commits.push({ start: rec.segStart, end, index: rec.texts.length - 1 });
+            rec.tentative = "";
+            rec.segStart = end;
+            rec.lastPreview = end;
+            rec.segVoiced = 0;
+        }
+    }
+    showLevel(level, rec.talking);
+
+    if (!settings.store.liveText) return;
+    const hint = !rec.heardVoice && Date.now() - rec.started > HINT_AFTER_MS ? "Not hearing anything. Is your mic muted or too quiet?" : "";
+    setLive(livePreview(rec), hint);
+    pumpPreview(rec);
+}
+
+const livePreview = (rec: Recording) => [...rec.texts, rec.tentative].filter(Boolean).join(" ");
+
+// One decode at a time: finished pieces first, then a fresh guess at the piece being spoken.
+async function pumpPreview(rec: Recording) {
+    if (rec.busy || recording !== rec) return;
+    const commit = rec.commits.shift();
+    const start = commit?.start ?? rec.segStart;
+    const end = commit?.end ?? rec.length;
+    if (!commit && (rec.segVoiced < MIN_VOICE_FRAMES || end - rec.lastPreview < PREVIEW_EVERY)) return;
+
+    rec.busy = true;
+    if (!commit) rec.lastPreview = end;
+    try {
+        const text = cleanText((await Native.transcribe(currentModel(), samplesOf(rec, start, end))).trim());
+        if (recording !== rec) return;
+        if (commit) rec.texts[commit.index] = text;
+        else if (start === rec.segStart) rec.tentative = text;
+        setLive(livePreview(rec), "");
+    } catch (e) {
+        logger.warn("Live preview failed", e);
+    } finally {
+        rec.busy = false;
+    }
+    pumpPreview(rec);
+}
+
 async function startRecording() {
     const model = currentModel();
     const status = await Native.getStatus(model);
@@ -221,16 +408,37 @@ async function startRecording() {
 
     const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
     const source = ctx.createMediaStreamSource(stream);
-    const processor = ctx.createScriptProcessor(4096, 1, 1);
-    const chunks: Float32Array[] = [];
-    processor.onaudioprocess = e => chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    const processor = ctx.createScriptProcessor(1024, 1, 1);
     const gain = ctx.createGain();
     gain.gain.value = MediaEngineStore.getInputVolume() / 100;
     source.connect(gain);
     gain.connect(processor);
     processor.connect(ctx.destination);
 
-    recording = { stream, ctx, chunks, timer: setTimeout(stopRecording, MAX_RECORD_MS) };
+    const rec: Recording = {
+        stream, ctx,
+        timer: setTimeout(stopRecording, MAX_RECORD_MS),
+        started: Date.now(),
+        buf: new Float32Array(SAMPLE_RATE * 30),
+        length: 0,
+        carry: 0,
+        frames: [],
+        floor: -Infinity,
+        voiceRun: 0,
+        silentRun: 0,
+        talking: false,
+        heardVoice: false,
+        segStart: 0,
+        segVoiced: 0,
+        lastPreview: 0,
+        busy: false,
+        commits: [],
+        texts: [],
+        tentative: "",
+    };
+    processor.onaudioprocess = e => onAudio(rec, e.inputBuffer.getChannelData(0));
+    recording = rec;
+    setLive("", "");
     setPhase("recording");
     if (heldStart && !holding) stopRecording();
 }
@@ -272,33 +480,38 @@ function openMicMenu(e: React.MouseEvent) {
 }
 
 function releaseRecording() {
-    if (!recording) return null;
-    const { stream, ctx, chunks, timer } = recording;
+    const rec = recording;
+    if (!rec) return null;
     recording = null;
-    clearTimeout(timer);
-    stream.getTracks().forEach(t => t.stop());
-    ctx.close();
-    return chunks;
+    clearTimeout(rec.timer);
+    rec.stream.getTracks().forEach(t => t.stop());
+    rec.ctx.close();
+    showLevel(0, false);
+    return rec;
+}
+
+function finish() {
+    setLive("", "");
+    setPhase("idle");
 }
 
 async function stopRecording() {
-    const chunks = releaseRecording();
-    if (!chunks) return;
+    const rec = releaseRecording();
+    if (!rec) return;
 
-    const samples = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
-    if (samples.length < SAMPLE_RATE / 2) {
-        setPhase("idle");
+    if (rec.length < SAMPLE_RATE / 2) {
+        finish();
         return showToast({ text: heldStart ? "Hold the keys down while you talk." : "That was too short to hear anything.", variant: "default" });
     }
-    let offset = 0;
-    for (const c of chunks) {
-        samples.set(c, offset);
-        offset += c.length;
+    const range = voicedRange(rec);
+    if (!range) {
+        finish();
+        return showToast({ text: "Didn't hear you talking, so nothing was added. Check that your mic is on.", variant: "default" });
     }
 
     setPhase("working", "Turning your voice into text");
     try {
-        let text = fixMishears(await Native.transcribe(currentModel(), samples));
+        let text = cleanText(await Native.transcribe(currentModel(), samplesOf(rec, range.start, range.end)));
         if (!text) return showToast({ text: "Didn't catch anything. Try again a bit louder.", variant: "default" });
 
         if (settings.store.grammar) {
@@ -316,7 +529,7 @@ async function stopRecording() {
         logger.error("Transcription failed", e);
         showToast({ text: `Dictation failed: ${errorText(e)}`, variant: "critical" });
     } finally {
-        setPhase("idle");
+        finish();
     }
 }
 
@@ -365,21 +578,52 @@ const TOOLTIPS: Record<Phase, string> = {
     working: "",
 };
 
+const meterRef = (el: HTMLElement | SVGElement | null) => {
+    if (!el) return;
+    meters.add(el as HTMLElement);
+    return () => void meters.delete(el as HTMLElement);
+};
+
+function LiveBubble({ anchor }: { anchor: Element | null; }) {
+    const box = anchor?.closest("form")?.getBoundingClientRect() ?? anchor?.getBoundingClientRect();
+    if (!box) return null;
+
+    return ReactDOM.createPortal(
+        <div className={cl("live")} style={{ left: box.left, width: box.width, bottom: window.innerHeight - box.top + 8 }}>
+            <div ref={meterRef} className={cl("meter", phase === "recording" ? "" : "done")}>
+                <span /><span /><span /><span /><span />
+            </div>
+            <div className={cl("live-text", liveText ? "" : "placeholder")}>
+                {liveText || liveHint || (phase === "recording" ? "Listening..." : progress)}
+            </div>
+        </div>,
+        document.body
+    );
+}
+
 const DictationButton: ChatBarButtonFactory = ({ isMainChat }) => {
     const forceUpdate = useForceUpdater();
+    const [anchor, setAnchor] = useState<SVGSVGElement | null>(null);
     useEffect(() => {
         listeners.add(forceUpdate);
-        return () => void listeners.delete(forceUpdate);
+        window.addEventListener("resize", forceUpdate);
+        return () => {
+            listeners.delete(forceUpdate);
+            window.removeEventListener("resize", forceUpdate);
+        };
     }, []);
 
     if (!isMainChat) return null;
 
+    const showBubble = settings.store.liveText && (phase === "recording" || (phase === "working" && !!liveText));
+
     return (
         <ChatBarButton tooltip={TOOLTIPS[phase] || progress} onClick={onClick} onContextMenu={openMicMenu}>
-            <svg className={cl("icon", phase)} width="20" height="20" viewBox="0 0 24 24">
+            <svg ref={el => { setAnchor(el); return meterRef(el); }} className={cl("icon", phase)} width="20" height="20" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M12 15a4 4 0 0 0 4-4V5a4 4 0 1 0-8 0v6a4 4 0 0 0 4 4Z" />
                 <path fill="currentColor" d="M6 11a1 1 0 1 0-2 0 8 8 0 0 0 7 7.94V21H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.06A8 8 0 0 0 20 11a1 1 0 1 0-2 0 6 6 0 0 1-12 0Z" />
             </svg>
+            {showBubble && <LiveBubble anchor={anchor} />}
         </ChatBarButton>
     );
 };
@@ -430,7 +674,7 @@ export default definePlugin({
         window.removeEventListener("blur", release);
         holding = false;
         releaseRecording();
-        setPhase("idle");
+        finish();
         Native.unload();
     },
 });
