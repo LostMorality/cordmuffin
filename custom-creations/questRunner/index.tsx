@@ -680,7 +680,7 @@ const onStoreChange = () => scheduleEvaluate();
 export default definePlugin({
     name: "QuestRunner",
     description: "Does your Discord quests for you. Accept a quest and it finishes by itself: videos in real time, play quests by running a tiny invisible stand-in game. Open settings for the full explanation.",
-    authors: [{ name: "cordmuffin", id: 0n }],
+    authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
     cleanStack,
 
