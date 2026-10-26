@@ -338,7 +338,7 @@ export default definePlugin({
     name: "GameTimeSpoof",
     description: "Makes Discord think detectable PC games are running so your Game Time badge hours keep counting.",
     tags: ["Activity", "Fun"],
-    authors: [{ name: "cordmuffin", id: 0n }],
+    authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
 
     settingsAboutComponent: () => (
