@@ -7,11 +7,14 @@
 import "./styles.css";
 
 import { HeaderBarButton } from "@api/HeaderBar";
+import { Settings } from "@api/Settings";
 import { Button } from "@components/Button";
 import { Paragraph } from "@components/Paragraph";
 import definePlugin from "@utils/types";
 
-import { startRuntime, stopRuntime } from "./bd/runtime";
+import { exposeDeclarations, FACTORY_HEAD_MATCH } from "./bd/declarations";
+import { installBd, removeBd, startRuntime, stopRuntime } from "./bd/runtime";
+import { DECLARATION_FINDS_KEY } from "./bd/webpack";
 import { settings } from "./settings";
 import { openShelf } from "./Shelf";
 
@@ -24,12 +27,32 @@ function MuffinIcon({ width = 24, height = 24, className }: { width?: number; he
     );
 }
 
+// Modules BetterDiscord plugins asked for private variables from (learned at runtime, see bd/webpack.ts).
+function declarationPatches() {
+    let finds: unknown;
+    try {
+        finds = (Settings.plugins.Muffinshelf as Record<string, unknown> | undefined)?.[DECLARATION_FINDS_KEY];
+    } catch {
+        return [];
+    }
+    if (!Array.isArray(finds)) return [];
+    return finds.filter((f): f is string => typeof f === "string" && f.length >= 12).map(find => ({
+        find,
+        all: true,
+        noWarn: true,
+        predicate: () => settings.store.runBetterDiscord,
+        replacement: { match: FACTORY_HEAD_MATCH, replace: exposeDeclarations as (match: string, ...groups: string[]) => string },
+    }));
+}
+
 export default definePlugin({
     name: "Muffinshelf",
     description: "A plugin store for things Equicord doesn't ship: community userplugins, BetterDiscord plugins, and your own GitHub links.",
     authors: [{ name: "cordmuffin", id: 0n }],
     enabledByDefault: true,
+    dependencies: ["CommandsAPI"],
     settings,
+    patches: declarationPatches(),
 
     settingsAboutComponent: () => (
         <>
@@ -44,6 +67,10 @@ export default definePlugin({
         icon: MuffinIcon,
         render: () => <HeaderBarButton icon={MuffinIcon} tooltip="Muffinshelf" position="bottom" onClick={openShelf} />
     },
+
+    // For scripts and other plugins: install or remove a BetterDiscord plugin file the same way the store does.
+    installBdPlugin: (file: string, code: string) => installBd(file, code),
+    removeBdPlugin: (file: string) => removeBd(file),
 
     start() {
         startRuntime();
