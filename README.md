@@ -140,6 +140,8 @@ Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk,
 - **Free and private.** Everything runs on your own computer. No account, no API key, and your voice never leaves your PC.
 - **Picks the right setup for your computer.** On first use it downloads a speech engine and model that suit your PC: [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard, on stronger PCs, or the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) on older ones. You can choose either one yourself.
 - **Fix Grammar (optional):** turns on a small AI model that cleans up grammar as well. It uses Qwen3 4B (or Qwen2.5 1.5B on PCs with under 8 GB of memory), and runs on your graphics card when it has room, or on the processor otherwise. Each fix takes well under a second on a graphics card and about a second on a modern processor.
+- **Live text while you talk:** your words show up above the message box as you speak, next to a small level meter that turns green when it hears you. The finished text goes into the message box when you stop. Turn the live text off in the plugin's settings if you don't want it.
+- **Ignores silence:** if your mic is muted or you don't say anything, nothing gets added, so background noise never turns into made-up words.
 - **Uses your Discord mic settings:** the same input device, input profile and input volume as your voice calls.
 - **Right-click the mic** for Discord's own mic menu, plus Add Punctuation, Fix Grammar and Speech Model.
 - **Hold-to-talk shortcut:** Alt+D by default. Change it in the plugin's settings. It works while Discord is focused.
