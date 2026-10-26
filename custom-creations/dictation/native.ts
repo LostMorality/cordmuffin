@@ -18,7 +18,7 @@ const ROOT = join(DATA_DIR, "dictation");
 const PLATFORM = `${process.platform}-${process.arch}`;
 const IS_WIN = process.platform === "win32";
 const SAMPLE_RATE = 16000;
-const IDLE_MS = 15 * 60_000;
+const IDLE_MS = 5 * 60_000;
 const CORES = Math.max(1, Math.floor(cpus().length / 2));
 const RAM_GB = totalmem() / 1024 ** 3;
 
