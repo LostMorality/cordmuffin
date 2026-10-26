@@ -1,0 +1,22 @@
+.vc-dictation-recording {
+    color: var(--status-danger);
+    animation: vc-dictation-pulse 1.2s ease-in-out infinite;
+}
+
+.vc-dictation-working,
+.vc-dictation-downloading {
+    animation: vc-dictation-pulse 0.8s ease-in-out infinite;
+}
+
+@keyframes vc-dictation-pulse {
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.vc-dictation-shortcut {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
