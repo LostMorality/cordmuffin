@@ -48,7 +48,7 @@ function declarationPatches() {
 export default definePlugin({
     name: "Muffinshelf",
     description: "A plugin store for things Equicord doesn't ship: community userplugins, BetterDiscord plugins, and your own GitHub links.",
-    authors: [{ name: "cordmuffin", id: 0n }],
+    authors: [{ name: "nolifepops", id: 221807880053981184n }],
     enabledByDefault: true,
     dependencies: ["CommandsAPI"],
     settings,
