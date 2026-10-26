@@ -78,6 +78,8 @@ It talks to nothing else, and it doesn't use any loadstring or remote code.
 
 A plugin store inside Discord for plugins Equicord doesn't ship. Open it from the muffin button in Discord's top bar.
 
+![Muffinshelf](docs/muffinshelf.png)
+
 - **Equicord plugins** from community GitHub repos and venpm `plugins.json` indexes. Muffinshelf downloads the plugin's folder, rebuilds Equicord, turns the plugin on and asks you to restart Discord. If anything goes wrong, your plugins are put back the way they were and Discord keeps working.
 - **BetterDiscord plugins** from the official BetterDiscord store. These run through Muffinshelf's own BetterDiscord layer, with no rebuild or restart. Plugins that need ZeresPluginLibrary, BDFDB or XenoLib get that library installed with them. They get the same Node.js modules BetterDiscord gives them, and can use files inside their own plugins folder.
 - **Tested against the whole BetterDiscord store:** every store plugin was run in Muffinshelf, and 205 of the 207 tested work. The 2 that don't were made for an older Discord; they're hidden, with the reason shown. Some plugins (BetterAnimations, for example) are fixed up for today's Discord, and a few need one Discord restart after they're installed; Muffinshelf asks when that happens. A plugin that fails for you is hidden the same way, until a new version comes out.
@@ -104,6 +106,8 @@ It works with Equicord built by the Cordmuffin installer or from your own source
 
 Does your Discord quests for you. Press Accept on a quest and QuestRunner finishes it on its own. You only come back to claim the reward and solve the captcha Discord shows when you claim.
 
+![QuestRunner's settings](docs/questrunner.png)
+
 - **Video quests** play in the background in real time, reporting progress every few seconds like a real viewer. One video at a time by default.
 - **Play quests** run a tiny, invisible stand-in program named after the game, so Discord's own game detection sees a process for it. Several can run at once. Each takes its real time, because Discord's servers time play quests.
 - **Optional, off by default:** accept new quests automatically, finish activity and console-only quests by telling Discord directly (the Questify way, riskier), and activity achievement quests.
@@ -128,6 +132,10 @@ Does your Discord quests for you. Press Accept on a quest and QuestRunner finish
 ### Dictation (`dictation`)
 
 Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk, and your words show up in the message box with commas, periods and capitals already in place.
+
+![Dictated text in the message box](docs/dictation-chat.png)
+
+<img src="docs/dictation-menu.png" alt="Dictation's right-click menu" height="405"> <img src="docs/dictation-settings.png" alt="Dictation's settings" height="405">
 
 - **Free and private.** Everything runs on your own computer. No account, no API key, and your voice never leaves your PC.
 - **Picks the right setup for your computer.** On first use it downloads a speech engine and model that suit your PC: [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard, on stronger PCs, or the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) on older ones. You can choose either one yourself.
