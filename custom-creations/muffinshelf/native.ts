@@ -586,6 +586,79 @@ export async function removeBdPlugin(_: IpcMainInvokeEvent, file: string) {
     await rm(join(BD_PLUGINS, file), { force: true });
 }
 
+const MAX_TREE_FILES = 4000;
+const MAX_TREE_BYTES = 64 * 1024 * 1024;
+
+export interface BdTreeEntry {
+    path: string;
+    dir: boolean;
+    data?: string;
+    mtime: number;
+}
+
+// BetterDiscord plugins expect synchronous fs calls, so the renderer keeps a copy of the plugin folder in memory
+// and sends writes back here. Top-level .plugin.js files are left out: the runtime already has them.
+export async function readBdTree(_: IpcMainInvokeEvent) {
+    await mkdir(BD_PLUGINS, { recursive: true });
+    const out: BdTreeEntry[] = [];
+    let bytes = 0;
+    const walk = async (dir: string) => {
+        for (const entry of await readdir(dir, { withFileTypes: true })) {
+            if (out.length >= MAX_TREE_FILES) return;
+            const full = join(dir, entry.name);
+            const rel = relative(BD_PLUGINS, full).replace(/\\/g, "/");
+            if (entry.isDirectory()) {
+                out.push({ path: rel, dir: true, mtime: 0 });
+                await walk(full);
+            } else if (entry.isFile() && !(dir === BD_PLUGINS && BD_FILE.test(entry.name))) {
+                const data = await readFile(full);
+                if (bytes + data.length > MAX_TREE_BYTES) continue;
+                bytes += data.length;
+                const { mtimeMs } = await originalFs.promises.stat(full);
+                out.push({ path: rel, dir: false, data: data.toString("base64"), mtime: mtimeMs });
+            }
+        }
+    };
+    await walk(BD_PLUGINS);
+    return out;
+}
+
+function bdPath(rel: string) {
+    const full = resolve(BD_PLUGINS, rel);
+    const inside = relative(BD_PLUGINS, full);
+    if (!inside || inside.startsWith("..") || /^[A-Za-z]:/.test(inside)) throw new Error(`"${rel}" is outside the BetterDiscord plugins folder`);
+    if (!inside.includes("\\") && !inside.includes("/") && BD_FILE.test(inside)) throw new Error("Plugin files are installed through Muffinshelf");
+    return full;
+}
+
+export async function bdFsWrite(_: IpcMainInvokeEvent, rel: string, base64: string) {
+    const data = Buffer.from(base64, "base64");
+    if (data.length > MAX_FILE) throw new Error("File is too big");
+    const full = bdPath(rel);
+    await mkdir(dirname(full), { recursive: true });
+    await writeFile(full, data);
+}
+
+export async function bdFsMkdir(_: IpcMainInvokeEvent, rel: string) {
+    await mkdir(bdPath(rel), { recursive: true });
+}
+
+export async function bdFsRemove(_: IpcMainInvokeEvent, rel: string) {
+    await rm(bdPath(rel), { recursive: true, force: true });
+}
+
+export async function bdFsRename(_: IpcMainInvokeEvent, from: string, to: string) {
+    const target = bdPath(to);
+    await mkdir(dirname(target), { recursive: true });
+    await rename(bdPath(from), target);
+}
+
+export async function bdShowPath(_: IpcMainInvokeEvent, rel: string, reveal: boolean) {
+    const full = rel ? bdPath(rel) : BD_PLUGINS;
+    if (reveal) shell.showItemInFolder(full);
+    else await shell.openPath(full);
+}
+
 export async function readAllBdData(_: IpcMainInvokeEvent) {
     await mkdir(BD_DATA, { recursive: true });
     const out: Record<string, any> = {};
