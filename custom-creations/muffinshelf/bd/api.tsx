@@ -15,9 +15,10 @@ import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select
 import type { ReactNode } from "react";
 
 import { Native } from "../settings";
+import { animate, boundCommands, cache, Commands, getType, Inputs, Modal as BdModal, NodePatcher, openFloatingWindow, showBdNotification, showInviteModal, Spinner, Store, useForceUpdate, useStateFromStores, wrapInHooks } from "./extras";
 import { makePatcher } from "./patcher";
 import * as Runtime from "./runtime";
-import { Webpack } from "./webpack";
+import { forceLoad, loadEntry, mapObject, Webpack } from "./webpack";
 
 const logger = new VcLogger("Muffinshelf");
 const STYLE_ROOT_ID = "vc-muffinshelf-bd-styles";
@@ -124,6 +125,7 @@ const DOM = {
         (0, eval)(await res.text() + `\n//# sourceURL=${url}`);
     },
     removeScript: () => { },
+    animate,
     get screenWidth() {
         return Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
     },
@@ -182,6 +184,11 @@ const UI = {
     openDialog: (options: Record<string, any>) => Native.showDialog(options),
     buildSettingsPanel: (options: { settings: SettingItem[]; onChange?(category: string | null, id: string, value: any): void; }) =>
         <SettingsPanel settings={options.settings} onChange={options.onChange} />,
+    buildSettingItem: (setting: SettingItem & { onChange?(value: any): void; }) =>
+        <SettingRow item={setting} category={null} onChange={(_, __, value) => setting.onChange?.(value)} />,
+    showInviteModal,
+    showNotification: showBdNotification,
+    openFloatingWindow,
     showChangelogModal(options: { title?: string; subtitle?: string; changes?: { title: string; type?: string; items: string[]; }[]; footer?: any; }) {
         return openModal(props => (
             <ErrorBoundary>
@@ -311,15 +318,26 @@ export const Net = {
     },
 };
 
-function findInTree(tree: any, filter: (node: any) => boolean, { walkable = null as string[] | null, ignore = [] as string[] } = {}): any {
-    if (typeof filter === "string") return tree?.[filter];
+// Same walk as BetterDiscord's: arrays are searched item by item, objects through `walkable` keys (or all keys).
+function findInTree(tree: any, filter: ((node: any) => boolean) | string, { walkable = null as string[] | null, ignore = [] as string[] } = {}): any {
     const seen = new Set();
     const walk = (node: any): any => {
+        if (typeof filter === "string") {
+            if (node != null && typeof node === "object" && Object.prototype.hasOwnProperty.call(node, filter)) return node[filter];
+        } else {
+            try {
+                if (filter(node)) return node;
+            } catch { }
+        }
         if (node == null || typeof node !== "object" || seen.has(node)) return undefined;
         seen.add(node);
-        try {
-            if (filter(node)) return node;
-        } catch { }
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = walk(item);
+                if (found !== undefined) return found;
+            }
+            return undefined;
+        }
         const keys = walkable ?? Object.keys(node);
         for (const key of keys) {
             if (ignore.includes(key)) continue;
@@ -382,7 +400,11 @@ const Utils = {
     },
     escapeHTML: DOM.escapeHTML,
     getNestedValue: (obj: any, path: string) => path.split(".").reduce((o, k) => o?.[k], obj),
-    forceLoad: () => Promise.resolve([]),
+    forceLoad,
+    mapObject,
+    Store,
+    cache,
+    loadEntry,
 };
 
 function fiberOf(node: any) {
@@ -397,19 +419,28 @@ const ReactUtils = {
     },
     getInternalInstance: fiberOf,
     getOwnerInstance(node: any, { include, exclude = ["Popout", "Tooltip", "Scroller", "BackgroundFlash"], filter = (_: any) => true }: { include?: string[]; exclude?: string[]; filter?(i: any): boolean; } = {}) {
+        // Same rules as BetterDiscord: start above the node itself and only accept named components.
         const names = include ?? exclude;
         const excluding = !include;
-        for (let fiber = fiberOf(node); fiber; fiber = fiber.return) {
+        for (let fiber = fiberOf(node)?.return; fiber; fiber = fiber.return) {
             const instance = fiber.stateNode;
-            if (!instance || instance instanceof HTMLElement || typeof instance !== "object") continue;
-            const name = fiber.type?.displayName ?? fiber.type?.name;
-            if (name && names.includes(name) === excluding) continue;
+            if (!instance || instance instanceof HTMLElement) continue;
+            const name = fiber.type?.displayName || fiber.type?.name || null;
+            if (name === null || names.includes(name) === excluding) continue;
             if (filter(instance)) return instance;
         }
         return null;
     },
     wrapElement: (element: HTMLElement) => () => <NodeHost node={element} />,
-    wrapInHooks: (component: any) => component,
+    wrapInHooks,
+    getType,
+    createNodePatcher: () => new NodePatcher(),
+};
+
+const Hooks = {
+    useStateFromStores,
+    useForceUpdate,
+    useData: (plugin: string, key: string) => Data.load(plugin, key),
 };
 
 const menuPatches = new WeakMap<object, [string, NavContextMenuPatchCallback][]>();
@@ -520,16 +551,22 @@ const Components = {
         </details>
     ),
     TextInput: (props: any) => <TextInput {...props} />,
+    ...Inputs,
+    Spinner,
+    Modal: BdModal,
 };
+
+// BetterDiscord's addon record: the plugin's meta plus its file and running instance.
+const addonOf = (p: Runtime.BdPlugin) => ({ ...p.meta, id: p.meta.id ?? p.meta.name, filename: p.file, instance: p.instance, exports: p.instance, added: 0, modified: 0, size: p.code.length, fileContent: p.code });
 
 const Plugins = {
     get folder() {
         return Runtime.info.bdFolder;
     },
-    getAll: () => Runtime.getAll().map(p => p.instance ?? p.meta),
+    getAll: () => Runtime.getAll().map(addonOf),
     get: (idOrName: string) => {
         const p = Runtime.find(idOrName);
-        return p ? { ...p.meta, instance: p.instance, filename: p.file } : undefined;
+        return p ? addonOf(p) : undefined;
     },
     isEnabled: (idOrName: string) => !!Runtime.find(idOrName)?.enabled,
     enable: (idOrName: string) => Runtime.setEnabled(idOrName, true),
@@ -561,6 +598,8 @@ const sharedApi = {
     Plugins,
     Themes,
     Net,
+    Hooks,
+    Commands,
     get React() {
         return React;
     },
@@ -580,6 +619,8 @@ class BdApiClass {
     Data!: { load(key: string): any; save(key: string, value: any): void; delete(key: string): void; recache(): boolean; };
     DOM!: typeof DOM;
     Logger!: ReturnType<typeof makeLogger>;
+    Hooks!: typeof Hooks;
+    Commands!: ReturnType<typeof boundCommands>;
 
     constructor(pluginName: string) {
         if (!pluginName) return BdApi as any;
@@ -597,6 +638,8 @@ class BdApiClass {
             removeStyle: (id?: string) => DOM.removeStyle(id ? `${pluginName}-${id}` : pluginName),
         } as typeof DOM;
         this.Logger = makeLogger(pluginName);
+        this.Hooks = { ...Hooks, useData: (key: string) => Data.load(pluginName, key) } as any;
+        this.Commands = boundCommands(pluginName);
     }
 }
 
@@ -622,6 +665,7 @@ const legacy = {
     alert: UI.alert,
     showConfirmationModal: UI.showConfirmationModal,
     onRemoved: DOM.onRemoved,
+    settings: [] as any[],
     isSettingEnabled: () => false,
     enableSetting() { },
     disableSetting() { },
