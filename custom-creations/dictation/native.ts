@@ -294,8 +294,21 @@ function openSocket(port: number) {
     });
 }
 
-async function startSpeech(model: SpeechModel) {
-    if (speech?.key === model) return speech;
+let speechStarting: { model: SpeechModel; promise: Promise<Engine>; } | null = null;
+
+// Live previews and the warm up can ask at the same time, so they share one start.
+function startSpeech(model: SpeechModel) {
+    if (speechStarting?.model !== model) {
+        if (speech?.key === model) return Promise.resolve(speech);
+        const promise = launchSpeech(model).finally(() => {
+            if (speechStarting?.promise === promise) speechStarting = null;
+        });
+        speechStarting = { model, promise };
+    }
+    return speechStarting.promise;
+}
+
+async function launchSpeech(model: SpeechModel) {
     stopEngine(speech);
     if (!SHERPA_DIR || !ready(SHERPA_DIR) || !ready(SPEECH[model].dir)) throw new Error("The speech model isn't downloaded yet.");
 
