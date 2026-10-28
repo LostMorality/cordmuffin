@@ -19,6 +19,7 @@ import { FluxDispatcher, RestAPI, RunningGameStore, showToast } from "@webpack/c
 
 import type { PendingCredit } from "./badges";
 import { openGameBrowser } from "./GameBrowser";
+import { cancelCredit } from "./job";
 import { ReportedGame, reportPlaytime } from "./science";
 
 const logger = new Logger("GameTimeSpoof");
@@ -375,6 +376,7 @@ export default definePlugin({
 
     stop() {
         active = false;
+        cancelCredit();
         clearInterval(rotationTimer);
         clearInterval(reportTimer);
         rotationTimer = reportTimer = undefined;
