@@ -78,7 +78,8 @@ export function parseMeta(code: string, file: string): BdMeta {
 const fileHooks = {
     files: () => [...plugins.keys()],
     read: (file: string) => find(file)?.code ?? getAll().find(p => p.file.toLowerCase() === file.toLowerCase())?.code,
-    write: (file: string, code: string) => void installBd(file, code).catch(e => logger.error("Plugin self-update failed", e)),
+    // A plugin rewriting a file (self-update, a library updater) keeps it on or off, as BetterDiscord does.
+    write: (file: string, code: string) => void installBd(file, code, false).catch(e => logger.error("Plugin self-update failed", e)),
     remove: (file: string) => void removeBd(file).catch(e => logger.error("Plugin self-delete failed", e)),
 };
 
