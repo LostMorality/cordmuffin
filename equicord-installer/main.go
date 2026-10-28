@@ -5,11 +5,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,13 +29,23 @@ import (
 )
 
 const (
-	title         = "Cordmuffin Equicord Installer"
-	pluginsFolder = "Plugins Go Here"
-	themesFolder  = "Themes Go Here"
-	backupSuffix  = ".cordmuffin-backup"
-	stubMarker    = "/* cordmuffin */"
-	stubPackage   = `{"name":"discord","main":"index.js"}`
-	equicordRepo  = "Equicord/Equicord"
+	title             = "Cordmuffin Equicord Installer"
+	pluginsFolder     = "Plugins Go Here"
+	themesFolder      = "Themes Go Here"
+	backupSuffix      = ".cordmuffin-backup"
+	stubMarker        = "/* cordmuffin */"
+	stubPackage       = `{"name":"discord","main":"index.js"}`
+	equicordRepo      = "Equicord/Equicord"
+	cordmuffinRepo    = "LostMorality/cordmuffin"
+	updaterPlugin     = "cordmuffinUpdater"
+	muffinshelfMarker = ".muffinshelf.json"
+	exeName           = "Cordmuffin Equicord Installer.exe"
+
+	exitUpdated = 0
+	exitFailed  = 1
+	// Not 2: that's what Go itself exits with when it crashes.
+	exitBusy     = 10
+	exitUpToDate = 11
 
 	mbOK           = 0x0
 	mbYesNoCancel  = 0x3
@@ -59,9 +72,13 @@ var (
 	createMutex               = kernel32.NewProc("CreateMutexW")
 	queryFullProcessImageName = kernel32.NewProc("QueryFullProcessImageNameW")
 
+	// Set at build time with -ldflags "-X main.version=..."; the background updater compares it with the newest release.
+	version = "1.1.0"
+
 	silent    bool
 	runFailed bool
 	logFile   *os.File
+	mutex     uintptr
 
 	httpClient = &http.Client{Transport: &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
@@ -98,6 +115,57 @@ func workDir() string          { return filepath.Join(os.Getenv("LOCALAPPDATA"),
 func distDir() string          { return filepath.Join(workDir(), "dist") }
 func equicordData() string     { return filepath.Join(os.Getenv("APPDATA"), "Equicord") }
 func muffinshelfSaved() string { return filepath.Join(equicordData(), "muffinshelf", "userplugins") }
+func mirrorDir() string        { return filepath.Join(workDir(), "plugins") }
+func backupDir() string        { return filepath.Join(workDir(), "plugin-backups") }
+func installerExe() string     { return filepath.Join(workDir(), "installer", exeName) }
+func statePath() string        { return filepath.Join(workDir(), "state.json") }
+func resultPath() string       { return filepath.Join(workDir(), "update-result.json") }
+
+// Both can be pointed at a test server; normal installs always use GitHub.
+func githubAPI() string { return baseURL("CORDMUFFIN_GITHUB_API", "https://api.github.com") }
+func codeload() string  { return baseURL("CORDMUFFIN_CODELOAD", "https://codeload.github.com") }
+func baseURL(env, fallback string) string {
+	if v := strings.TrimRight(os.Getenv(env), "/"); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// What the last successful build contains. The CordmuffinUpdater plugin reads it to know what to check.
+type installState struct {
+	Version    string   `json:"version"`
+	Equicord   string   `json:"equicord"`
+	Cordmuffin string   `json:"cordmuffin"`
+	Plugins    []string `json:"plugins"`
+	KitDir     string   `json:"kitDir"`
+	Updater    string   `json:"updater"`
+	BuiltAt    string   `json:"builtAt"`
+	// A release whose installer turned out not to be the version its tag says; it isn't downloaded again.
+	SkippedRelease string `json:"skippedRelease,omitempty"`
+}
+
+func loadState() *installState {
+	data, err := os.ReadFile(statePath())
+	if err != nil {
+		return nil
+	}
+	var st installState
+	if json.Unmarshal(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}), &st) != nil {
+		return nil
+	}
+	return &st
+}
+
+func writeJSON(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path+".tmp", data, 0o644); err != nil {
+		return err
+	}
+	return rename(path+".tmp", path)
+}
 
 func kitDir() string {
 	exe, err := os.Executable()
@@ -228,6 +296,9 @@ func getJSON(target string, into any) error {
 		return friendlyNetError(target, err)
 	}
 	defer resp.Body.Close()
+	if strings.HasPrefix(target, githubAPI()) && (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) {
+		return errRateLimited
+	}
 	if resp.StatusCode != http.StatusOK {
 		return friendlyNetError(target, errors.New(resp.Status))
 	}
@@ -369,59 +440,198 @@ func ensureNode() (string, error) {
 	return "", errors.New("the Node.js download looks broken. Run this again to download it fresh")
 }
 
-func latestEquicordCommit() (string, error) {
+func latestCommit(repo string) (string, error) { return latestRef(repo, "main") }
+
+// The commit a branch (or "HEAD", the repo's default branch) points to right now.
+func latestRef(repo, ref string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/"+equicordRepo+"/commits/main", nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", githubAPI()+"/repos/"+repo+"/commits/"+url.PathEscape(ref), nil)
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Accept", "application/vnd.github.sha")
 	req.Header.Set("User-Agent", "cordmuffin-installer")
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", friendlyNetError("https://api.github.com", err)
+		return "", friendlyNetError(githubAPI(), err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	sha := strings.TrimSpace(string(body))
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests {
+		// Everyone sharing an internet connection shares GitHub's 60 lookups an hour; git's own endpoint isn't counted.
+		if sha, err := gitRef(repo, ref); err == nil {
+			return sha, nil
+		}
+		return "", errRateLimited
+	}
 	if resp.StatusCode != http.StatusOK || len(sha) != 40 {
-		return "", fmt.Errorf("GitHub didn't say which Equicord version is newest (%s). Try again in a few minutes", resp.Status)
+		return "", fmt.Errorf("GitHub didn't say which version of %s is newest (%s). Try again in a few minutes", repo, resp.Status)
 	}
 	return sha, nil
 }
 
-func cachedCommit() string {
-	data, err := os.ReadFile(filepath.Join(workDir(), "equicord", ".commit"))
+var errBuildFailed = errors.New("building failed")
+
+var errRateLimited = errors.New("GitHub's hourly limit for lookups from your internet connection was reached. Try again in a few minutes")
+
+// The commit a branch (or HEAD) points to, from the endpoint git clone uses.
+func gitRef(repo, ref string) (string, error) {
+	if os.Getenv("CORDMUFFIN_GITHUB_API") != "" {
+		return "", errors.New("not used with a stand-in server")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://github.com/"+repo+".git/info/refs?service=git-upload-pack", nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "git/2.45 cordmuffin-installer")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", errors.New(resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return "", err
+	}
+	want := "refs/heads/" + ref
+	if ref == "HEAD" {
+		want = "HEAD"
+	}
+	// pkt-lines: 4 hex digits of length, then "<sha> <ref>", with capabilities after a NUL on the first one.
+	for _, line := range strings.Split(string(body), "\n") {
+		// The first ref follows the "0000" that ends the service announcement.
+		line = strings.TrimPrefix(line, "0000")
+		if len(line) < 4+41 {
+			continue
+		}
+		fields := strings.SplitN(strings.SplitN(line[4:], "\x00", 2)[0], " ", 2)
+		if len(fields) == 2 && fields[1] == want && len(fields[0]) == 40 {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("%s has no %s", repo, ref)
+}
+
+// Whether anything under path changed between two commits of a repo. A plugin from a repo with many plugins
+// shouldn't count as updated whenever another one changes. sameBranch: from must be an older commit of the same
+// branch, which keeps installs from before branches were recorded on the branch they came from.
+func pathChanged(repo, from, to, path string, sameBranch bool) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", githubAPI()+"/repos/"+repo+"/compare/"+from+"..."+to, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("User-Agent", "cordmuffin-installer")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, friendlyNetError(githubAPI(), err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusNotFound:
+		// The installed commit is gone (history rewritten); only the files can tell.
+		return !sameBranch, nil
+	case http.StatusForbidden, http.StatusTooManyRequests:
+		return false, errRateLimited
+	default:
+		return false, errors.New(resp.Status)
+	}
+	var cmp struct {
+		Status string `json:"status"`
+		Files  []struct {
+			Name     string `json:"filename"`
+			Previous string `json:"previous_filename"`
+		} `json:"files"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&cmp); err != nil {
+		return false, err
+	}
+	if sameBranch && cmp.Status != "ahead" {
+		return false, nil
+	}
+	// GitHub lists at most 300 files; past that, assume the plugin is among them.
+	if len(cmp.Files) >= 300 {
+		return true, nil
+	}
+	prefix := strings.ToLower(strings.Trim(path, "/"))
+	for _, f := range cmp.Files {
+		for _, name := range []string{f.Name, f.Previous} {
+			if name != "" && (prefix == "" || strings.HasPrefix(strings.ToLower(name), prefix+"/")) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func equicordSrc() string   { return filepath.Join(workDir(), "equicord") }
+func cordmuffinSrc() string { return filepath.Join(workDir(), "cordmuffin") }
+
+func cachedCommit(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, ".commit"))
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
 }
 
-func downloadEquicord(sha string) (string, error) {
-	src := filepath.Join(workDir(), "equicord")
-	if cachedCommit() == sha && isDir(src) {
-		return src, removeAll(filepath.Join(src, "src", "userplugins"))
+// Newest commit of a repo, or the one already downloaded when GitHub can't be reached.
+func pickCommit(repo, dir string) (string, error) {
+	sha, err := latestCommit(repo)
+	if err == nil {
+		return sha, nil
 	}
+	if cached := cachedCommit(dir); cached != "" {
+		say("Couldn't check for a newer %s (%v), so the one already downloaded is used.", repo, err)
+		return cached, nil
+	}
+	return "", err
+}
 
-	say("Downloading the newest Equicord...")
-	zipPath := filepath.Join(workDir(), "equicord.zip")
-	if err := download("https://codeload.github.com/"+equicordRepo+"/zip/"+sha, zipPath); err != nil {
-		return "", err
+func downloadRepo(repo, sha, dest string) error {
+	if cachedCommit(dest) == sha && isDir(dest) {
+		return nil
+	}
+	say("Downloading %s...", repo)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return err
+	}
+	zipPath := dest + ".zip"
+	if err := download(codeload()+"/"+repo+"/zip/"+sha, zipPath); err != nil {
+		return err
 	}
 	defer os.Remove(zipPath)
-	tmp := filepath.Join(workDir(), "equicord-new")
+	tmp := dest + "-new"
 	removeAll(tmp)
 	if err := unzip(zipPath, tmp); err != nil {
 		removeAll(tmp)
-		return "", err
+		return err
 	}
-	if err := removeAll(src); err != nil {
-		return "", lockedHint(err)
+	if err := removeAll(dest); err != nil {
+		return lockedHint(err)
 	}
-	if err := rename(singleSubdir(tmp), src); err != nil {
-		return "", lockedHint(err)
+	if err := rename(singleSubdir(tmp), dest); err != nil {
+		return lockedHint(err)
 	}
 	removeAll(tmp)
-	return src, os.WriteFile(filepath.Join(src, ".commit"), []byte(sha), 0o644)
+	return os.WriteFile(filepath.Join(dest, ".commit"), []byte(sha), 0o644)
+}
+
+func downloadEquicord(sha string) (string, error) {
+	src := equicordSrc()
+	if err := downloadRepo(equicordRepo, sha, src); err != nil {
+		return "", err
+	}
+	return src, removeAll(filepath.Join(src, "src", "userplugins"))
 }
 
 func findPluginRoots(dir string, depth int) []string {
@@ -465,12 +675,11 @@ func uniqueName(dest, name, ext string) string {
 	return candidate
 }
 
-func addPlugins(src string) (added, kept, skipped []string, err error) {
+func addPlugins(src, inbox string) (added, kept, skipped []string, err error) {
 	dest := filepath.Join(src, "src", "userplugins")
 	if err = os.MkdirAll(dest, 0o755); err != nil {
 		return
 	}
-	inbox := filepath.Join(kitDir(), pluginsFolder)
 	os.MkdirAll(inbox, 0o755)
 	tmp := filepath.Join(workDir(), "unzipped-plugins")
 	removeAll(tmp)
@@ -540,6 +749,378 @@ func addPlugins(src string) (added, kept, skipped []string, err error) {
 		}
 	}
 	return
+}
+
+// A plugin is a folder with an index file, or a single .ts/.tsx file next to the others.
+func pluginPath(dir, name string) string {
+	for _, candidate := range []string{name, name + ".tsx", name + ".ts"} {
+		if path := filepath.Join(dir, candidate); exists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+func containsFold(list []string, s string) bool {
+	for _, v := range list {
+		if strings.EqualFold(v, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// Plugin folders published in cordmuffin's custom-creations folder, keyed by lower-case name.
+func repoPlugins(repoDir string) map[string]string {
+	plugins := map[string]string{}
+	root := filepath.Join(repoDir, "custom-creations")
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		dir := filepath.Join(root, e.Name())
+		if e.IsDir() && len(findPluginRoots(dir, 0)) == 1 {
+			plugins[strings.ToLower(e.Name())] = dir
+		}
+	}
+	return plugins
+}
+
+func treeFiles(dir string) (map[string][]byte, error) {
+	files := map[string][]byte{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		// Muffinshelf's install record and the download's commit note aren't part of a plugin.
+		if rel == muffinshelfMarker || rel == ".commit" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		files[strings.ToLower(filepath.ToSlash(rel))] = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		return nil
+	})
+	return files, err
+}
+
+// Line endings are ignored, so a copy that git checked out with Windows line endings still counts as the same version.
+func sameTree(a, b string) bool {
+	fa, err := treeFiles(a)
+	if err != nil {
+		return false
+	}
+	fb, err := treeFiles(b)
+	if err != nil || len(fa) != len(fb) {
+		return false
+	}
+	for name, data := range fa {
+		if other, ok := fb[name]; !ok || !bytes.Equal(data, other) {
+			return false
+		}
+	}
+	return true
+}
+
+func replaceTree(dir, from string) error {
+	tmp := dir + ".cordmuffin-new"
+	removeAll(tmp)
+	if err := copyTree(from, tmp); err != nil {
+		removeAll(tmp)
+		return err
+	}
+	if err := removeAll(dir); err != nil {
+		removeAll(tmp)
+		return lockedHint(err)
+	}
+	return rename(tmp, dir)
+}
+
+// The replaced copy goes to plugin-backups first, so an update never loses changes someone made to a plugin.
+// Each plugin (and kind of copy) has its own folder there, and only its three newest backups are kept.
+func replaceWithBackup(dir, from, label string) error {
+	folder := filepath.Join(backupDir(), filepath.Base(dir)+label)
+	stamp := time.Now().Format("20060102-150405")
+	backup := filepath.Join(folder, stamp)
+	for n := 2; exists(backup); n++ {
+		backup = filepath.Join(folder, fmt.Sprintf("%s-%d", stamp, n))
+	}
+	if err := copyTree(dir, backup); err != nil {
+		return err
+	}
+	if old, _ := os.ReadDir(folder); len(old) > 3 {
+		names := make([]string, 0, len(old))
+		for _, e := range old {
+			names = append(names, e.Name())
+		}
+		sort.Slice(names, func(i, j int) bool { return backupOrder(names[i]) < backupOrder(names[j]) })
+		for _, name := range names[:len(names)-3] {
+			removeAll(filepath.Join(folder, name))
+		}
+	}
+	return replaceTree(dir, from)
+}
+
+// Sorts "20261027-222647-10" after "20261027-222647-9".
+func backupOrder(name string) string {
+	i := min(len(name), 15)
+	return name[:i] + fmt.Sprintf("%6s", strings.TrimPrefix(name[i:], "-"))
+}
+
+// Swaps cordmuffin's own plugins for their newest published version and adds the CordmuffinUpdater plugin.
+// Plugins are matched by folder name; anything that isn't one of cordmuffin's plugins is never touched.
+// The copy in the kit's plugins folder is refreshed too, so running an old kit again doesn't undo an update.
+func syncCordmuffin(src, repoDir, kitPlugins string, added []string, fromMirror bool) (tracked, updated, extra []string) {
+	dest := filepath.Join(src, "src", "userplugins")
+	published := repoPlugins(repoDir)
+	names := append([]string{}, added...)
+	if !containsFold(names, updaterPlugin) {
+		from := filepath.Join(mirrorDir(), updaterPlugin)
+		if !isDir(from) {
+			from = published[strings.ToLower(updaterPlugin)]
+		}
+		if from != "" && copyTree(from, filepath.Join(dest, updaterPlugin)) == nil {
+			names = append(names, updaterPlugin)
+			extra = append(extra, updaterPlugin)
+		}
+	}
+
+	for _, name := range names {
+		repo, ok := published[strings.ToLower(name)]
+		target := filepath.Join(dest, name)
+		if !ok || !isDir(target) {
+			continue
+		}
+		tracked = append(tracked, name)
+		if kitPlugins != "" {
+			kitCopy := filepath.Join(kitPlugins, name)
+			if len(findPluginRoots(kitCopy, 0)) == 1 && !sameTree(kitCopy, repo) {
+				if err := replaceWithBackup(kitCopy, repo, "-kit"); err != nil {
+					say("  Couldn't update %s in %s: %v", name, kitPlugins, err)
+				}
+			}
+		}
+		if sameTree(target, repo) {
+			continue
+		}
+		var err error
+		if fromMirror {
+			err = replaceWithBackup(target, repo, "")
+		} else {
+			err = replaceTree(target, repo)
+		}
+		if err != nil {
+			say("  Couldn't update %s: %v", name, err)
+			continue
+		}
+		updated = append(updated, name)
+	}
+	return
+}
+
+// Whether any of cordmuffin's plugins in the last build differ from the newest published ones.
+func mirrorOutdated(repoDir string) bool {
+	published := repoPlugins(repoDir)
+	if _, ok := published[strings.ToLower(updaterPlugin)]; ok && !isDir(filepath.Join(mirrorDir(), updaterPlugin)) {
+		return true
+	}
+	entries, _ := os.ReadDir(mirrorDir())
+	for _, e := range entries {
+		if repo, ok := published[strings.ToLower(e.Name())]; ok && e.IsDir() && !sameTree(filepath.Join(mirrorDir(), e.Name()), repo) {
+			return true
+		}
+	}
+	return false
+}
+
+type muffinshelfUpdate struct {
+	folder, name, staged string
+}
+
+func validGitHubName(s string) bool {
+	if s == "" || len(s) > 100 || s == "." || s == ".." {
+		return false
+	}
+	for _, r := range s {
+		if !(r == '.' || r == '_' || r == '-' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return false
+		}
+	}
+	return true
+}
+
+func hasIndex(dir string) bool {
+	for _, name := range []string{"index.ts", "index.tsx", "index.js", "index.jsx"} {
+		if isFile(filepath.Join(dir, name)) {
+			return true
+		}
+	}
+	return false
+}
+
+// Plugins installed with Muffinshelf from someone's GitHub repo: looks up the newest commit of the branch each
+// came from (its marker file says which) and stages the ones whose files changed. Their saved copies are only
+// replaced after a build with them worked.
+func muffinshelfUpdates() []muffinshelfUpdate {
+	stage := filepath.Join(workDir(), "muffinshelf-updates")
+	removeAll(stage)
+	var updates []muffinshelfUpdate
+	latest := map[string]string{}
+	entries, _ := os.ReadDir(muffinshelfSaved())
+	for _, e := range entries {
+		saved := filepath.Join(muffinshelfSaved(), e.Name())
+		data, err := os.ReadFile(filepath.Join(saved, muffinshelfMarker))
+		if !e.IsDir() || err != nil {
+			continue
+		}
+		marker := map[string]any{}
+		if json.Unmarshal(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}), &marker) != nil {
+			continue
+		}
+		owner, _ := marker["owner"].(string)
+		repo, _ := marker["repo"].(string)
+		installed, _ := marker["ref"].(string)
+		path, _ := marker["path"].(string)
+		track, _ := marker["track"].(string)
+		recorded := track != ""
+		if !recorded {
+			track = "HEAD"
+		}
+		name := e.Name()
+		if n, _ := marker["pluginName"].(string); n != "" {
+			name = n
+		}
+		if !validGitHubName(owner) || !validGitHubName(repo) {
+			continue
+		}
+
+		key := owner + "/" + repo + "@" + track
+		sha, checked := latest[key]
+		if !checked {
+			if sha, err = latestRef(owner+"/"+repo, track); err != nil {
+				say("  Couldn't check %s for updates (%v).", name, err)
+				sha = ""
+			}
+			latest[key] = sha
+		}
+		// A plugin that left its folder in the repo stays on its copy; skippedRef keeps it from being downloaded again
+		// on every check, and later commits are compared from there.
+		skipped, _ := marker["skippedRef"].(string)
+		if sha == "" || sha == installed || sha == skipped {
+			continue
+		}
+		markerFile := filepath.Join(saved, muffinshelfMarker)
+		original := maps.Clone(marker)
+		skip := func() {
+			original["skippedRef"] = sha
+			if data, err := json.MarshalIndent(original, "", "    "); err == nil {
+				os.WriteFile(markerFile, data, 0o644)
+			}
+		}
+		from := installed
+		if len(skipped) == 40 {
+			from = skipped
+		}
+		marker["ref"] = sha
+		marker["updatedAt"] = time.Now().UnixMilli()
+		// The store's version number belonged to the old copy; leaving it would make Muffinshelf offer a stale update.
+		delete(marker, "version")
+		delete(marker, "skippedRef")
+		newMarker, _ := json.MarshalIndent(marker, "", "    ")
+		if len(from) == 40 {
+			changed, err := pathChanged(owner+"/"+repo, from, sha, path, !recorded && from == installed)
+			if errors.Is(err, errRateLimited) && recorded {
+				// Downloads aren't counted, so the files themselves are compared instead.
+				changed, err = true, nil
+			}
+			if err != nil {
+				say("  Couldn't check %s for updates (%v).", name, err)
+				continue
+			}
+			if !changed {
+				if skipped != "" {
+					skip()
+				} else if recorded {
+					os.WriteFile(markerFile, newMarker, 0o644)
+				}
+				continue
+			}
+		}
+
+		repoDir := filepath.Join(stage, "repos", cleanName(owner+"-"+repo+"-"+sha[:12]))
+		if err := downloadRepo(owner+"/"+repo, sha, repoDir); err != nil {
+			say("  Couldn't download the new version of %s (%v).", name, err)
+			continue
+		}
+		src := filepath.Join(repoDir, filepath.FromSlash(path))
+		if rel, err := filepath.Rel(repoDir, src); err != nil || (rel != "." && !filepath.IsLocal(rel)) || !hasIndex(src) {
+			say("  The new version of %s isn't where Muffinshelf installed it from anymore, so it stays on the one you have.", name)
+			skip()
+			continue
+		}
+		if sameTree(src, saved) {
+			os.WriteFile(markerFile, newMarker, 0o644)
+			continue
+		}
+		staged := filepath.Join(stage, "plugins", e.Name())
+		if err := copyTree(src, staged); err != nil {
+			say("  Couldn't prepare the new version of %s (%v).", name, err)
+			continue
+		}
+		os.Remove(filepath.Join(staged, ".commit"))
+		if err := os.WriteFile(filepath.Join(staged, muffinshelfMarker), newMarker, 0o644); err != nil {
+			continue
+		}
+		updates = append(updates, muffinshelfUpdate{folder: e.Name(), name: name, staged: staged})
+	}
+	return updates
+}
+
+func updateNames(updates []muffinshelfUpdate) []string {
+	var names []string
+	for _, u := range updates {
+		names = append(names, u.name)
+	}
+	return names
+}
+
+// Keeps a copy of the plugins that went into the build, so background updates can rebuild
+// even after the kit folder was moved or deleted.
+func saveMirror(src string, names []string) error {
+	dest := filepath.Join(src, "src", "userplugins")
+	tmp := mirrorDir() + ".new"
+	removeAll(tmp)
+	if err := os.MkdirAll(tmp, 0o755); err != nil {
+		return err
+	}
+	for _, name := range names {
+		from := pluginPath(dest, name)
+		if from == "" {
+			continue
+		}
+		if err := copyTree(from, filepath.Join(tmp, filepath.Base(from))); err != nil {
+			removeAll(tmp)
+			return err
+		}
+	}
+	old := mirrorDir() + ".old"
+	removeAll(old)
+	if exists(mirrorDir()) {
+		if err := rename(mirrorDir(), old); err != nil {
+			removeAll(tmp)
+			return err
+		}
+	}
+	if err := rename(tmp, mirrorDir()); err != nil {
+		rename(old, mirrorDir())
+		return err
+	}
+	removeAll(old)
+	return nil
 }
 
 func addThemes() ([]string, []string, error) {
@@ -679,32 +1260,42 @@ func runStep(dir, nodeDir, sha string, args ...string) error {
 	}
 }
 
-type buildResult struct {
-	added, kept, skipped []string
-	staged               string
+type buildOptions struct {
+	inbox         string // where the plugins come from: the kit folder, or the copy of the last build
+	kitPlugins    string // kit folder whose cordmuffin plugins get refreshed, if it still exists
+	fromMirror    bool
+	equicordSha   string // already checked by the caller; looked up when empty
+	cordmuffinSha string
+	muffinshelf   []muffinshelfUpdate // new versions of Muffinshelf plugins to build with
 }
 
-func build() (buildResult, error) {
+type buildResult struct {
+	added, kept, skipped    []string
+	tracked, updated, extra []string
+	staged                  string
+	equicordSha             string
+	cordmuffinSha           string
+}
+
+func build(opts buildOptions) (buildResult, error) {
 	var res buildResult
 	nodeDir, err := ensureNode()
 	if err != nil {
 		return res, fmt.Errorf("couldn't get Node.js: %w", err)
 	}
-	sha, err := latestEquicordCommit()
-	if err != nil {
-		cached := cachedCommit()
-		if cached == "" {
+	sha := opts.equicordSha
+	if sha == "" {
+		if sha, err = pickCommit(equicordRepo, equicordSrc()); err != nil {
 			return res, err
 		}
-		say("Couldn't check for a newer Equicord (%v), so the one already downloaded is used.", err)
-		sha = cached
 	}
+	res.equicordSha = sha
 	src, err := downloadEquicord(sha)
 	if err != nil {
 		return res, fmt.Errorf("couldn't download Equicord: %w", err)
 	}
 
-	res.added, res.kept, res.skipped, err = addPlugins(src)
+	res.added, res.kept, res.skipped, err = addPlugins(src, opts.inbox)
 	if err != nil {
 		return res, err
 	}
@@ -713,6 +1304,31 @@ func build() (buildResult, error) {
 	}
 	for _, p := range res.kept {
 		say("  Keeping Muffinshelf plugin: %s", p)
+	}
+	for _, u := range opts.muffinshelf {
+		target := filepath.Join(src, "src", "userplugins", u.folder)
+		if err := replaceTree(target, u.staged); err != nil {
+			return res, fmt.Errorf("couldn't add the new version of %s: %w", u.name, err)
+		}
+		say("  Updating Muffinshelf plugin: %s", u.name)
+	}
+
+	cm := opts.cordmuffinSha
+	var cmErr error
+	if cm == "" {
+		cm, cmErr = pickCommit(cordmuffinRepo, cordmuffinSrc())
+	}
+	if cmErr == nil {
+		cmErr = downloadRepo(cordmuffinRepo, cm, cordmuffinSrc())
+	}
+	if cmErr != nil {
+		say("Couldn't get cordmuffin's newest plugins, so they aren't updated this time (%v).", cmErr)
+	} else {
+		res.cordmuffinSha = cm
+		res.tracked, res.updated, res.extra = syncCordmuffin(src, cordmuffinSrc(), opts.kitPlugins, res.added, opts.fromMirror)
+		for _, p := range res.updated {
+			say("  Updating plugin to its newest version: %s", p)
+		}
 	}
 
 	say("Installing Equicord's parts (the first time takes a few minutes)...")
@@ -723,9 +1339,9 @@ func build() (buildResult, error) {
 	say("Building Equicord...")
 	if err := runStep(src, nodeDir, sha, "pnpm", "build", "--disable-updater"); err != nil {
 		if len(res.added)+len(res.kept) > 0 {
-			return res, fmt.Errorf("building failed. One of your plugins is probably broken, so try again without it: %w", err)
+			return res, fmt.Errorf("%w. One of your plugins is probably broken, so try again without it: %w", errBuildFailed, err)
 		}
-		return res, fmt.Errorf("building failed: %w", err)
+		return res, fmt.Errorf("%w: %w", errBuildFailed, err)
 	}
 	fmt.Println()
 
@@ -1009,7 +1625,9 @@ func install() {
 	}
 
 	say("Step 1 of 3: Getting Equicord ready")
-	res, err := build()
+	prev := loadState()
+	kitPlugins := filepath.Join(kitDir(), pluginsFolder)
+	res, err := build(buildOptions{inbox: kitPlugins, kitPlugins: kitPlugins})
 	if err != nil {
 		say("Failed: %v", err)
 		if res.staged != "" {
@@ -1042,6 +1660,7 @@ func install() {
 		fail(fmt.Sprintf("Equicord was built but couldn't be put in place, so Discord wasn't changed.\n\n%v", err))
 		return
 	}
+	saveBuild(res, kitDir(), prev)
 	themes, themeSkipped, themeErr := addThemes()
 
 	say("Step 3 of 3: Putting Equicord into Discord")
@@ -1078,8 +1697,14 @@ func install() {
 	if len(res.added) > 0 {
 		fmt.Fprintf(&text, "\n\nPlugins added: %s\nTurn them on in Discord: User Settings, then Plugins.", strings.Join(res.added, ", "))
 	}
+	if len(res.updated) > 0 {
+		fmt.Fprintf(&text, "\n\nUpdated to the newest version: %s", strings.Join(res.updated, ", "))
+	}
 	if len(res.kept) > 0 {
 		fmt.Fprintf(&text, "\n\nKept the plugins you installed with Muffinshelf: %s", strings.Join(res.kept, ", "))
+	}
+	if containsFold(res.tracked, updaterPlugin) {
+		text.WriteString("\n\nUpdates now install by themselves while Discord is open. You can turn that off in the CordmuffinUpdater plugin's settings.")
 	}
 	if len(themes) > 0 {
 		fmt.Fprintf(&text, "\n\nThemes added and turned on: %s", strings.Join(themes, ", "))
@@ -1100,6 +1725,387 @@ func install() {
 	}
 	say("Done.")
 	message(strings.TrimSpace(text.String()), mbOK|flags)
+}
+
+// Keeps a copy of the installer where the CordmuffinUpdater plugin can run it, unless a newer one is already
+// there, and returns the version of that copy.
+func copySelf(prev *installState) string {
+	target := installerExe()
+	if prev != nil && isFile(target) && versionLess(version, prev.Version) {
+		return prev.Version
+	}
+	cur, err := os.Executable()
+	if err == nil && strings.EqualFold(filepath.Clean(cur), filepath.Clean(target)) {
+		return version
+	}
+	if err == nil {
+		var data []byte
+		if data, err = os.ReadFile(cur); err == nil {
+			if err = os.MkdirAll(filepath.Dir(target), 0o755); err == nil {
+				if err = os.WriteFile(target+".tmp", data, 0o755); err == nil {
+					err = rename(target+".tmp", target)
+				}
+			}
+		}
+	}
+	if err != nil {
+		say("Couldn't save a copy of the installer for background updates: %v", err)
+		if prev != nil {
+			return prev.Version
+		}
+		return ""
+	}
+	return version
+}
+
+// Records what the new build contains, after it's in place.
+func saveBuild(res buildResult, kit string, prev *installState) {
+	if err := saveMirror(equicordSrc(), append(append([]string{}, res.added...), res.extra...)); err != nil {
+		say("Couldn't save a copy of the plugins for background updates: %v", err)
+	}
+	st := installState{
+		Version:    copySelf(prev),
+		Equicord:   res.equicordSha,
+		Cordmuffin: res.cordmuffinSha,
+		Plugins:    res.tracked,
+		KitDir:     kit,
+		Updater:    installerExe(),
+		BuiltAt:    time.Now().UTC().Format(time.RFC3339),
+	}
+	if prev != nil {
+		st.SkippedRelease = prev.SkippedRelease
+	}
+	if res.cordmuffinSha == "" && prev != nil {
+		st.Cordmuffin, st.Plugins = prev.Cordmuffin, prev.Plugins
+	}
+	if st.Plugins == nil {
+		st.Plugins = []string{}
+	}
+	if err := writeJSON(statePath(), st); err != nil {
+		say("Couldn't save %s: %v", statePath(), err)
+	}
+}
+
+type updateResult struct {
+	OK           bool     `json:"ok"`
+	UpToDate     bool     `json:"upToDate"`
+	NeedsRestart bool     `json:"needsRestart"`
+	Updated      []string `json:"updated"`
+	Skipped      []string `json:"skipped,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	Partial      bool     `json:"partial,omitempty"`
+	At           string   `json:"at"`
+}
+
+func finishUpdate(r updateResult) int {
+	r.At = time.Now().UTC().Format(time.RFC3339)
+	if r.Updated == nil {
+		r.Updated = []string{}
+	}
+	if err := writeJSON(resultPath(), r); err != nil {
+		say("Couldn't save %s: %v", resultPath(), err)
+	}
+	switch {
+	case !r.OK:
+		say("Failed: %s", r.Error)
+		return exitFailed
+	case r.UpToDate:
+		say("Everything is up to date.")
+		return exitUpToDate
+	}
+	say("Updated: %s", strings.Join(r.Updated, ", "))
+	return exitUpdated
+}
+
+// Background update, started by the CordmuffinUpdater plugin while Discord is open. It never closes Discord:
+// the new build is swapped in and used from the next Discord start.
+func update() int {
+	prev := loadState()
+	if !isDir(distDir()) && isDir(distDir()+".old") {
+		// A swap that was cut off halfway (power loss, killed process) leaves the last good build here.
+		say("Putting back the last build, which an interrupted update left behind.")
+		rename(distDir()+".old", distDir())
+	}
+	if prev == nil || !isDir(distDir()) {
+		return finishUpdate(updateResult{Error: "Cordmuffin isn't installed. Run Cordmuffin Equicord Installer first."})
+	}
+	from := os.Getenv("CORDMUFFIN_UPDATED_FROM")
+	if from == "" {
+		if code, ran := selfUpdate(prev); ran {
+			return code
+		}
+	}
+
+	var updated []string
+	if from != "" {
+		updated = append(updated, "the installer (v"+version+")")
+	}
+	eq, err := latestCommit(equicordRepo)
+	if err != nil {
+		return finishUpdate(updateResult{Error: err.Error()})
+	}
+	cm, err := pickCommit(cordmuffinRepo, cordmuffinSrc())
+	if err == nil {
+		err = downloadRepo(cordmuffinRepo, cm, cordmuffinSrc())
+	}
+	pluginsChanged := false
+	if err != nil {
+		say("Couldn't check cordmuffin's plugins (%v).", err)
+		cm = ""
+	} else {
+		pluginsChanged = mirrorOutdated(cordmuffinSrc())
+	}
+	var ms []muffinshelfUpdate
+	if !hasArg("/no-muffinshelf") {
+		ms = muffinshelfUpdates()
+	}
+
+	if eq == prev.Equicord && !pluginsChanged && len(ms) == 0 {
+		if cm != "" {
+			prev.Cordmuffin = cm
+		}
+		if from != "" {
+			prev.Version = version
+		}
+		writeJSON(statePath(), prev)
+		return finishUpdate(updateResult{OK: true, UpToDate: from == "", Updated: updated})
+	}
+	if eq != prev.Equicord {
+		updated = append(updated, "Equicord")
+	}
+
+	kitPlugins := ""
+	if prev.KitDir != "" && isDir(filepath.Join(prev.KitDir, pluginsFolder)) {
+		kitPlugins = filepath.Join(prev.KitDir, pluginsFolder)
+	}
+	opts := buildOptions{inbox: mirrorDir(), kitPlugins: kitPlugins, fromMirror: true, equicordSha: eq, cordmuffinSha: cm, muffinshelf: ms}
+	res, err := build(opts)
+	var skipped []string
+	if errors.Is(err, errBuildFailed) && len(ms) > 0 {
+		// Someone else's new plugin version can break the build; that mustn't hold back every other update.
+		say("The build failed with the new Muffinshelf plugin versions (%v), so it's tried again without them.", err)
+		if res.staged != "" {
+			removeAll(res.staged)
+		}
+		skipped = updateNames(ms)
+		opts.muffinshelf, ms = nil, nil
+		res, err = build(opts)
+	}
+	if err != nil {
+		if res.staged != "" {
+			removeAll(res.staged)
+		}
+		return finishUpdate(updateResult{Error: err.Error()})
+	}
+	if err := swapDist(res.staged); err != nil {
+		// Something in Discord still has a file of the old build open; copying over it works all the same.
+		say("Couldn't swap the new files in (%v), so they're copied over the old ones instead.", err)
+		cerr := copyTree(res.staged, distDir())
+		removeAll(res.staged)
+		if cerr != nil {
+			// Part of the new version may be in place now, so the next update has to rebuild whatever happens.
+			prev.Equicord = ""
+			writeJSON(statePath(), prev)
+			return finishUpdate(updateResult{Partial: true, Error: fmt.Sprintf("the new version was built but only partly put in place (%v). Restart your PC and run Cordmuffin Equicord Installer to finish it", cerr)})
+		}
+	}
+	for _, u := range ms {
+		if err := replaceWithBackup(filepath.Join(muffinshelfSaved(), u.folder), u.staged, "-muffinshelf"); err != nil {
+			say("Couldn't save the new version of %s for later builds (%v).", u.name, err)
+		}
+	}
+	removeAll(filepath.Join(workDir(), "muffinshelf-updates"))
+	saveBuild(res, prev.KitDir, prev)
+	updated = append(append(updated, res.updated...), updateNames(ms)...)
+	return finishUpdate(updateResult{OK: true, NeedsRestart: true, Updated: updated, Skipped: skipped})
+}
+
+func hasArg(flag string) bool {
+	for _, a := range os.Args[1:] {
+		if strings.EqualFold(a, flag) {
+			return true
+		}
+	}
+	return false
+}
+
+func extractExe(zipPath, dest string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() || !strings.EqualFold(filepath.Ext(f.Name), ".exe") {
+			continue
+		}
+		in, err := f.Open()
+		if err != nil {
+			return err
+		}
+		data, err := io.ReadAll(in)
+		in.Close()
+		if err != nil {
+			return err
+		}
+		if !bytes.HasPrefix(data, []byte("MZ")) {
+			return errors.New("the installer in the release isn't a Windows program")
+		}
+		return os.WriteFile(dest, data, 0o755)
+	}
+	return errors.New("the release has no installer in it")
+}
+
+// Replaces the saved installer copy with the newest release and lets the new one do the update.
+// Returns ran=false when there's nothing newer or it couldn't be fetched, so the current one carries on.
+func selfUpdate(prev *installState) (int, bool) {
+	var rel struct {
+		Tag    string `json:"tag_name"`
+		Assets []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := getJSON(githubAPI()+"/repos/"+cordmuffinRepo+"/releases/latest", &rel); err != nil {
+		say("Couldn't check for a newer installer (%v).", err)
+		return 0, false
+	}
+	newest := strings.TrimPrefix(rel.Tag, "v")
+	if !versionLess(version, newest) || newest == prev.SkippedRelease {
+		return 0, false
+	}
+	asset, sumURL := "", ""
+	for _, a := range rel.Assets {
+		switch strings.ToLower(filepath.Ext(a.Name)) {
+		case ".zip":
+			if asset == "" {
+				asset = a.URL
+			}
+		case ".sha256":
+			sumURL = a.URL
+		}
+	}
+	if asset == "" {
+		return 0, false
+	}
+
+	say("Updating the installer from v%s to v%s...", version, newest)
+	target := installerExe()
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return 0, false
+	}
+	zipPath := filepath.Join(filepath.Dir(target), "release.zip")
+	defer os.Remove(zipPath)
+	fresh, old := target+".new", target+".old"
+	if err := download(asset, zipPath); err == nil {
+		// Releases from build-release.ps1 come with a checksum; older ones without one are still accepted.
+		if sumURL != "" {
+			if err := checkSum(zipPath, sumURL); err != nil {
+				say("The v%s release didn't pass its checksum (%v), so it isn't used.", newest, err)
+				return 0, false
+			}
+		}
+		err = extractExe(zipPath, fresh)
+		if err != nil {
+			say("Couldn't use the new installer (%v).", err)
+			os.Remove(fresh)
+			return 0, false
+		}
+		// A release built without its version number would otherwise be downloaded again on every check.
+		if got := exeVersion(fresh); got != newest {
+			say("The v%s release's installer says it's v%s, so it isn't used.", newest, got)
+			os.Remove(fresh)
+			prev.SkippedRelease = newest
+			writeJSON(statePath(), prev)
+			return 0, false
+		}
+	} else {
+		say("Couldn't download the new installer (%v).", err)
+		return 0, false
+	}
+	os.Remove(old)
+	if isFile(target) {
+		// A running exe can't be overwritten, but it can be renamed out of the way.
+		if err := rename(target, old); err != nil {
+			os.Remove(fresh)
+			return 0, false
+		}
+	}
+	if err := rename(fresh, target); err != nil {
+		rename(old, target)
+		return 0, false
+	}
+
+	releaseMutex()
+	if logFile != nil {
+		logFile.Close()
+		logFile = nil
+	}
+	dropLock()
+	os.Remove(resultPath())
+	cmd := hidden(exec.Command(target, os.Args[1:]...))
+	cmd.Env = append(os.Environ(), "CORDMUFFIN_UPDATED_FROM="+version)
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if (err == nil || errors.As(err, &exit)) && (isFile(resultPath()) || cmd.ProcessState.ExitCode() == exitBusy) {
+		return cmd.ProcessState.ExitCode(), true
+	}
+	if err == nil || errors.As(err, &exit) {
+		err = fmt.Errorf("it stopped with code %d without finishing", cmd.ProcessState.ExitCode())
+	}
+
+	// The new installer didn't start or crashed, so the old one goes back and finishes the job.
+	logFile, _ = os.OpenFile(filepath.Join(workDir(), "update.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	say("The new installer didn't work (%v), so the old one is put back.", err)
+	prev.SkippedRelease = newest
+	os.Remove(target)
+	rename(old, target)
+	if !singleInstance() {
+		return exitBusy, true
+	}
+	holdLock()
+	return 0, false
+}
+
+// Compares a file with a sha256sum-style checksum file ("<hex>  <name>").
+func checkSum(file, sumURL string) error {
+	sumPath := file + ".sha256"
+	defer os.Remove(sumPath)
+	if err := download(sumURL, sumPath); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(sumPath)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(string(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF})))
+	if len(fields) == 0 || len(fields[0]) != 64 {
+		return errors.New("the checksum file is empty or malformed")
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, fields[0]) {
+		return errors.New("the download doesn't match")
+	}
+	return nil
+}
+
+// The version an installer exe was built as, from its /version switch.
+func exeVersion(exe string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := hidden(exec.CommandContext(ctx, exe, "/version")).Output()
+	if err != nil {
+		return "unknown"
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func uninstall() {
@@ -1133,8 +2139,21 @@ func uninstall() {
 		logFile.Close()
 		logFile = nil
 	}
-	removeAll(workDir())
-	message("Equicord is removed and Discord is back to normal.\n\nYour Equicord settings and themes are kept in case you install it again.", mbOK|mbIconInfo)
+	text := "Equicord is removed and Discord is back to normal.\n\nYour Equicord settings and themes are kept in case you install it again."
+	// Backups can hold the only copy of someone's own changes to a plugin, so they stay unless the folder is empty.
+	backups, _ := os.ReadDir(backupDir())
+	if len(backups) == 0 {
+		removeAll(workDir())
+	} else {
+		entries, _ := os.ReadDir(workDir())
+		for _, e := range entries {
+			if !strings.EqualFold(e.Name(), filepath.Base(backupDir())) {
+				removeAll(filepath.Join(workDir(), e.Name()))
+			}
+		}
+		text += "\n\nThe old plugin copies saved by updates are kept in " + backupDir() + ". Delete that folder if you don't need them."
+	}
+	message(text, mbOK|mbIconInfo)
 }
 
 func isInstalled() bool {
@@ -1155,24 +2174,119 @@ func singleInstance() bool {
 	if h == 0 {
 		return true
 	}
-	return err != syscall.Errno(errorAlreadyExists)
+	if err == syscall.Errno(errorAlreadyExists) {
+		syscall.CloseHandle(syscall.Handle(h))
+		return false
+	}
+	mutex = h
+	return true
+}
+
+// Muffinshelf builds in the same folder, so each side checks the other's marker before building.
+func lockPath() string { return filepath.Join(workDir(), "update.lock") }
+
+var lockStop chan struct{}
+
+// Muffinshelf treats a lock older than 30 minutes as left over from a crash, so it's touched while held.
+func holdLock() {
+	os.WriteFile(lockPath(), []byte(strconv.Itoa(os.Getpid())), 0o644)
+	if lockStop != nil {
+		return
+	}
+	stop := make(chan struct{})
+	lockStop = stop
+	go func() {
+		tick := time.NewTicker(5 * time.Minute)
+		defer tick.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-tick.C:
+				os.Chtimes(lockPath(), now, now)
+			}
+		}
+	}()
+}
+
+func dropLock() {
+	if lockStop != nil {
+		close(lockStop)
+		lockStop = nil
+	}
+	os.Remove(lockPath())
+}
+
+func muffinshelfBusy() bool {
+	for _, name := range []string{".muffinshelf-building", ".muffinshelf-work"} {
+		if info, err := os.Stat(filepath.Join(equicordSrc(), name)); err == nil && time.Since(info.ModTime()) < 30*time.Minute {
+			return true
+		}
+	}
+	return false
+}
+
+func releaseMutex() {
+	if mutex != 0 {
+		syscall.CloseHandle(syscall.Handle(mutex))
+		mutex = 0
+	}
 }
 
 func main() {
+	arg := ""
+	if len(os.Args) > 1 {
+		arg = strings.ToLower(os.Args[1])
+	}
+	if arg == "/version" {
+		fmt.Print(version)
+		return
+	}
+	if arg == "/update" {
+		// Started in the background by the CordmuffinUpdater plugin: no windows, no questions.
+		silent = true
+		if !singleInstance() || muffinshelfBusy() {
+			os.Exit(exitBusy)
+		}
+		if err := os.MkdirAll(workDir(), 0o755); err != nil {
+			os.Exit(exitFailed)
+		}
+		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		if os.Getenv("CORDMUFFIN_UPDATED_FROM") != "" {
+			flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+		}
+		logFile, _ = os.OpenFile(filepath.Join(workDir(), "update.log"), flags, 0o644)
+		say("Cordmuffin background update, installer v%s, %s", version, time.Now().Format(time.RFC1123))
+		os.Remove(installerExe() + ".old")
+		holdLock()
+		code := update()
+		dropLock()
+		if logFile != nil {
+			logFile.Close()
+		}
+		os.Exit(code)
+	}
+
 	if !singleInstance() {
-		message("The installer is already running. Wait for it to finish first.", mbOK|mbIconWarning)
+		message("The installer is already running, or Cordmuffin is updating in the background. Wait a minute for it to finish first.", mbOK|mbIconWarning)
 		return
 	}
 	if err := os.MkdirAll(workDir(), 0o755); err != nil {
 		message(fmt.Sprintf("Couldn't create %s: %v", workDir(), err), mbOK|mbIconError)
 		os.Exit(1)
 	}
+	if muffinshelfBusy() {
+		message("Muffinshelf is installing or removing a plugin right now. Wait for it to finish, then run this again.", mbOK|mbIconWarning)
+		return
+	}
+	holdLock()
+	defer dropLock()
 	logFile, _ = os.Create(filepath.Join(workDir(), "install.log"))
 	os.MkdirAll(filepath.Join(kitDir(), pluginsFolder), 0o755)
 	os.MkdirAll(filepath.Join(kitDir(), themesFolder), 0o755)
 
-	if len(os.Args) > 1 {
-		switch strings.ToLower(os.Args[1]) {
+	if arg != "" {
+		switch arg {
 		case "/install":
 			silent = true
 			install()
@@ -1182,6 +2296,7 @@ func main() {
 		}
 		if silent {
 			if runFailed {
+				dropLock()
 				os.Exit(1)
 			}
 			return
@@ -1209,6 +2324,9 @@ func main() {
 		install()
 	}
 
+	// Finished: background updates and Muffinshelf may build again while this window stays open.
+	dropLock()
+	releaseMutex()
 	fmt.Print("\nPress Enter to close this window.")
 	bufio.NewReader(os.Stdin).ReadString('\n')
 }
