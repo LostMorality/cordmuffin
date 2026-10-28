@@ -78,7 +78,7 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Spoof** switches to that game right away. The game you're spoofing always stays at the top.
 - **Rotation:** cycles through your favorites or random games on a timer.
 - **Add Time** and **Add Random Games:** add play time to one game, all your favorites, or any number of random games (or all of them). It can stick to games you've never played, so each one counts toward Game Variety.
-- **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when the next badge update should land.
+- **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when your added time should be counted.
 - **Works out the totals for you:** for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
 - **Real games count too.** The games you actually play also get reported, even with Equicord's NoTrack blocking Discord's own reports.
 
@@ -86,7 +86,7 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 
 It starts turned off. Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a game with the controller button.
 
-Badges don't update right away: Discord counts new play time about once a day, so it shows up 24 to 48 hours later. There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
+Badges don't update right away: Discord updates them once a day, so new play time shows up at its next daily update, within about 24 hours. There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
 
 **Settings you need (and the one you don't):**
 - **Leave NoTrack alone.** You don't need to turn off NoTrack or its "block analytics" option, whatever other guides say. GameTimeSpoof sends its own play-time reports, so they get through either way. Leaving it on is actually better: with it on, GameTimeSpoof also reports the real games you play, and nothing gets counted twice.
