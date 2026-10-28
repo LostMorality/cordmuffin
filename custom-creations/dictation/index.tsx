@@ -18,7 +18,9 @@ import { sleep } from "@utils/misc";
 import { useForceUpdater } from "@utils/react";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
-import { Alerts, ComponentDispatch, ContextMenuApi, MediaEngineStore, Menu, ReactDOM, SelectedChannelStore, showToast, useEffect, useState } from "@webpack/common";
+import { Alerts, ComponentDispatch, ContextMenuApi, MediaEngineStore, Menu, ReactDOM, SelectedChannelStore, useEffect, useState } from "@webpack/common";
+
+import { notify } from "./notify";
 
 const Native = VencordNative.pluginHelpers.Dictation as PluginNative<typeof import("./native")>;
 const logger = new Logger("Dictation");
@@ -231,11 +233,11 @@ async function download(what: "cohere" | "parakeet" | "grammar", title: string, 
 
     try {
         await job;
-        showToast({ text: doneText, variant: "success" });
+        notify(doneText, "success");
         return true;
     } catch (e) {
         logger.error("Download failed", e);
-        showToast({ text: `Download failed: ${errorText(e)}`, variant: "critical" });
+        notify(`Download failed: ${errorText(e)}`, "critical");
         return false;
     } finally {
         setPhase("idle");
@@ -246,7 +248,7 @@ async function ensureGrammar() {
     const status = await Native.getStatus(currentModel());
     if (!status.grammarSupported) {
         settings.store.grammar = false;
-        return showToast({ text: "Grammar fixing isn't available on this kind of computer.", variant: "critical" });
+        return notify("Grammar fixing isn't available on this kind of computer.", "critical");
     }
     if (status.grammarInstalled) return;
 
@@ -394,7 +396,7 @@ async function startRecording() {
     const gen = generation;
     const model = currentModel();
     const status = await Native.getStatus(model);
-    if (!status.supported) return showToast({ text: "Dictation isn't available on this kind of computer yet.", variant: "critical" });
+    if (!status.supported) return notify("Dictation isn't available on this kind of computer yet.", "critical");
     if (!status.speechInstalled) {
         await download(
             model,
@@ -409,7 +411,7 @@ async function startRecording() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: await discordMicConstraints() });
     } catch (e) {
-        return showToast({ text: `Couldn't open your microphone: ${errorText(e)}`, variant: "critical" });
+        return notify(`Couldn't open your microphone: ${errorText(e)}`, "critical");
     }
     if (gen !== generation) {
         stream.getTracks().forEach(t => t.stop());
@@ -519,24 +521,24 @@ async function stopRecording() {
 
     if (rec.length < SAMPLE_RATE / 2) {
         finish();
-        return showToast({ text: heldStart ? "Hold the keys down while you talk." : "That was too short to hear anything.", variant: "default" });
+        return notify(heldStart ? "Hold the keys down while you talk." : "That was too short to hear anything.", "default");
     }
     const range = voicedRange(rec);
     if (!range) {
         finish();
-        return showToast({ text: "Didn't hear you talking, so nothing was added. Check that your mic is on.", variant: "default" });
+        return notify("Didn't hear you talking, so nothing was added. Check that your mic is on.", "default");
     }
 
     setPhase("working", "Turning your voice into text");
     try {
         let text = cleanText(await Native.transcribe(currentModel(), samplesOf(rec, range.start, range.end)));
-        if (!text) return showToast({ text: "Didn't catch anything. Try again a bit louder.", variant: "default" });
+        if (!text) return notify("Didn't catch anything. Try again a bit louder.", "default");
 
         if (settings.store.grammar) {
             setPhase("working", "Fixing grammar");
             text = await Native.fixGrammar(text).catch(e => {
                 logger.warn("Grammar fix failed", e);
-                showToast({ text: `Grammar fix skipped: ${errorText(e)}`, variant: "default" });
+                notify(`Grammar fix skipped: ${errorText(e)}`, "default");
                 return text;
             });
         }
@@ -545,7 +547,7 @@ async function stopRecording() {
         insertInto(activeChannel, text + " ");
     } catch (e) {
         logger.error("Transcription failed", e);
-        showToast({ text: `Dictation failed: ${errorText(e)}`, variant: "critical" });
+        notify(`Dictation failed: ${errorText(e)}`, "critical");
     } finally {
         finish();
     }
@@ -567,7 +569,7 @@ function begin(held: boolean, channelId: string | null) {
     startRecording().catch(e => {
         logger.error("Couldn't start", e);
         setPhase("idle");
-        showToast({ text: `Dictation failed: ${errorText(e)}`, variant: "critical" });
+        notify(`Dictation failed: ${errorText(e)}`, "critical");
     }).finally(() => starting = false);
 }
 
