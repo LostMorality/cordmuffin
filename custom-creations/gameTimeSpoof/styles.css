@@ -152,7 +152,17 @@
 }
 
 .vc-gts-count {
-    margin-bottom: 12px;
+    margin: 4px 0 12px;
+}
+
+.vc-gts-count-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.vc-gts-count-row > :first-child {
+    flex: 1;
 }
 
 .vc-gts-star:focus-visible {
@@ -167,4 +177,24 @@
 
 .vc-gts-retry {
     margin: 12px auto 0;
+}
+
+.vc-gts-notice {
+    margin-bottom: 12px;
+}
+
+.vc-gts-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--background-mod-subtle);
+}
+
+.vc-gts-badge-line {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
