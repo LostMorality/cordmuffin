@@ -18,7 +18,7 @@ import { sleep } from "@utils/misc";
 import { useForceUpdater } from "@utils/react";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import { findComponentByCodeLazy } from "@webpack";
-import { Alerts, ContextMenuApi, MediaEngineStore, Menu, ReactDOM, showToast, useEffect, useState } from "@webpack/common";
+import { Alerts, ComponentDispatch, ContextMenuApi, MediaEngineStore, Menu, ReactDOM, SelectedChannelStore, showToast, useEffect, useState } from "@webpack/common";
 
 const Native = VencordNative.pluginHelpers.Dictation as PluginNative<typeof import("./native")>;
 const logger = new Logger("Dictation");
@@ -34,6 +34,8 @@ const MODIFIER_KEYS: Record<string, string> = { Control: "ctrl", Alt: "alt", Shi
 
 let capturingShortcut = false;
 let heldStart = false;
+let activeChannel: string | null = null;
+const anchors = new Map<string, Element>();
 let holding = false;
 
 const keyName = (code: string) => code.replace(/^Key|^Digit/, "").replace(/^Numpad/, "Num ");
@@ -503,6 +505,12 @@ function releaseRecording() {
 function finish() {
     setLive("", "");
     setPhase("idle");
+    activeChannel = null;
+}
+
+function insertInto(channelId: string | null, text: string) {
+    if (channelId) ComponentDispatch.dispatch("TEXTAREA_FOCUS", { channelId });
+    insertTextIntoChatInputBox(text);
 }
 
 async function stopRecording() {
@@ -534,7 +542,7 @@ async function stopRecording() {
         }
         if (!settings.store.punctuation) text = text.replace(/[.,!?;:]+(?=\s|$)/g, "");
 
-        insertTextIntoChatInputBox(text + " ");
+        insertInto(activeChannel, text + " ");
     } catch (e) {
         logger.error("Transcription failed", e);
         showToast({ text: `Dictation failed: ${errorText(e)}`, variant: "critical" });
@@ -543,9 +551,18 @@ async function stopRecording() {
     }
 }
 
-function begin(held: boolean) {
+function focusedChannel() {
+    const focused = document.activeElement;
+    for (const [channelId, anchor] of anchors) {
+        if (focused && anchor.closest("form")?.contains(focused)) return channelId;
+    }
+    return SelectedChannelStore.getChannelId() ?? null;
+}
+
+function begin(held: boolean, channelId: string | null) {
     if (starting) return;
     starting = true;
+    activeChannel = channelId;
     heldStart = held;
     startRecording().catch(e => {
         logger.error("Couldn't start", e);
@@ -554,8 +571,8 @@ function begin(held: boolean) {
     }).finally(() => starting = false);
 }
 
-function onClick() {
-    if (phase === "idle") begin(false);
+function onClick(channelId: string) {
+    if (phase === "idle") begin(false, channelId);
     else if (phase === "recording") stopRecording();
 }
 
@@ -569,7 +586,7 @@ function onKeyDown(e: KeyboardEvent) {
     e.preventDefault();
     if (e.repeat || holding) return;
     holding = true;
-    if (phase === "idle") begin(true);
+    if (phase === "idle") begin(true, focusedChannel());
 }
 
 function release() {
@@ -613,7 +630,7 @@ function LiveBubble({ anchor }: { anchor: Element | null; }) {
     );
 }
 
-const DictationButton: ChatBarButtonFactory = ({ isMainChat }) => {
+const DictationButton: ChatBarButtonFactory = ({ isAnyChat, channel }) => {
     const forceUpdate = useForceUpdater();
     const [anchor, setAnchor] = useState<SVGSVGElement | null>(null);
     useEffect(() => {
@@ -625,13 +642,23 @@ const DictationButton: ChatBarButtonFactory = ({ isMainChat }) => {
         };
     }, []);
 
-    if (!isMainChat) return null;
+    useEffect(() => {
+        if (!anchor) return;
+        anchors.set(channel.id, anchor);
+        return () => {
+            if (anchors.get(channel.id) === anchor) anchors.delete(channel.id);
+        };
+    }, [anchor, channel.id]);
 
-    const showBubble = settings.store.liveText && (phase === "recording" || (phase === "working" && !!liveText));
+    if (!isAnyChat) return null;
+
+    const active = phase !== "idle" && (activeChannel == null || activeChannel === channel.id);
+    const showBubble = active && settings.store.liveText && (phase === "recording" || (phase === "working" && !!liveText));
+    const busy = phase !== "idle" && !active;
 
     return (
-        <ChatBarButton tooltip={TOOLTIPS[phase] || progress} onClick={onClick} onContextMenu={openMicMenu}>
-            <svg ref={el => { setAnchor(el); return meterRef(el); }} className={cl("icon", phase)} width="20" height="20" viewBox="0 0 24 24">
+        <ChatBarButton tooltip={busy ? "Dictating in another chat" : TOOLTIPS[phase] || progress} onClick={() => !busy && onClick(channel.id)} onContextMenu={openMicMenu}>
+            <svg ref={el => { setAnchor(el); return active ? meterRef(el) : undefined; }} className={cl("icon", active ? phase : "idle")} width="20" height="20" viewBox="0 0 24 24">
                 <path fill="currentColor" d="M12 15a4 4 0 0 0 4-4V5a4 4 0 1 0-8 0v6a4 4 0 0 0 4 4Z" />
                 <path fill="currentColor" d="M6 11a1 1 0 1 0-2 0 8 8 0 0 0 7 7.94V21H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-2.06A8 8 0 0 0 20 11a1 1 0 1 0-2 0 6 6 0 0 1-12 0Z" />
             </svg>
