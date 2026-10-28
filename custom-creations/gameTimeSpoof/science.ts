@@ -113,9 +113,15 @@ function session(game: ReportedGame, durationMs: number, end: number, sentAt: nu
     return [heartbeat(game, 0, sessionId, true, start, sentAt), launch(game, start, sentAt), heartbeat(game, durationMs, sessionId, false, end, sentAt)];
 }
 
+// Tracking blockers that swallow the request hand back nothing, or a fake failure, instead of Discord's answer.
+async function send(events: unknown[]) {
+    const res = await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events } });
+    if (!res?.ok) throw Object.assign(new Error("Discord did not receive the play time"), { status: res?.status, blocked: res?.status == null });
+}
+
 export async function reportPlaytime(game: ReportedGame, durationMs: number) {
     const now = Date.now();
-    await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: session(game, Math.min(durationMs, MAX_SESSION_MS), now, now) } });
+    await send(session(game, Math.min(durationMs, MAX_SESSION_MS), now, now));
 }
 
 export interface CreditPlan {
@@ -185,9 +191,10 @@ export async function creditPlaytime(plan: CreditPlan, signal: AbortSignal, onPr
         const batch = Array.from({ length: Math.min(SESSIONS_PER_REQUEST, plan.length - sent) }, (_, i) => plan.at(sent + i));
         try {
             const sentAt = Date.now();
-            await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: batch.flatMap(p => session(p.game, p.durationMs, p.end, sentAt)) } });
+            await send(batch.flatMap(p => session(p.game, p.durationMs, p.end, sentAt)));
         } catch (e: any) {
             if (signal.aborted) break;
+            if (e?.blocked) throw new CreditError(sent, plan.length, e);
             const status = e?.status;
             if (status === 429) {
                 const delay = retryAfterMs(e);
