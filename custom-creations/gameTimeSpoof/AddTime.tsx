@@ -12,11 +12,12 @@ import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { Modal, openModal, showToast, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
+import { Modal, openModal, showToast, TextInput, useEffect, useMemo, useState } from "@webpack/common";
 
 import { DetectableApp, exeName } from ".";
-import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, recordCredit, tierFor, UPDATE_WITHIN_MS } from "./badges";
-import { CreditError, creditPlaytime, CreditProgress, loadPlayedIds, planCredit } from "./science";
+import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, tierFor, UPDATE_WITHIN_MS } from "./badges";
+import { startCredit, useCrediting } from "./job";
+import { CreditProgress, loadPlayedIds, planCredit } from "./science";
 
 const cl = classNameFactory("vc-gts-");
 
@@ -99,12 +100,9 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
     const [count, setCount] = useState("10");
     const [newOnly, setNewOnly] = useState(true);
     const [played, setPlayed] = useState<Set<string> | null | "failed">(null);
-    const [progress, setProgress] = useState<string | null>(null);
     const [badges, setBadges] = useState<Badges | null | "failed">(null);
-    const running = useRef(false);
-    const abort = useRef(new AbortController());
+    const busy = useCrediting();
 
-    useEffect(() => () => abort.current.abort(), []);
     useEffect(() => {
         loadPlayedIds().then(setPlayed, () => setPlayed("failed"));
         loadBadges().then(setBadges, () => setBadges("failed"));
@@ -119,11 +117,13 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
     const gameCount = pool ? Math.min(Number(count) || 0, available.length) : apps.length;
     const sessions = gameCount * Math.ceil(durationMs / 86_400_000);
     const estimateMs = Math.ceil(sessions / SESSIONS_PER_REQUEST) * MS_PER_REQUEST;
-    const problem = gameCount < 1 ? (pool && !available.length ? "No games left that you haven't played. Turn off the switch above to include them." : "Pick at least one game.")
+    const problem = busy ? "Play time is already being added. Wait for it to finish, or stop it from the box in the corner."
+        : gameCount < 1 ? (pool && !available.length ? "No games left that you haven't played. Turn off the switch above to include them." : "Pick at least one game.")
         : durationMs < 60_000 ? "Add at least 1 minute."
             : null;
 
     const summary = `${formatDuration(durationMs)} per game × ${plural(gameCount, "game")} = ${formatTotal(durationMs * gameCount)} in total. Takes ${formatWait(estimateMs)}.`
+        + " It runs in the background, so you can close this and keep using Discord."
         + (estimateMs > LONG_RUN_MS ? " Keep Discord open until it's done; Stop keeps what's already sent." : "");
 
     const knownBadges = badges && badges !== "failed" ? badges : null;
@@ -133,51 +133,20 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
     const addingHours = problem ? null : Math.floor(durationMs * gameCount / 3_600_000);
     const addingGames = problem ? null : newGames;
 
-    async function credit() {
-        if (running.current || problem) return;
-        running.current = true;
-        setProgress("Starting...");
+    function credit() {
+        if (problem) return;
         const targets = pool ? pickRandom(available, gameCount) : apps;
         const plan = planCredit(targets.map(app => ({ id: app.id, name: app.name, processName: exeName(app) })), durationMs);
-        const { signal } = abort.current;
-        try {
-            const sent = await creditPlaytime(plan, signal, p => setProgress(progressText(p)));
-            logSent(plan, sent);
-            if (signal.aborted) {
-                if (sent) showToast({ text: `Stopped. ${sent.toLocaleString()} of ${plan.length.toLocaleString()} sessions were sent and still count.`, variant: "default" });
-                return;
-            }
-            showToast({ text: `Credited ${formatTotal(durationMs * targets.length)} in total across ${plural(targets.length, "game")}. Your badges should update ${countedBy(Date.now())}.`, variant: "success" });
-            modalProps.onClose();
-        } catch (e) {
-            const sent = e instanceof CreditError ? e.sent : 0;
-            logSent(plan, sent);
-            showToast({
-                text: sent
-                    ? `Discord stopped accepting play time after ${sent.toLocaleString()} of ${plan.length.toLocaleString()} sessions. The ones sent still count, so don't run the same thing again right away.`
-                    : "Discord didn't accept the play time. Try again in a bit.",
-                variant: "critical"
-            });
-            setProgress(null);
-        } finally {
-            running.current = false;
-        }
-    }
-
-    function logSent(plan: ReturnType<typeof planCredit>, sent: number) {
-        let ms = 0;
-        const games = new Set<string>();
-        for (let i = 0; i < sent; i++) {
-            const session = plan.at(i);
-            ms += session.durationMs;
-            games.add(session.game.id);
-        }
-        const fresh = played instanceof Set ? [...games].filter(id => !played.has(id)).length : 0;
-        recordCredit(ms / 3_600_000, fresh, knownBadges);
-    }
-
-    function stop() {
-        abort.current.abort();
+        const total = plan.length.toLocaleString();
+        startCredit({
+            plan,
+            played: played instanceof Set ? played : null,
+            badges: knownBadges,
+            describe: sent => `${sent.toLocaleString()} of ${total} sessions`,
+            progressText,
+            doneText: () => `Credited ${formatTotal(durationMs * targets.length)} in total across ${plural(targets.length, "game")}. Your badges should update ${countedBy(Date.now())}.`
+        });
+        showToast({ text: "Adding play time in the background. Progress is in the bottom right corner.", variant: "default" });
         modalProps.onClose();
     }
 
@@ -192,8 +161,8 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
             title="Add Play Time"
             subtitle={pool ? "Picks random games Discord can detect and adds time to each one." : `Adds time to ${label}${apps.length > 1 ? ` (${apps.length} games)` : ""}.`}
             actions={[
-                { text: progress ? "Stop" : "Cancel", variant: "secondary", onClick: progress ? stop : modalProps.onClose },
-                { text: "Add Time", variant: "primary", onClick: credit, loading: progress !== null, disabled: !!problem || progress !== null }
+                { text: "Cancel", variant: "secondary", onClick: modalProps.onClose },
+                { text: "Add Time", variant: "primary", onClick: credit, disabled: !!problem }
             ]}
         >
             <Notice.Warning className={cl("notice")}>
@@ -220,14 +189,13 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
                         description={`New games count toward the Game Variety badge. ${playedNote}`}
                         value={newOnly}
                         onChange={setNewOnly}
-                        disabled={progress !== null}
                         hideBorder
                     />
                     <div className={cl("time-input", "count")}>
                         <Heading tag="h5">Number of Games</Heading>
                         <div className={cl("count-row")}>
-                            <TextInput value={count} onChange={v => setCount(digits(v, available.length))} placeholder="10" disabled={progress !== null} />
-                            <Button size="small" variant="secondary" onClick={() => setCount(String(available.length))} disabled={progress !== null || !available.length}>
+                            <TextInput value={count} onChange={v => setCount(digits(v, available.length))} placeholder="10" />
+                            <Button size="small" variant="secondary" onClick={() => setCount(String(available.length))} disabled={!available.length}>
                                 All ({available.length.toLocaleString()})
                             </Button>
                         </div>
@@ -238,11 +206,11 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
                 {UNITS.map(([unit, , max]) => (
                     <div key={unit} className={cl("time-input")}>
                         <Heading tag="h5">{unit[0].toUpperCase() + unit.slice(1)}</Heading>
-                        <TextInput value={values[unit]} onChange={v => setValues(s => ({ ...s, [unit]: digits(v, max) }))} placeholder="0" disabled={progress !== null} />
+                        <TextInput value={values[unit]} onChange={v => setValues(s => ({ ...s, [unit]: digits(v, max) }))} placeholder="0" />
                     </div>
                 ))}
             </div>
-            <Paragraph>{progress ?? problem ?? summary}</Paragraph>
+            <Paragraph>{problem ?? summary}</Paragraph>
         </Modal>
     );
 }
