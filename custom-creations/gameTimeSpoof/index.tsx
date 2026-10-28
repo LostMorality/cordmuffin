@@ -15,11 +15,12 @@ import { Paragraph } from "@components/Paragraph";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
 import { RunningGame } from "@vencord/discord-types";
-import { FluxDispatcher, RestAPI, RunningGameStore, showToast } from "@webpack/common";
+import { FluxDispatcher, RestAPI, RunningGameStore } from "@webpack/common";
 
-import type { PendingCredit } from "./badges";
+import { loadBadges, type PendingCredit, savedPending, type SeenBadges, type UpdateClock } from "./badges";
 import { openGameBrowser } from "./GameBrowser";
 import { cancelCredit } from "./job";
+import { notify } from "./notify";
 import { ReportedGame, reportPlaytime } from "./science";
 
 const logger = new Logger("GameTimeSpoof");
@@ -75,8 +76,26 @@ export const settings = definePluginSettings({
         type: OptionType.CUSTOM,
         default: [] as PendingCredit[],
         description: ""
+    },
+    updateClock: {
+        type: OptionType.CUSTOM,
+        default: null as UpdateClock | null,
+        description: ""
+    },
+    lastSeen: {
+        type: OptionType.CUSTOM,
+        default: null as SeenBadges | null,
+        description: ""
     }
 });
+
+// While added time is waiting, a look at the badges each hour catches the daily update and learns when it runs.
+const BADGE_CHECK_INTERVAL = 3_600_000;
+let badgeTimer: ReturnType<typeof setInterval> | undefined;
+
+function checkBadges() {
+    if (settings.store.pending.length) loadBadges().catch(e => logger.warn("Couldn't check badge progress", e));
+}
 
 let active = false;
 let generation = 0;
@@ -159,7 +178,8 @@ function makeFakeGame(app: DetectableApp, index: number): FakeGame {
         exePath,
         cmdLine: `"${exePath}"`,
         processName: exe,
-        distributor: "",
+        // Games found outside a store have no distributor; Discord's /activities rejects an empty one.
+        distributor: undefined as unknown as string,
         pid,
         pidPath: [pid],
         start: now,
@@ -273,7 +293,7 @@ async function apply() {
     } catch (e) {
         if (run !== generation || !active) return;
         logger.error("Failed to fetch detectable games", e);
-        showToast({ text: "GameTimeSpoof couldn't load Discord's game list. It'll try again in a minute.", variant: "critical" });
+        notify("GameTimeSpoof couldn't load Discord's game list. It'll try again in a minute.", "critical");
         retryTimer = setTimeout(() => run === generation && apply(), LOAD_RETRY_MS);
         return;
     }
@@ -283,7 +303,7 @@ async function apply() {
     for (const entry of entries) {
         const app = resolveApp(apps, entry);
         if (app) resolved.push(app);
-        else showToast({ text: `GameTimeSpoof: "${entry}" isn't a detectable game`, variant: "critical" });
+        else notify(`GameTimeSpoof: "${entry}" isn't a detectable game`, "critical");
     }
     if (!resolved.length) return;
 
@@ -364,6 +384,7 @@ export default definePlugin({
 
     start() {
         active = true;
+        if (settings.store.pending.length) settings.store.pending = savedPending();
         trackRealPlay = Settings.plugins.NoTrack?.disableAnalytics !== false;
         lastTick = Date.now();
         appliedKey = parseGames(settings.store.games).join(",").toLowerCase();
@@ -372,6 +393,8 @@ export default definePlugin({
         apply();
         updateRotation(false);
         reportTimer = setInterval(tick, REPORT_INTERVAL);
+        badgeTimer = setInterval(checkBadges, BADGE_CHECK_INTERVAL);
+        checkBadges();
     },
 
     stop() {
@@ -379,7 +402,8 @@ export default definePlugin({
         cancelCredit();
         clearInterval(rotationTimer);
         clearInterval(reportTimer);
-        rotationTimer = reportTimer = undefined;
+        clearInterval(badgeTimer);
+        rotationTimer = reportTimer = badgeTimer = undefined;
         const index = FluxDispatcher._interceptors.indexOf(interceptor);
         if (index !== -1) FluxDispatcher._interceptors.splice(index, 1);
         reportElapsed([...realGames.values()]);
