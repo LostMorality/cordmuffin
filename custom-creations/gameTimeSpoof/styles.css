@@ -198,3 +198,66 @@
     flex-direction: column;
     gap: 2px;
 }
+
+.vc-gts-job {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 2000;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--background-surface-higher, var(--background-floating));
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-high, 0 8px 24px rgb(0 0 0 / 40%));
+    color: var(--text-default, var(--text-normal));
+    font-size: 14px;
+}
+
+.vc-gts-job-small {
+    width: 220px;
+    padding: 8px 12px;
+}
+
+.vc-gts-job-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.vc-gts-job-title {
+    font-weight: 600;
+    color: var(--header-primary, var(--text-strong));
+}
+
+.vc-gts-job-toggle {
+    color: var(--interactive-icon-default, var(--interactive-normal));
+}
+
+.vc-gts-job-bar {
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--background-mod-strong);
+}
+
+.vc-gts-job-fill {
+    height: 100%;
+    background: var(--status-positive);
+    transition: width 0.3s ease;
+}
+
+.vc-gts-job-text {
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.vc-gts-job-actions {
+    display: flex;
+    justify-content: flex-end;
+}
