@@ -14,7 +14,9 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import type { Quest } from "@vencord/discord-types";
 import { findByCodeLazy, findStoreLazy } from "@webpack";
-import { ChannelStore, GuildChannelStore, QuestStore, React, RestAPI, RunningGameStore, showToast, UserStore } from "@webpack/common";
+import { ChannelStore, GuildChannelStore, QuestStore, React, RestAPI, RunningGameStore, UserStore } from "@webpack/common";
+
+import { notify } from "./notify";
 
 const Native = VencordNative.pluginHelpers.QuestRunner as PluginNative<typeof import("./native")>;
 const logger = new Logger("QuestRunner");
@@ -164,7 +166,7 @@ function pickTask(quest: Quest): { task: Task; kind: RunKind; } | null {
 }
 
 function toast(text: string, variant: "default" | "success" | "critical" = "default") {
-    showToast({ text, variant });
+    notify(text, variant);
 }
 
 function problem(run: Run, text: string, once = true) {
