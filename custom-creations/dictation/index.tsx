@@ -168,6 +168,10 @@ interface Recording {
 let phase: Phase = "idle";
 let progress = "";
 let recording: Recording | null = null;
+// Opening the mic takes a moment; a second click meanwhile mustn't open it twice.
+let starting = false;
+// Bumped when the plugin stops, so a start that was still opening the mic lets it go.
+let generation = 0;
 let liveText = "";
 let liveHint = "";
 const listeners = new Set<() => void>();
@@ -397,11 +401,16 @@ async function startRecording() {
         return;
     }
 
+    const gen = generation;
     let stream: MediaStream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: await discordMicConstraints() });
     } catch (e) {
         return showToast({ text: `Couldn't open your microphone: ${errorText(e)}`, variant: "critical" });
+    }
+    if (gen !== generation) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
     }
 
     Native.warmUp(model, settings.store.grammar && status.grammarInstalled).catch(e => logger.warn("Warm up failed", e));
@@ -534,12 +543,14 @@ async function stopRecording() {
 }
 
 function begin(held: boolean) {
+    if (starting) return;
+    starting = true;
     heldStart = held;
     startRecording().catch(e => {
         logger.error("Couldn't start", e);
         setPhase("idle");
         showToast({ text: `Dictation failed: ${errorText(e)}`, variant: "critical" });
-    });
+    }).finally(() => starting = false);
 }
 
 function onClick() {
@@ -673,6 +684,7 @@ export default definePlugin({
         document.removeEventListener("keyup", onKeyUp, true);
         window.removeEventListener("blur", release);
         holding = false;
+        generation++;
         releaseRecording();
         finish();
         Native.unload();
