@@ -687,6 +687,9 @@ func addPlugins(src, inbox string) (added, kept, skipped []string, err error) {
 
 	entries, _ := os.ReadDir(inbox)
 	for _, e := range entries {
+		if isTempCopy(e.Name()) {
+			continue
+		}
 		path := filepath.Join(inbox, e.Name())
 		ext := strings.ToLower(filepath.Ext(e.Name()))
 		switch {
@@ -827,17 +830,36 @@ func sameTree(a, b string) bool {
 }
 
 func replaceTree(dir, from string) error {
-	tmp := dir + ".cordmuffin-new"
+	tmp, old := dir+tempSuffixNew, dir+tempSuffixOld
 	removeAll(tmp)
+	removeAll(old)
 	if err := copyTree(from, tmp); err != nil {
 		removeAll(tmp)
 		return err
 	}
-	if err := removeAll(dir); err != nil {
+	// The old copy is only deleted once the new one is in place, so a failed rename can't leave neither.
+	if exists(dir) {
+		if err := rename(dir, old); err != nil {
+			removeAll(tmp)
+			return lockedHint(err)
+		}
+	}
+	if err := rename(tmp, dir); err != nil {
+		if exists(old) {
+			rename(old, dir)
+		}
 		removeAll(tmp)
 		return lockedHint(err)
 	}
-	return rename(tmp, dir)
+	removeAll(old)
+	return nil
+}
+
+const tempSuffixNew, tempSuffixOld = ".cordmuffin-new", ".cordmuffin-old"
+
+// Half-replaced copies left by a crash in the middle of replaceTree; they're never plugins of their own.
+func isTempCopy(name string) bool {
+	return strings.HasSuffix(name, tempSuffixNew) || strings.HasSuffix(name, tempSuffixOld)
 }
 
 // The replaced copy goes to plugin-backups first, so an update never loses changes someone made to a plugin.
@@ -939,6 +961,8 @@ func mirrorOutdated(repoDir string) bool {
 
 type muffinshelfUpdate struct {
 	folder, name, staged string
+	// Records the new commit as skipped, so a version that doesn't build isn't tried again on every check.
+	skip func()
 }
 
 func validGitHubName(s string) bool {
@@ -974,7 +998,7 @@ func muffinshelfUpdates() []muffinshelfUpdate {
 	for _, e := range entries {
 		saved := filepath.Join(muffinshelfSaved(), e.Name())
 		data, err := os.ReadFile(filepath.Join(saved, muffinshelfMarker))
-		if !e.IsDir() || err != nil {
+		if !e.IsDir() || err != nil || isTempCopy(e.Name()) {
 			continue
 		}
 		marker := map[string]any{}
@@ -1075,7 +1099,7 @@ func muffinshelfUpdates() []muffinshelfUpdate {
 		if err := os.WriteFile(filepath.Join(staged, muffinshelfMarker), newMarker, 0o644); err != nil {
 			continue
 		}
-		updates = append(updates, muffinshelfUpdate{folder: e.Name(), name: name, staged: staged})
+		updates = append(updates, muffinshelfUpdate{folder: e.Name(), name: name, staged: staged, skip: skip})
 	}
 	return updates
 }
@@ -1627,6 +1651,7 @@ func install() {
 	say("Step 1 of 3: Getting Equicord ready")
 	prev := loadState()
 	kitPlugins := filepath.Join(kitDir(), pluginsFolder)
+	carried := carryOverPlugins(prev, kitPlugins)
 	res, err := build(buildOptions{inbox: kitPlugins, kitPlugins: kitPlugins})
 	if err != nil {
 		say("Failed: %v", err)
@@ -1694,8 +1719,17 @@ func install() {
 			text.WriteString(" Discord is opening now.")
 		}
 	}
-	if len(res.added) > 0 {
-		fmt.Fprintf(&text, "\n\nPlugins added: %s\nTurn them on in Discord: User Settings, then Plugins.", strings.Join(res.added, ", "))
+	var added []string
+	for _, p := range res.added {
+		if !containsFold(carried, p) {
+			added = append(added, p)
+		}
+	}
+	if len(added) > 0 {
+		fmt.Fprintf(&text, "\n\nPlugins added: %s\nTurn them on in Discord: User Settings, then Plugins.", strings.Join(added, ", "))
+	}
+	if len(carried) > 0 {
+		fmt.Fprintf(&text, "\n\nKept the plugins from your last install and copied them into the %q folder here: %s", pluginsFolder, strings.Join(carried, ", "))
 	}
 	if len(res.updated) > 0 {
 		fmt.Fprintf(&text, "\n\nUpdated to the newest version: %s", strings.Join(res.updated, ", "))
@@ -1704,7 +1738,7 @@ func install() {
 		fmt.Fprintf(&text, "\n\nKept the plugins you installed with Muffinshelf: %s", strings.Join(res.kept, ", "))
 	}
 	if containsFold(res.tracked, updaterPlugin) {
-		text.WriteString("\n\nUpdates now install by themselves while Discord is open. You can turn that off in the CordmuffinUpdater plugin's settings.")
+		text.WriteString("\n\nCordmuffin's plugins now update by themselves while Discord is open. You can turn that off, or turn on Equicord updates, in Discord: User Settings, then Cordmuffin Updater.")
 	}
 	if len(themes) > 0 {
 		fmt.Fprintf(&text, "\n\nThemes added and turned on: %s", strings.Join(themes, ", "))
@@ -1725,6 +1759,74 @@ func install() {
 	}
 	say("Done.")
 	message(strings.TrimSpace(text.String()), mbOK|flags)
+}
+
+// Running a new download from another folder starts with an empty plugins folder, so the plugins of the last
+// install are copied into it first. They come from the old kit folder, else the copy of the last build, else
+// (installers before 1.2.0 kept no record) the last build's Equicord source. Muffinshelf plugins and the updater
+// are left out, since every build adds those by itself.
+func carryOverPlugins(prev *installState, kitPlugins string) []string {
+	var from string
+	switch {
+	case prev != nil && prev.KitDir != "":
+		old := filepath.Join(prev.KitDir, pluginsFolder)
+		if strings.EqualFold(filepath.Clean(old), filepath.Clean(kitPlugins)) {
+			return nil
+		}
+		if isDir(old) {
+			from = old
+		} else if isDir(mirrorDir()) {
+			from = mirrorDir()
+		}
+	case prev != nil && isDir(mirrorDir()):
+		from = mirrorDir()
+	default:
+		from = filepath.Join(equicordSrc(), "src", "userplugins")
+	}
+	entries, err := os.ReadDir(from)
+	if from == "" || err != nil {
+		return nil
+	}
+
+	pluginName := func(name string) string {
+		for _, ext := range []string{".zip", ".tsx", ".ts"} {
+			if strings.HasSuffix(strings.ToLower(name), ext) {
+				return strings.ToLower(name[:len(name)-len(ext)])
+			}
+		}
+		return strings.ToLower(name)
+	}
+	have := map[string]bool{strings.ToLower(updaterPlugin): true}
+	for _, dir := range []string{kitPlugins, muffinshelfSaved()} {
+		existing, _ := os.ReadDir(dir)
+		for _, e := range existing {
+			have[pluginName(e.Name())] = true
+		}
+	}
+
+	var carried []string
+	for _, e := range entries {
+		name := e.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if strings.HasPrefix(name, ".") || isTempCopy(name) || have[pluginName(name)] ||
+			!e.IsDir() && ext != ".zip" && ext != ".ts" && ext != ".tsx" {
+			continue
+		}
+		if err := os.MkdirAll(kitPlugins, 0o755); err != nil {
+			say("Couldn't bring over the plugins from your last install: %v", err)
+			return carried
+		}
+		target := filepath.Join(kitPlugins, name)
+		if err := copyTree(filepath.Join(from, name), target); err != nil {
+			removeAll(target)
+			say("Couldn't bring over %s from your last install: %v", name, err)
+			continue
+		}
+		have[pluginName(name)] = true
+		carried = append(carried, strings.TrimSuffix(name, filepath.Ext(name)))
+		say("  Bringing over plugin from your last install: %s", name)
+	}
+	return carried
 }
 
 // Keeps a copy of the installer where the CordmuffinUpdater plugin can run it, unless a newer one is already
@@ -1839,10 +1941,17 @@ func update() int {
 	var updated []string
 	if from != "" {
 		updated = append(updated, "the installer (v"+version+")")
+		// The saved installer is this version now, even if the rest of the update fails.
+		prev.Version = version
+		writeJSON(statePath(), prev)
 	}
-	eq, err := latestCommit(equicordRepo)
-	if err != nil {
-		return finishUpdate(updateResult{Error: err.Error()})
+	// With /no-equicord the build stays on the Equicord it has; only a build with no recorded Equicord takes the newest.
+	eq := prev.Equicord
+	if !hasArg("/no-equicord") || len(eq) != 40 {
+		var err error
+		if eq, err = latestCommit(equicordRepo); err != nil {
+			return finishUpdate(updateResult{Error: err.Error()})
+		}
 	}
 	cm, err := pickCommit(cordmuffinRepo, cordmuffinSrc())
 	if err == nil {
@@ -1874,6 +1983,10 @@ func update() int {
 		updated = append(updated, "Equicord")
 	}
 
+	// Background builds take your plugins from this copy; building without it would drop them.
+	if !isDir(mirrorDir()) {
+		return finishUpdate(updateResult{Error: "Cordmuffin's copy of your plugins is missing. Run Cordmuffin Equicord Installer once to fix it."})
+	}
 	kitPlugins := ""
 	if prev.KitDir != "" && isDir(filepath.Join(prev.KitDir, pluginsFolder)) {
 		kitPlugins = filepath.Join(prev.KitDir, pluginsFolder)
@@ -1888,7 +2001,22 @@ func update() int {
 			removeAll(res.staged)
 		}
 		skipped = updateNames(ms)
+		for _, u := range ms {
+			u.skip()
+		}
 		opts.muffinshelf, ms = nil, nil
+		removeAll(filepath.Join(workDir(), "muffinshelf-updates"))
+		if eq == prev.Equicord && !pluginsChanged {
+			// Nothing else was new, so the build that's in place stays.
+			if cm != "" {
+				prev.Cordmuffin = cm
+			}
+			if from != "" {
+				prev.Version = version
+			}
+			writeJSON(statePath(), prev)
+			return finishUpdate(updateResult{OK: true, UpToDate: from == "", Updated: updated, Skipped: skipped})
+		}
 		res, err = build(opts)
 	}
 	if err != nil {
@@ -1900,6 +2028,11 @@ func update() int {
 	if err := swapDist(res.staged); err != nil {
 		// Something in Discord still has a file of the old build open; copying over it works all the same.
 		say("Couldn't swap the new files in (%v), so they're copied over the old ones instead.", err)
+		// Until the copy is done the build is a mix of old and new; if this run is cut off, the next one rebuilds.
+		eqBefore := prev.Equicord
+		prev.Equicord = ""
+		writeJSON(statePath(), prev)
+		prev.Equicord = eqBefore
 		cerr := copyTree(res.staged, distDir())
 		removeAll(res.staged)
 		if cerr != nil {
@@ -2012,7 +2145,13 @@ func selfUpdate(prev *installState) (int, bool) {
 			return 0, false
 		}
 		// A release built without its version number would otherwise be downloaded again on every check.
-		if got := exeVersion(fresh); got != newest {
+		got := exeVersion(fresh)
+		if got == "" {
+			say("Couldn't start the v%s installer to check it (an antivirus scan can do this), so it's tried again next time.", newest)
+			os.Remove(fresh)
+			return 0, false
+		}
+		if got != newest {
 			say("The v%s release's installer says it's v%s, so it isn't used.", newest, got)
 			os.Remove(fresh)
 			prev.SkippedRelease = newest
@@ -2058,6 +2197,7 @@ func selfUpdate(prev *installState) (int, bool) {
 	logFile, _ = os.OpenFile(filepath.Join(workDir(), "update.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	say("The new installer didn't work (%v), so the old one is put back.", err)
 	prev.SkippedRelease = newest
+	writeJSON(statePath(), prev)
 	os.Remove(target)
 	rename(old, target)
 	if !singleInstance() {
@@ -2103,7 +2243,7 @@ func exeVersion(exe string) string {
 	defer cancel()
 	out, err := hidden(exec.CommandContext(ctx, exe, "/version")).Output()
 	if err != nil {
-		return "unknown"
+		return ""
 	}
 	return strings.TrimSpace(string(out))
 }
