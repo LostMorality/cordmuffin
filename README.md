@@ -58,11 +58,15 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Add Time** and **Add Random Games:** add play time to one game, all your favorites, or any number of random games (or all of them). It can stick to games you've never played, so each one counts toward Game Variety.
 - **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when the next badge update should land.
 - **Works out the totals for you:** for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
-- **Real games count too.** If you use NoTrack, the games you actually play also get reported.
+- **Real games count too.** The games you actually play also get reported, even with Equicord's NoTrack blocking Discord's own reports.
 
 It starts turned off. Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a game with the controller button.
 
-Badges don't update right away: Discord counts new play time about once a day, so it shows up 24 to 48 hours later. For anything to count, **Use data to improve Discord** has to be on (User Settings, then Data & Privacy). There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
+Badges don't update right away: Discord counts new play time about once a day, so it shows up 24 to 48 hours later. There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
+
+**Settings you need (and the one you don't):**
+- **Leave NoTrack alone.** You don't need to turn off NoTrack or its "block analytics" option, whatever other guides say. GameTimeSpoof sends its own play-time reports, so they get through either way. Leaving it on is actually better: with it on, GameTimeSpoof also reports the real games you play, and nothing gets counted twice.
+- **Turn on both "Use data" options** in Discord: User Settings → Data & Privacy → **Use data to improve Discord** and **Use data to personalize my Discord experience**. These are saved on Discord's side, on your account, so no plugin can skip them. If either one is off, Discord ignores the play time and your badges won't move.
 
 The Streaming badge can't be done this way. Discord only counts stream time when someone is really watching.
 
