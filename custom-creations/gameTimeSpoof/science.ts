@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { sleep } from "@utils/misc";
 import { findByPropsLazy } from "@webpack";
 import { RestAPI, UserStore } from "@webpack/common";
 
@@ -120,20 +119,20 @@ export async function reportPlaytime(game: ReportedGame, durationMs: number) {
 }
 
 export interface CreditPlan {
-    game: ReportedGame;
-    durationMs: number;
-    end: number;
+    length: number;
+    at(index: number): { game: ReportedGame; durationMs: number; end: number; };
 }
 
-export function planCredit(games: ReportedGame[], durationMs: number) {
+export function planCredit(games: ReportedGame[], durationMs: number): CreditPlan {
     const now = Date.now();
-    const plan: CreditPlan[] = [];
-    for (const game of games) {
-        for (let offset = Math.ceil(durationMs / MAX_SESSION_MS) * MAX_SESSION_MS - MAX_SESSION_MS; offset >= 0; offset -= MAX_SESSION_MS) {
-            plan.push({ game, durationMs: Math.min(MAX_SESSION_MS, durationMs - offset), end: now - offset });
+    const perGame = Math.ceil(durationMs / MAX_SESSION_MS);
+    return {
+        length: games.length * perGame,
+        at(index) {
+            const offset = (perGame - 1 - index % perGame) * MAX_SESSION_MS;
+            return { game: games[Math.floor(index / perGame)], durationMs: Math.min(MAX_SESSION_MS, durationMs - offset), end: now - offset };
         }
-    }
-    return plan;
+    };
 }
 
 export class CreditError extends Error {
@@ -142,20 +141,80 @@ export class CreditError extends Error {
     }
 }
 
-export async function creditPlaytime(plan: CreditPlan[], signal: AbortSignal, onProgress?: (done: number, total: number) => void) {
-    let sent = 0;
-    try {
-        for (let i = 0; i < plan.length; i += SESSIONS_PER_REQUEST) {
-            if (signal.aborted) return sent;
-            const sentAt = Date.now();
-            const events = plan.slice(i, i + SESSIONS_PER_REQUEST).flatMap(p => session(p.game, p.durationMs, p.end, sentAt));
-            await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events } });
-            sent = Math.min(i + SESSIONS_PER_REQUEST, plan.length);
-            onProgress?.(sent, plan.length);
-            await sleep(500);
+const SEND_GAP_MS = 500;
+const MAX_FAILURES = 5;
+
+function wait(ms: number, signal: AbortSignal) {
+    return new Promise<void>(resolve => {
+        if (signal.aborted) return resolve();
+        const timer = setTimeout(done, ms);
+        function done() {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", done);
+            resolve();
         }
-    } catch (e) {
-        throw new CreditError(sent, plan.length, e);
+        signal.addEventListener("abort", done);
+    });
+}
+
+function retryAfterMs(e: any) {
+    const seconds = Number(e?.body?.retry_after ?? e?.headers?.["retry-after"]);
+    return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds * 1000) + 250 : 5000;
+}
+
+export interface CreditProgress {
+    sent: number;
+    total: number;
+    etaMs: number | null;
+    waitingMs: number;
+}
+
+export async function creditPlaytime(plan: CreditPlan, signal: AbortSignal, onProgress?: (progress: CreditProgress) => void) {
+    let sent = 0;
+    let failures = 0;
+    let busyMs = 0;
+    let gapMs = SEND_GAP_MS;
+    const report = (waitingMs = 0) => {
+        const left = Math.ceil((plan.length - sent) / SESSIONS_PER_REQUEST);
+        const perRequest = sent ? busyMs / Math.ceil(sent / SESSIONS_PER_REQUEST) : null;
+        onProgress?.({ sent, total: plan.length, etaMs: perRequest == null ? null : left * perRequest + waitingMs, waitingMs });
+    };
+
+    while (sent < plan.length && !signal.aborted) {
+        const started = Date.now();
+        const batch = Array.from({ length: Math.min(SESSIONS_PER_REQUEST, plan.length - sent) }, (_, i) => plan.at(sent + i));
+        try {
+            const sentAt = Date.now();
+            await RestAPI.post({ url: "/science", body: { token: await getAnalyticsToken(), events: batch.flatMap(p => session(p.game, p.durationMs, p.end, sentAt)) } });
+        } catch (e: any) {
+            if (signal.aborted) break;
+            const status = e?.status;
+            if (status === 429) {
+                const delay = retryAfterMs(e);
+                gapMs = Math.min(gapMs * 2, 10_000);
+                report(delay);
+                await wait(delay, signal);
+                continue;
+            }
+            if ((status == null || status >= 500) && ++failures <= MAX_FAILURES) {
+                const delay = 2000 * 2 ** (failures - 1);
+                report(delay);
+                await wait(delay, signal);
+                continue;
+            }
+            throw new CreditError(sent, plan.length, e);
+        }
+        failures = 0;
+        gapMs = Math.max(SEND_GAP_MS, gapMs * 0.9);
+        sent += batch.length;
+        await wait(gapMs, signal);
+        busyMs += Date.now() - started;
+        report();
     }
     return sent;
+}
+
+export async function loadPlayedIds() {
+    const { body } = await RestAPI.get({ url: "/users/@me/activities/statistics/applications" });
+    return new Set((body as { application_id: string; }[]).map(s => s.application_id));
 }
