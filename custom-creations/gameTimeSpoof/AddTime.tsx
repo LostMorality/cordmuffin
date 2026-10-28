@@ -12,11 +12,12 @@ import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { Modal, openModal, showToast, TextInput, useEffect, useMemo, useState } from "@webpack/common";
+import { Modal, openModal, TextInput, useEffect, useMemo, useState } from "@webpack/common";
 
 import { DetectableApp, exeName } from ".";
-import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, tierFor, UPDATE_WITHIN_MS } from "./badges";
+import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, nextUpdate, tierFor } from "./badges";
 import { startCredit, useCrediting } from "./job";
+import { notify } from "./notify";
 import { CreditProgress, loadPlayedIds, planCredit } from "./science";
 
 const cl = classNameFactory("vc-gts-");
@@ -74,8 +75,10 @@ type Badges = Partial<Record<BadgeKind, BadgeProgress>>;
 
 const BADGE_LABELS: Record<BadgeKind, [string, string]> = { time: ["Game Time", "hour"], variety: ["Game Variety", "game"] };
 
+// Only a time learned from this account's own badges is shown; until then it says so instead of guessing.
 function countedBy(at: number) {
-    return `by about ${formatWhen(at + UPDATE_WITHIN_MS)}`;
+    const next = nextUpdate(at);
+    return next == null ? "at Discord's next daily update (within a day)" : `at Discord's next daily update, around ${formatWhen(next)}`;
 }
 
 function BadgeLine({ kind, progress, waiting, adding }: { kind: BadgeKind; progress: BadgeProgress; waiting: number; adding: number | null; }) {
@@ -146,7 +149,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
             progressText,
             doneText: () => `Credited ${formatTotal(durationMs * targets.length)} in total across ${plural(targets.length, "game")}. Your badges should update ${countedBy(Date.now())}.`
         });
-        showToast({ text: "Adding play time in the background. Progress is in the bottom right corner.", variant: "default" });
+        notify("Adding play time in the background.", "default");
         modalProps.onClose();
     }
 
@@ -178,6 +181,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
                         {pending.newest != null && (
                             <Paragraph>
                                 Your added time should be counted {countedBy(pending.newest)}.
+                                {nextUpdate(pending.newest) == null && " The exact time shows here once the plugin has seen your badges update."}
                             </Paragraph>
                         )}
                     </div>
