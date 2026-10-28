@@ -15,7 +15,7 @@ import type { RenderModalProps } from "@vencord/discord-types";
 import { Modal, openModal, showToast, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
 
 import { DetectableApp, exeName } from ".";
-import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, recordCredit, tierFor, UPDATE_MAX_MS, UPDATE_MIN_MS } from "./badges";
+import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, recordCredit, tierFor, UPDATE_WITHIN_MS } from "./badges";
 import { CreditError, creditPlaytime, CreditProgress, loadPlayedIds, planCredit } from "./science";
 
 const cl = classNameFactory("vc-gts-");
@@ -73,8 +73,8 @@ type Badges = Partial<Record<BadgeKind, BadgeProgress>>;
 
 const BADGE_LABELS: Record<BadgeKind, [string, string]> = { time: ["Game Time", "hour"], variety: ["Game Variety", "game"] };
 
-function updateWindow(at: number) {
-    return `between ${formatWhen(at + UPDATE_MIN_MS)} and ${formatWhen(at + UPDATE_MAX_MS)}`;
+function countedBy(at: number) {
+    return `by about ${formatWhen(at + UPDATE_WITHIN_MS)}`;
 }
 
 function BadgeLine({ kind, progress, waiting, adding }: { kind: BadgeKind; progress: BadgeProgress; waiting: number; adding: number | null; }) {
@@ -147,7 +147,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
                 if (sent) showToast({ text: `Stopped. ${sent.toLocaleString()} of ${plan.length.toLocaleString()} sessions were sent and still count.`, variant: "default" });
                 return;
             }
-            showToast({ text: `Credited ${formatTotal(durationMs * targets.length)} in total across ${plural(targets.length, "game")}. Your badges should update ${updateWindow(Date.now())}.`, variant: "success" });
+            showToast({ text: `Credited ${formatTotal(durationMs * targets.length)} in total across ${plural(targets.length, "game")}. Your badges should update ${countedBy(Date.now())}.`, variant: "success" });
             modalProps.onClose();
         } catch (e) {
             const sent = e instanceof CreditError ? e.sent : 0;
@@ -197,7 +197,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
             ]}
         >
             <Notice.Warning className={cl("notice")}>
-                Badges don't change right away. Discord counts new play time about once a day, so it shows up 24 to 48 hours after you add it.
+                Badges don't change right away. Discord updates them once a day, so new play time shows up at its next daily update, within about 24 hours.
             </Notice.Warning>
             {badges === null && <Paragraph className={cl("badges")}>Checking your badges...</Paragraph>}
             {badges === "failed" || knownBadges && !knownBadges.time && !knownBadges.variety
@@ -206,9 +206,9 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
                     <div className={cl("badges")}>
                         {knownBadges.time && <BadgeLine kind="time" progress={knownBadges.time} waiting={Math.floor(pending.hours)} adding={addingHours} />}
                         {knownBadges.variety && <BadgeLine kind="variety" progress={knownBadges.variety} waiting={pending.games} adding={addingGames} />}
-                        {pending.oldest != null && (
+                        {pending.newest != null && (
                             <Paragraph>
-                                Next update with your added time: {updateWindow(pending.oldest)}.
+                                Your added time should be counted {countedBy(pending.newest)}.
                             </Paragraph>
                         )}
                     </div>
