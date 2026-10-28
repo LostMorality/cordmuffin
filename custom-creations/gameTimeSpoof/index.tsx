@@ -7,7 +7,7 @@
 import "./styles.css";
 
 import { HeaderBarButton } from "@api/HeaderBar";
-import { definePluginSettings, Settings } from "@api/Settings";
+import { definePluginSettings } from "@api/Settings";
 import { Button } from "@components/Button";
 import { GameControllerIcon } from "@components/Icons";
 import { Link } from "@components/Link";
@@ -18,6 +18,7 @@ import { RunningGame } from "@vencord/discord-types";
 import { FluxDispatcher, RestAPI, RunningGameStore } from "@webpack/common";
 
 import { loadBadges, type PendingCredit, savedPending, type SeenBadges, type UpdateClock } from "./badges";
+import { analyticsBlocked } from "./conflicts";
 import { openGameBrowser } from "./GameBrowser";
 import { cancelCredit } from "./job";
 import { notify } from "./notify";
@@ -385,7 +386,7 @@ export default definePlugin({
     start() {
         active = true;
         if (settings.store.pending.length) settings.store.pending = savedPending();
-        trackRealPlay = Settings.plugins.NoTrack?.disableAnalytics !== false;
+        trackRealPlay = analyticsBlocked;
         lastTick = Date.now();
         appliedKey = parseGames(settings.store.games).join(",").toLowerCase();
         FluxDispatcher.addInterceptor(interceptor);
