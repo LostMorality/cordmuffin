@@ -14,6 +14,7 @@ import { Modal, openModal, RunningGameStore, Select, TextInput, useEffect, useMe
 
 import { DetectableApp, isSpoofing, loadDetectable, settings } from ".";
 import { openAddTime } from "./AddTime";
+import { Conflicts } from "./conflicts";
 import { notify } from "./notify";
 
 const cl = classNameFactory("vc-gts-");
@@ -193,6 +194,7 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
             title="Game Browser"
             subtitle={apps ? `${filtered.length.toLocaleString()} games` : undefined}
         >
+            <Conflicts spoofing />
             <div className={cl("toolbar")}>
                 <div className={cl("tabs")}>
                     {(Object.keys(TABS) as Tab[]).map(key => (
