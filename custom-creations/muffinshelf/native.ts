@@ -7,8 +7,8 @@
 import { DATA_DIR } from "@main/utils/constants";
 import { spawn } from "child_process";
 import { app, dialog, IpcMainInvokeEvent, shell } from "electron";
-import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "fs";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "fs/promises";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "fs";
+import { mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "fs/promises";
 import originalFs from "original-fs";
 import { basename, dirname, join, relative, resolve } from "path";
 import { promisify } from "util";
@@ -54,6 +54,8 @@ export interface UserpluginMarker {
     sourceId: string;
     entryKey: string;
     version?: string;
+    /** Branch (or "HEAD") that CordmuffinUpdater follows for new versions. */
+    track?: string;
     installedAt: number;
 }
 
@@ -127,6 +129,28 @@ function childOf(parent: string, name: string) {
     const path = resolve(parent, name);
     if (dirname(path) !== resolve(parent)) throw new Error(`"${name}" can't be used as a folder name`);
     return path;
+}
+
+// Cordmuffin's background updater rebuilds in the same folder; this marks its run so the two never overlap.
+function cordmuffinUpdating(mode: BuildMode) {
+    if (mode.kind !== "cordmuffin") return false;
+    try {
+        return Date.now() - statSync(join(mode.work, "update.lock")).mtimeMs < 30 * 60_000;
+    } catch {
+        return false;
+    }
+}
+
+const UPDATING = "Cordmuffin is updating in the background right now. Try again in a couple of minutes.";
+
+// A freshly touched work folder tells Cordmuffin's background updater that Muffinshelf is busy here,
+// from before the download until the folder is cleaned up.
+async function claimWork(mode: Exclude<BuildMode, { kind: "none"; }>) {
+    if (cordmuffinUpdating(mode)) throw new Error(UPDATING);
+    const work = workDir(mode);
+    await mkdir(work, { recursive: true });
+    const now = new Date();
+    await utimes(work, now, now);
 }
 
 function requireBuild() {
@@ -323,6 +347,17 @@ async function backupFolder(mode: Exclude<BuildMode, { kind: "none"; }>, folder:
 
 export async function installUserplugin(_: IpcMainInvokeEvent, req: InstallRequest): Promise<UserpluginMarker> {
     const mode = requireBuild();
+    await claimWork(mode);
+    try {
+        return await installInto(mode, req);
+    } catch (e) {
+        // Nothing to roll back, so the work folder mustn't keep the background updater waiting.
+        await cleanWork(mode).catch(() => { });
+        throw e;
+    }
+}
+
+async function installInto(mode: Exclude<BuildMode, { kind: "none"; }>, req: InstallRequest): Promise<UserpluginMarker> {
     const dir = userpluginsDir(mode) as string;
     const target = childOf(dir, req.folder);
     const saved = childOf(SAVED_USERPLUGINS, req.folder);
@@ -363,10 +398,13 @@ export async function installUserplugin(_: IpcMainInvokeEvent, req: InstallReque
             sourceId: req.sourceId,
             entryKey: req.entryKey,
             version: req.version,
+            track: req.ref || "HEAD",
             installedAt: Date.now(),
         };
         await writeFile(join(staging, MARKER), JSON.stringify(marker, null, 4));
 
+        // The download can take a while; an update that started anyway in the meantime wins.
+        if (cordmuffinUpdating(mode)) throw new Error(UPDATING);
         await backupFolder(mode, req.folder);
         await removeTree(target);
         await mkdir(dir, { recursive: true });
@@ -381,8 +419,12 @@ export async function installUserplugin(_: IpcMainInvokeEvent, req: InstallReque
 
 export async function removeUserplugin(_: IpcMainInvokeEvent, folder: string) {
     const mode = requireBuild();
+    await claimWork(mode);
     const target = childOf(userpluginsDir(mode) as string, folder);
-    if (existsSync(target) && !existsSync(join(target, MARKER))) throw new Error("Muffinshelf only removes plugins it added");
+    if (existsSync(target) && !existsSync(join(target, MARKER))) {
+        await cleanWork(mode).catch(() => { });
+        throw new Error("Muffinshelf only removes plugins it added");
+    }
     await backupFolder(mode, folder);
     await removeTree(target);
     await removeTree(childOf(SAVED_USERPLUGINS, folder));
@@ -493,7 +535,19 @@ type BuildResult = { ok: boolean; log: string; };
 async function doBuild(): Promise<BuildResult> {
     const mode = detectBuild();
     if (mode.kind === "none") return { ok: false, log: mode.reason };
+    if (cordmuffinUpdating(mode)) return { ok: false, log: UPDATING };
 
+    if (mode.kind !== "cordmuffin") return buildIn(mode);
+    const building = join(mode.root, ".muffinshelf-building");
+    await writeFile(building, String(Date.now()));
+    try {
+        return await buildIn(mode);
+    } finally {
+        await removeTree(building);
+    }
+}
+
+async function buildIn(mode: Exclude<BuildMode, { kind: "none"; }>): Promise<BuildResult> {
     await restoreSaved(mode);
     const banner = readBanner();
 
