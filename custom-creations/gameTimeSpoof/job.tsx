@@ -125,9 +125,11 @@ export async function startCredit(job: CreditJob) {
             title: sent ? "Only part of the play time was added" : "Couldn't add the play time",
             text: !(e instanceof CreditError)
                 ? "Something went wrong in GameTimeSpoof before the play time could be sent. Details are in the console (Ctrl+Shift+I)."
-                : sent
-                    ? `Discord stopped accepting play time after ${job.describe(sent)}${reason}. The ones sent still count, so don't run the same thing again right away.`
-                    : `Discord didn't accept the play time${reason}. Try again in a bit.`
+                : !status
+                    ? `The play time never reached Discord${sent ? ` after ${job.describe(sent)} were sent (those still count)` : ""}. Check your internet, and turn off anything that blocks Discord's tracking, like a DoNotTrack plugin, an ad blocker or a Pi-hole.`
+                    : sent
+                        ? `Discord stopped accepting play time after ${job.describe(sent)}${reason}. The ones sent still count, so don't run the same thing again right away.`
+                        : `Discord didn't accept the play time${reason}. Try again in a bit.`
         };
     } finally {
         if (controller === abort) controller = null;
