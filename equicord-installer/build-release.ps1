@@ -1,5 +1,7 @@
 # Builds release\Cordmuffin Equicord Installer.zip from the installer and the empty kit folders only.
 # It refuses to finish if anything else ends up in the zip, so plugins never ship with a release.
+param([Parameter(Mandatory)][ValidatePattern('^\d+\.\d+\.\d+$')][string]$Version)
+# The release tag must be v$Version: the background updater compares the two to find newer installers.
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -11,8 +13,10 @@ $allowed = @($exeName, "Plugins Go Here/README.txt", "Themes Go Here/README.txt"
 
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $stage | Out-Null
-go build -trimpath -ldflags "-s -w" -o (Join-Path $stage $exeName) .
+go build -trimpath -ldflags "-s -w -X main.version=$Version" -o (Join-Path $stage $exeName) .
 if ($LASTEXITCODE -ne 0) { throw "go build failed" }
+$built = & (Join-Path $stage $exeName) /version
+if ($built -ne $Version) { throw "The built installer says it is v$built, not v$Version." }
 foreach ($folder in "Plugins Go Here", "Themes Go Here") {
     New-Item -ItemType Directory (Join-Path $stage $folder) | Out-Null
     Copy-Item (Join-Path "kit\$folder" "README.txt") (Join-Path $stage $folder)
@@ -54,5 +58,9 @@ if ($extra.Count -or $names.Count -ne $allowed.Count) {
     Remove-Item $zip -Force
     throw "The release zip had unexpected files: $($extra -join ', '). Only the installer and the empty kit folders may ship."
 }
+# Uploaded next to the zip; the background updater checks a new installer against it before using it.
+$hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+[IO.File]::WriteAllText("$zip.sha256", "$hash  $(Split-Path $zip -Leaf)`n")
 Write-Host "Built $zip"
 $names | ForEach-Object { Write-Host "  $_" }
+Write-Host "Upload both: $(Split-Path $zip -Leaf) and $(Split-Path $zip -Leaf).sha256"
