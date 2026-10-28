@@ -5,6 +5,14 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-10-28
 
+- GameTimeSpoof: fixed Add Time failing with "Discord didn't accept the play time" every time after the first run or
+  two. The badge tracker saved its list in a way that broke saving settings until Discord restarted.
+- GameTimeSpoof: when a run ends, the corner box now shows the whole result instead of a toast that cut it off.
+- GameTimeSpoof: spoofed games now report their play sessions to Discord properly. Discord was rejecting them.
+- GameTimeSpoof: the badge update time is no longer a guess of "24 hours from now". The plugin learns when Discord's
+  daily update runs for your account and shows that time, or says it doesn't know it yet.
+- Dictation, GameTimeSpoof, Muffinshelf, QuestRunner: messages too long for a toast now show as a notification with all of
+  the text.
 - GameTimeSpoof: Add Time now runs in the background. The window closes and a small progress box in the corner shows
   how far along it is, with a Stop button, so you can keep using Discord.
 - Dictation: the mic button now shows in forum posts and threads opened in the side panel, and types into the box you
