@@ -209,7 +209,7 @@ const currentModel = () => {
 const errorText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 
 function confirm(title: string, body: string, confirmText: string) {
-    return new Promise<boolean>(resolve => Alerts.show({ title, body, confirmText, cancelText: "Not now", onConfirm: () => resolve(true), onCancel: () => resolve(false) }));
+    return new Promise<boolean>(resolve => Alerts.show({ title, body, confirmText, cancelText: "Not now", onConfirm: () => resolve(true), onCancel: () => resolve(false), onCloseCallback: () => resolve(false) }));
 }
 
 async function download(what: "cohere" | "parakeet" | "grammar", title: string, body: string, doneText: string) {
@@ -388,6 +388,8 @@ async function pumpPreview(rec: Recording) {
 }
 
 async function startRecording() {
+    // Taken first: stopping the plugin while the status lookup below runs must still cancel this start.
+    const gen = generation;
     const model = currentModel();
     const status = await Native.getStatus(model);
     if (!status.supported) return showToast({ text: "Dictation isn't available on this kind of computer yet.", variant: "critical" });
@@ -401,7 +403,6 @@ async function startRecording() {
         return;
     }
 
-    const gen = generation;
     let stream: MediaStream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: await discordMicConstraints() });
