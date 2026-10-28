@@ -98,7 +98,7 @@ The Streaming badge can't be done this way. Discord only counts stream time when
 - **discord.com** (Discord's own API): the list of detectable games, game pages, the play-time reports that badges are counted from, and your own badge progress and play history (read only).
 - **cdn.discordapp.com**: game cover art and icons.
 
-It talks to nothing else, and it doesn't use any loadstring or remote code.
+It talks to nothing else, and it never downloads or runs code from the internet: everything it does is in the plugin's own files.
 
 **Heads up:** play-time reports are made-up analytics sent to Discord. That's against Discord's rules, so use it on an account you're fine risking.
 
