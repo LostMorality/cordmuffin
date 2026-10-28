@@ -12,11 +12,12 @@ import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { escapeRegExp } from "@utils/text";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { Alerts, Modal, openModal, Select, showToast, TextInput, useEffect, useMemo, useState } from "@webpack/common";
+import { Alerts, Modal, openModal, Select, TextInput, useEffect, useMemo, useState } from "@webpack/common";
 
 import { BdApi, toNode } from "./bd/api";
 import * as Runtime from "./bd/runtime";
 import { BuildResult, installBdEntry, installUserpluginEntries, rebuild, removeBdFile, removeUserplugin } from "./install";
+import { notify } from "./notify";
 import { getBdOrigin, getBroken, Native, settings } from "./settings";
 import { allSources, checkSourceUrl, customSource, equicordEquivalent, loadSource, ShelfEntry, SourceDef } from "./sources";
 
@@ -104,12 +105,12 @@ async function runBuild(task: (step: (t: string) => void) => Promise<BuildResult
         const result = await task(step => setStatus({ step }));
         if (result.ok) {
             setStatus({ restartPending: true });
-            showToast({ text: "Done. Restart Discord to load the change.", variant: "success" });
+            notify("Done. Restart Discord to load the change.", "success");
         } else {
             showBuildError(result);
         }
     } catch (e) {
-        showToast({ text: errorText(e), variant: "critical" });
+        notify(errorText(e), "critical");
     } finally {
         setStatus({ step: null });
     }
@@ -388,7 +389,7 @@ function InstalledTab({ installed, info, busy }: { installed: InstalledUserplugi
                                 try {
                                     await removeBdFile(p.file);
                                 } catch (e) {
-                                    showToast({ text: errorText(e), variant: "critical" });
+                                    notify(errorText(e), "critical");
                                 }
                             }}
                         >
@@ -421,7 +422,7 @@ function SourcesTab({ states, reload }: { states: Record<string, SourceState>; r
             if (!count) throw new Error("Nothing Muffinshelf can list was found there.");
             settings.store.customSources = [...customSources, link];
             setUrl("");
-            showToast({ text: `Added. Found ${count} ${count === 1 ? "plugin" : "plugins"}.`, variant: "success" });
+            notify(`Added. Found ${count} ${count === 1 ? "plugin" : "plugins"}.`, "success");
         } catch (e) {
             setError(errorText(e));
         } finally {
@@ -586,11 +587,10 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
             try {
                 const libs = await installBdEntry(entry);
                 const extra = libs.length ? ` and ${libs.join(", ")}` : "";
-                showToast(settings.store.runBetterDiscord
-                    ? { text: `Installed ${entry.name}${extra}.`, variant: "success" }
-                    : { text: `Saved ${entry.name}${extra}. Turn on "Run BetterDiscord plugins" in the Installed tab to use it.`, variant: "default" });
+                if (settings.store.runBetterDiscord) notify(`Installed ${entry.name}${extra}.`, "success");
+                else notify(`Saved ${entry.name}${extra}. Turn on "Run BetterDiscord plugins" in the Installed tab to use it.`);
             } catch (e) {
-                showToast({ text: errorText(e), variant: "critical" });
+                notify(errorText(e), "critical");
             } finally {
                 setStatus({ step: null });
             }
