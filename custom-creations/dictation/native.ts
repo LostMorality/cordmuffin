@@ -337,9 +337,25 @@ function listGpus(file: string) {
     });
 }
 
-async function startGrammar() {
+let grammarStarting: Promise<Engine> | null = null;
+
+// The warm up and a grammar fix can ask at the same time; one start of the big model is shared.
+function startGrammar() {
+    if (!grammarStarting) {
+        const promise = launchGrammar().finally(() => {
+            if (grammarStarting === promise) grammarStarting = null;
+        });
+        grammarStarting = promise;
+    }
+    return grammarStarting;
+}
+
+async function launchGrammar() {
     const tier = GRAMMAR[await grammarTier()];
-    if (grammar?.key === tier.file) return grammar;
+    if (grammar?.key === tier.file) {
+        await grammar.ready;
+        return grammar;
+    }
     stopEngine(grammar);
     if (!ready(LLAMA_DIR) || !ready(tier.file + ".d")) throw new Error("The grammar model isn't downloaded yet.");
 
