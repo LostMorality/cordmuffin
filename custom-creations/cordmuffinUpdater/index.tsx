@@ -23,7 +23,7 @@ import { relaunch } from "@utils/native";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import { React, Select, SettingsRouter } from "@webpack/common";
 
-import type { CheckResult, Info, UpdateResult } from "./native";
+import type { ChangelogSection, CheckResult, Info, UpdateResult } from "./native";
 
 const Native = VencordNative.pluginHelpers.CordmuffinUpdater as PluginNative<typeof import("./native")>;
 const logger = new Logger("CordmuffinUpdater");
@@ -31,6 +31,8 @@ const logger = new Logger("CordmuffinUpdater");
 const PAGE_KEY = "cordmuffin_updater";
 const FIRST_CHECK_MS = 20_000;
 const CHECK_EVERY_MS = 6 * 60 * 60_000;
+// After a failed check (GitHub's hourly limit, no internet) the next try comes sooner than the usual 6 hours.
+const RETRY_MS = 60 * 60_000;
 
 type Phase = "idle" | "checking" | "upToDate" | "available" | "updating" | "updated" | "error" | "unsupported";
 
@@ -40,12 +42,15 @@ interface Status {
     message: string;
     checkedAt: number;
     info: Info | null;
+    // Changelog lines that come with the update that's ready or just installed.
+    whatsNew: ChangelogSection[];
 }
 
-let status: Status = { phase: "idle", what: [], message: "", checkedAt: 0, info: null };
+let status: Status = { phase: "idle", what: [], message: "", checkedAt: 0, info: null, whatsNew: [] };
 const listeners = new Set<() => void>();
 let firstTimer: ReturnType<typeof setTimeout> | undefined;
 let interval: ReturnType<typeof setInterval> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let notice: string | undefined;
 let failureShown = false;
 let started = false;
@@ -73,9 +78,9 @@ const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
-// When Equicord's own changes may go in by themselves. Equicord changes several times a day, so by default they
-// wait until the last build is a day old; plugin and installer fixes always go out right away and take the
-// newest Equicord along. A check started with "Check now" offers everything.
+// When Equicord's own changes may go in, if Equicord updates are on. Equicord changes several times a day, so by
+// default they wait until the last build is a day old; plugin and installer fixes always go out right away and take
+// the newest Equicord along. A check started with "Check now" offers everything.
 function equicordDueAt(r: CheckResult) {
     const mode = settings.store.equicordUpdates;
     if (mode === "always") return 0;
@@ -125,6 +130,13 @@ const settings = definePluginSettings({
         default: true,
         hidden: true,
     },
+    // Off by default: updates cover cordmuffin's own plugins and the installer, and leave Equicord as it is.
+    updateEquicord: {
+        type: OptionType.BOOLEAN,
+        description: "Also update Equicord itself.",
+        default: false,
+        hidden: true,
+    },
     equicordUpdates: {
         type: OptionType.SELECT,
         description: "How often Equicord's own changes are installed.",
@@ -137,14 +149,23 @@ const settings = definePluginSettings({
         default: true,
         hidden: true,
     },
+    // When a check last reached GitHub, so the page can say so after a restart too.
+    lastChecked: {
+        type: OptionType.NUMBER,
+        description: "When updates were last checked.",
+        default: 0,
+        hidden: true,
+    },
 });
 
 async function checkNow(auto: boolean) {
     if (status.phase === "checking" || status.phase === "updating") return;
+    // Closed with its X, the bar is gone without us knowing; a later check may show it again.
+    if (notice !== undefined && currentNotice?.[1] !== notice && !noticesQueue.some(n => n[1] === notice)) notice = undefined;
     setStatus({ phase: "checking", message: "" });
     let r: CheckResult;
     try {
-        r = await Native.check(settings.store.muffinshelfUpdates);
+        r = await Native.check(settings.store.muffinshelfUpdates, settings.store.updateEquicord);
     } catch (e) {
         r = { supported: true, error: String(e) };
     }
@@ -152,20 +173,27 @@ async function checkNow(auto: boolean) {
         setStatus({ phase: "unsupported", message: r.reason ?? "", info: r });
         return;
     }
-    setStatus({ info: r, checkedAt: Date.now() });
+    setStatus({ info: r });
     if (r.error) {
         logger.warn("Update check failed:", r.error);
         setStatus({ phase: "error", message: r.error });
+        if (auto && started && settings.store.checkForUpdates) {
+            clearTimeout(retryTimer);
+            retryTimer = setTimeout(() => checkNow(true), RETRY_MS);
+        }
         return;
     }
+    settings.store.lastChecked = Date.now();
+    setStatus({ checkedAt: settings.store.lastChecked });
 
     const { what, heldBack } = describe(r, auto);
     if (!what.length) {
+        closeNotice();
         if (restartPending) setStatus({ phase: "updated" });
-        else setStatus({ phase: "upToDate", what: [], message: heldBack ? heldBackLine(heldBack) : "" });
+        else setStatus({ phase: "upToDate", what: [], whatsNew: [], message: heldBack ? heldBackLine(heldBack) : "" });
         return;
     }
-    setStatus({ phase: "available", what });
+    setStatus({ phase: "available", what, whatsNew: r.whatsNew ?? [] });
     if (settings.store.autoUpdate) {
         await updateNow(auto);
     } else if (auto && notice === undefined) {
@@ -186,12 +214,13 @@ function closeNotice() {
 }
 
 async function updateNow(auto: boolean) {
-    if (status.phase === "updating") return;
+    // A check that's still running would overwrite the status; it starts the update itself if there is one.
+    if (status.phase === "updating" || status.phase === "checking") return;
     closeNotice();
     setStatus({ phase: "updating", message: "" });
     let r: UpdateResult;
     try {
-        r = await Native.runUpdate(settings.store.muffinshelfUpdates);
+        r = await Native.runUpdate(settings.store.muffinshelfUpdates, settings.store.updateEquicord);
     } catch (e) {
         r = { ok: false, error: String(e) };
     }
@@ -210,20 +239,21 @@ async function updateNow(auto: boolean) {
         }
         return;
     }
+    const skipped = r.skipped?.length ? ` ${joinNames(r.skipped)} stayed on the old version, because the new one doesn't build.` : "";
     if (r.upToDate) {
-        setStatus(restartPending ? { phase: "updated", checkedAt: Date.now() } : { phase: "upToDate", what: [], checkedAt: Date.now() });
+        setStatus(restartPending ? { phase: "updated" } : { phase: "upToDate", what: [], whatsNew: [], message: skipped.trim() });
         return;
     }
 
-    const what = r.updated?.length ? r.updated.map(prettyName) : status.what;
-    const skipped = r.skipped?.length ? ` ${joinNames(r.skipped)} stayed on the old version, because the new one doesn't build.` : "";
+    const updated = r.updated?.length ? r.updated.map(prettyName) : status.what.filter(n => !r.skipped?.includes(n));
+    const what = updated.length ? updated : ["Cordmuffin"];
     if (!r.needsRestart) {
-        setStatus({ phase: "upToDate", what: [], checkedAt: Date.now() });
+        setStatus({ phase: "upToDate", what: [] });
         showNotification({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}. Nothing else to do.`, onClick: openSettings });
         return;
     }
     restartPending = true;
-    setStatus({ phase: "updated", what, checkedAt: Date.now(), message: skipped.trim() });
+    setStatus({ phase: "updated", what, message: skipped.trim() });
     showNotification({
         title: "Cordmuffin updated",
         body: `Updated ${joinNames(what)}.${skipped} Click here to restart Discord and use the new version, or it's used the next time Discord starts.`,
@@ -246,8 +276,9 @@ function schedule() {
 
 function unschedule() {
     clearTimeout(firstTimer);
+    clearTimeout(retryTimer);
     clearInterval(interval);
-    firstTimer = interval = undefined;
+    firstTimer = interval = retryTimer = undefined;
 }
 
 function ago(time: number) {
@@ -255,7 +286,40 @@ function ago(time: number) {
     if (minutes < 1) return "just now";
     if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
     const hours = Math.round(minutes / 60);
-    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    if (hours < 48) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    const days = Math.round(hours / 24);
+    return `${days} days ago`;
+}
+
+const when = (time: number) => `${new Date(time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (${ago(time)})`;
+
+// Lines about one of cordmuffin's plugins ("QuestRunner: ...") only show for people who have that plugin.
+function relevant(sections: ChangelogSection[], installed: string[]) {
+    const have = new Set(installed.map(n => prettyName(n).toLowerCase()));
+    const known = new Set(Object.values(pluginNames).map(n => n.toLowerCase()));
+    return sections
+        .map(s => ({
+            ...s,
+            items: s.items.filter(item => {
+                const subject = /^([^:]{1,40}):\s/.exec(item)?.[1].trim().toLowerCase();
+                return !subject || !known.has(subject) || have.has(subject);
+            }),
+        }))
+        .filter(s => s.items.length);
+}
+
+function Changelog({ title, sections }: { title: string; sections: ChangelogSection[]; }) {
+    return (
+        <Card className={Margins.top8} defaultPadding>
+            <HeadingTertiary>{title}</HeadingTertiary>
+            {sections.map(s => (
+                <div key={s.title} className={Margins.top8}>
+                    <Paragraph weight="semibold">{s.title}</Paragraph>
+                    {s.items.map((item, i) => <Paragraph key={i}>{"• "}{item}</Paragraph>)}
+                </div>
+            ))}
+        </Card>
+    );
 }
 
 function statusLine(s: Status) {
@@ -271,7 +335,7 @@ function statusLine(s: Status) {
     }
 }
 
-const SETTING_KEYS = ["checkForUpdates", "autoUpdate", "equicordUpdates", "muffinshelfUpdates"] as const;
+const SETTING_KEYS = ["checkForUpdates", "autoUpdate", "updateEquicord", "equicordUpdates", "muffinshelfUpdates"] as const;
 
 function UpdaterPage() {
     const [, tick] = React.useReducer((n: number) => n + 1, 0);
@@ -290,14 +354,16 @@ function UpdaterPage() {
     const busy = s.phase === "checking" || s.phase === "updating";
     const info = s.info?.supported ? s.info : null;
     const variant = s.phase === "error" ? "warning" : s.phase === "updated" ? "success" : "primary";
+    const installedPlugins = info?.plugins ?? [];
+    const pending = ["available", "updating", "updated"].includes(s.phase) ? relevant(s.whatsNew, installedPlugins) : [];
+    const recent = relevant(info?.changelog ?? [], installedPlugins);
 
     return (
         <SettingsTab>
             <Heading className={Margins.top16}>Update Preferences</Heading>
             <Paragraph className={Margins.bottom20}>
-                Keeps cordmuffin's plugins, your Muffinshelf plugins and the Cordmuffin installer up to date. Equicord's own
-                updater is switched off in Cordmuffin builds, because it would swap in the official Equicord and drop these
-                plugins, so Equicord is updated from here as well.
+                Keeps cordmuffin's plugins, your Muffinshelf plugins and the Cordmuffin installer up to date. Equicord itself
+                stays on the version you have unless you turn on Equicord updates below.
             </Paragraph>
 
             <div className="vc-settings-switches">
@@ -327,12 +393,22 @@ function UpdaterPage() {
 
             <Heading className={Margins.top20}>Equicord updates</Heading>
             <Paragraph className={Margins.bottom8}>
-                Equicord changes several times a day, so its own changes wait as long as you pick here. Plugin and installer
-                fixes always go out right away and take the newest Equicord along.
+                Equicord's own updater is switched off in Cordmuffin builds, because it would swap in the official Equicord
+                and drop these plugins. Turn this on to update Equicord from here instead.
             </Paragraph>
+            <div className="vc-settings-switches">
+                <FormSwitch
+                    title="Also update Equicord"
+                    description="Equicord changes several times a day, so its changes wait as long as you pick below. When a plugin or installer update comes, the newest Equicord comes along with it."
+                    value={prefs.updateEquicord}
+                    onChange={(v: boolean) => prefs.updateEquicord = v}
+                    hideBorder
+                />
+            </div>
             <Select
                 options={equicordOptions}
                 closeOnSelect
+                isDisabled={!prefs.updateEquicord}
                 select={(v: string) => prefs.equicordUpdates = v}
                 isSelected={(v: string) => v === prefs.equicordUpdates}
                 serialize={(v: string) => v}
@@ -343,7 +419,10 @@ function UpdaterPage() {
             <Heading className={Margins.top20}>Updates</Heading>
             <Card variant={variant} className={Margins.top8} defaultPadding>
                 <Paragraph>{statusLine(s)}</Paragraph>
-                {s.checkedAt > 0 && <Paragraph color="text-subtle">Last checked {ago(s.checkedAt)}.</Paragraph>}
+                <Paragraph color="text-subtle">
+                    {s.checkedAt > 0 ? `Last checked ${ago(s.checkedAt)}.` : "Not checked yet."}
+                    {info?.builtAt && !Number.isNaN(Date.parse(info.builtAt)) ? ` Last updated ${when(Date.parse(info.builtAt))}.` : ""}
+                </Paragraph>
                 {s.phase !== "unsupported" && (
                     <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
                         {s.phase === "updated" || restartPending
@@ -357,11 +436,14 @@ function UpdaterPage() {
                     </div>
                 )}
             </Card>
+            {pending.length > 0
+                ? <Changelog title={s.phase === "updated" ? "What's new in this update" : "What's new"} sections={pending} />
+                : recent.length > 0 && <Changelog title="Recent changes" sections={recent} />}
             {info && (
                 <Card className={Margins.top8} defaultPadding>
                     <HeadingTertiary>What's installed</HeadingTertiary>
                     <Paragraph>Installer v{info.version || "unknown"}, Equicord {info.equicord?.slice(0, 7) || "unknown"}{info.cordmuffin ? `, cordmuffin ${info.cordmuffin.slice(0, 7)}` : ""}.</Paragraph>
-                    <Paragraph>Kept up to date: {joinNames(["Equicord", ...(info.plugins ?? []).map(prettyName), ...(prefs.muffinshelfUpdates ? info.muffinshelf ?? [] : [])])}.</Paragraph>
+                    <Paragraph>Kept up to date: {joinNames([...(prefs.updateEquicord ? ["Equicord"] : []), ...(info.plugins ?? []).map(prettyName), ...(prefs.muffinshelfUpdates ? info.muffinshelf ?? [] : []), "the installer"])}.</Paragraph>
                 </Card>
             )}
 
@@ -370,8 +452,8 @@ function UpdaterPage() {
             <Heading className={Margins.top20}>How it works</Heading>
             <Paragraph className={Margins.bottom8}>
                 Plugins are built into Equicord, so an update rebuilds it in the background with the Cordmuffin installer, the
-                same way Equicord updates a copy built from its own source. Discord keeps running, and the new version is used
-                from the next start.
+                same way Equicord updates a copy built from its own source. With Equicord updates off, the rebuild uses the
+                Equicord you already have. Discord keeps running, and the new version is used from the next start.
             </Paragraph>
             <Paragraph className={Margins.bottom8}>
                 Your other plugins, themes and settings stay as they are. Before a plugin is replaced, its old copy is saved in
@@ -390,7 +472,7 @@ function UpdaterPage() {
 
 export default definePlugin({
     name: "CordmuffinUpdater",
-    description: "Keeps Cordmuffin up to date: checks for new versions of Equicord, cordmuffin's plugins, your Muffinshelf plugins and the installer, and installs them in the background.",
+    description: "Keeps Cordmuffin up to date: checks for new versions of cordmuffin's plugins, your Muffinshelf plugins and the installer (and Equicord, if you turn that on), and installs them in the background.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     // Always on and kept out of the plugin list; its switches live on the Cordmuffin Updater settings page.
     required: true,
@@ -403,6 +485,7 @@ export default definePlugin({
 
     start() {
         started = true;
+        status.checkedAt = settings.store.lastChecked ?? 0;
         SettingsPlugin.customEntries.push({
             key: PAGE_KEY,
             title: "Cordmuffin Updater",
