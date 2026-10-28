@@ -294,6 +294,8 @@ function startRun(quest: Quest, task: Task, kind: RunKind) {
             const done = !!QuestStore.getQuest(run.questId)?.userStatus?.completedAt || run.kind === "achievement";
             // Progress can land a moment after the last report; check again shortly instead of restarting right away.
             if (!done) failedAt.set(run.questId, Date.now() - RETRY_MS + 30_000);
+            // Achievements count as done before Discord says so; wait for that instead of running them again.
+            else if (run.kind === "achievement") failedAt.set(run.questId, Date.now());
             finishRun(run, done);
             if (!done) scheduleEvaluate(31_000);
         } else {
