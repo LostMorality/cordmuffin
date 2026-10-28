@@ -14,6 +14,7 @@ import { Logger as VcLogger } from "@utils/Logger";
 import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast, Slider, Text, TextInput, Tooltip, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
+import { notify } from "../notify";
 import { Native } from "../settings";
 import { animate, boundCommands, cache, Commands, getType, Inputs, Modal as BdModal, NodePatcher, openFloatingWindow, showBdNotification, showInviteModal, Spinner, Store, useForceUpdate, useStateFromStores, wrapInHooks } from "./extras";
 import { makePatcher } from "./patcher";
@@ -155,7 +156,9 @@ const toastVariant = (type?: string) => type === "success" ? "success" : type ==
 
 const UI = {
     showToast(content: string, options: { type?: string; timeout?: number; } = {}) {
-        showToast({ text: String(content), variant: toastVariant(options.type), duration: options.timeout });
+        const text = String(content);
+        if (text.length > 50) return notify(text, toastVariant(options.type), "BetterDiscord plugin");
+        showToast({ text, variant: toastVariant(options.type), duration: options.timeout });
     },
     alert(title: string, content: any) {
         Alerts.show({ title, body: toNode(content) });
