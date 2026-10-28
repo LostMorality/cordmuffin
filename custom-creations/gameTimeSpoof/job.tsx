@@ -7,13 +7,15 @@
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { classNameFactory } from "@utils/css";
-import { createRoot, showToast, useEffect, useState } from "@webpack/common";
+import { Logger } from "@utils/Logger";
+import { createRoot, useEffect, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
 import { BadgeKind, BadgeProgress, recordCredit } from "./badges";
 import { CreditError, CreditPlan, creditPlaytime, CreditProgress } from "./science";
 
 const cl = classNameFactory("vc-gts-");
+const logger = new Logger("GameTimeSpoof");
 
 export interface CreditJob {
     plan: CreditPlan;
@@ -24,16 +26,27 @@ export interface CreditJob {
     doneText(): string;
 }
 
+interface JobResult {
+    kind: "success" | "stopped" | "failed";
+    title: string;
+    text: string;
+}
+
 interface JobState {
     progress: CreditProgress;
     text: string;
     stopping: boolean;
+    result?: JobResult;
 }
+
+// Discord's toasts cut text off after two lines, so the finished run's message stays in the corner box instead.
+const SUCCESS_SHOWN_MS = 15_000;
 
 let state: JobState | null = null;
 let controller: AbortController | null = null;
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+let closeTimer: ReturnType<typeof setTimeout> | undefined;
 const listeners = new Set<() => void>();
 
 function update(next: JobState | null) {
@@ -41,7 +54,7 @@ function update(next: JobState | null) {
     listeners.forEach(l => l());
 }
 
-export const isCrediting = () => state !== null;
+const running = () => state !== null && !state.result;
 
 export function useCrediting() {
     const [, rerender] = useState(0);
@@ -50,10 +63,19 @@ export function useCrediting() {
         listeners.add(listener);
         return () => void listeners.delete(listener);
     }, []);
-    return state !== null;
+    return running();
 }
 
+// Only feeds the badge tracker; a problem here must never turn a good run into a failed one.
 function logSent(job: CreditJob, sent: number) {
+    try {
+        tally(job, sent);
+    } catch (e) {
+        logger.error("Couldn't save the badge tracker entry", e);
+    }
+}
+
+function tally(job: CreditJob, sent: number) {
     let ms = 0;
     const games = new Set<string>();
     for (let i = 0; i < sent; i++) {
@@ -65,39 +87,58 @@ function logSent(job: CreditJob, sent: number) {
     recordCredit(ms / 3_600_000, fresh, job.badges);
 }
 
+function finish(result: JobResult) {
+    if (!state) return;
+    update({ ...state, stopping: false, result });
+    clearTimeout(closeTimer);
+    if (result.kind === "success") closeTimer = setTimeout(dismiss, SUCCESS_SHOWN_MS);
+}
+
+function dismiss() {
+    clearTimeout(closeTimer);
+    update(null);
+    unmount();
+}
+
 export async function startCredit(job: CreditJob) {
-    if (state) return;
+    if (running()) return;
+    clearTimeout(closeTimer);
     const abort = controller = new AbortController();
     const first: CreditProgress = { sent: 0, total: job.plan.length, etaMs: null, waitingMs: 0 };
     update({ progress: first, text: "Starting...", stopping: false });
     mount();
+    let result: JobResult;
     try {
-        const sent = await creditPlaytime(job.plan, abort.signal, p => state && update({ ...state, progress: p, text: job.progressText(p) }));
+        const sent = await creditPlaytime(job.plan, abort.signal, p => running() && update({ ...state!, progress: p, text: job.progressText(p) }));
         logSent(job, sent);
-        if (abort.signal.aborted) {
-            if (sent) showToast({ text: `Stopped. ${job.describe(sent)} were sent and still count.`, variant: "default" });
-        } else {
-            showToast({ text: job.doneText(), variant: "success" });
-        }
+        result = abort.signal.aborted
+            ? { kind: "stopped", title: "Stopped", text: sent ? `${job.describe(sent)} were sent and still count.` : "Nothing was sent yet." }
+            : { kind: "success", title: "Play time added", text: job.doneText() };
     } catch (e) {
+        logger.error("Adding play time failed", e);
         const sent = e instanceof CreditError ? e.sent : 0;
+        const status = e instanceof CreditError ? (e.cause as { status?: number; } | undefined)?.status : undefined;
         logSent(job, sent);
-        showToast({
-            text: sent
-                ? `Discord stopped accepting play time after ${job.describe(sent)}. The ones sent still count, so don't run the same thing again right away.`
-                : "Discord didn't accept the play time. Try again in a bit.",
-            variant: "critical"
-        });
+        const reason = status ? ` (Discord answered ${status})` : "";
+        result = {
+            kind: "failed",
+            title: sent ? "Only part of the play time was added" : "Couldn't add the play time",
+            text: !(e instanceof CreditError)
+                ? "Something went wrong in GameTimeSpoof before the play time could be sent. Details are in the console (Ctrl+Shift+I)."
+                : sent
+                    ? `Discord stopped accepting play time after ${job.describe(sent)}${reason}. The ones sent still count, so don't run the same thing again right away.`
+                    : `Discord didn't accept the play time${reason}. Try again in a bit.`
+        };
     } finally {
         if (controller === abort) controller = null;
-        update(null);
-        unmount();
     }
+    if (root) finish(result);
+    else update(null);
 }
 
 export function stopCredit() {
-    if (!state || !controller) return;
-    update({ ...state, stopping: true });
+    if (!running() || !controller) return;
+    update({ ...state!, stopping: true });
     controller.abort();
 }
 
@@ -111,8 +152,23 @@ function ProgressCard() {
     }, []);
     if (!state) return null;
 
-    const { progress, text, stopping } = state;
+    const { progress, text, stopping, result } = state;
     const percent = progress.total ? Math.floor(progress.sent / progress.total * 100) : 0;
+
+    if (result) return (
+        <div className={cl("job", `job-${result.kind}`)} role="status">
+            <div className={cl("job-head")}>
+                <span className={cl("job-title")}>{result.title}</span>
+                <span className={cl("job-toggle")} onClick={dismiss} title="Close">✕</span>
+            </div>
+            <div className={cl("job-text", "job-result")}>{result.text}</div>
+            {result.kind !== "success" && (
+                <div className={cl("job-actions")}>
+                    <Button size="small" variant="secondary" onClick={dismiss}>Close</Button>
+                </div>
+            )}
+        </div>
+    );
 
     return (
         <div className={cl("job", small && "job-small")} role="status">
@@ -153,5 +209,7 @@ function unmount() {
 
 export function cancelCredit() {
     controller?.abort();
+    clearTimeout(closeTimer);
+    state = null;
     unmount();
 }
