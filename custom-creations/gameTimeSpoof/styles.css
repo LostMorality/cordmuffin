@@ -261,3 +261,23 @@
     display: flex;
     justify-content: flex-end;
 }
+
+.vc-gts-job-success {
+    border-color: var(--status-positive);
+}
+
+.vc-gts-job-stopped {
+    border-color: var(--status-warning);
+}
+
+.vc-gts-job-failed {
+    border-color: var(--status-danger);
+}
+
+.vc-gts-job-result {
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-gts-job-head .vc-gts-job-toggle {
+    cursor: pointer;
+}
