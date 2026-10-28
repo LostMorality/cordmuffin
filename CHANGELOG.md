@@ -3,6 +3,13 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-10-28
+
+- GameTimeSpoof: Add Time now runs in the background. The window closes and a small progress box in the corner shows
+  how far along it is, with a Stop button, so you can keep using Discord.
+- Dictation: the mic button now shows in forum posts and threads opened in the side panel, and types into the box you
+  clicked it in.
+
 ## 2026-10-28 (installer v1.2.1)
 
 - Updater: Equicord is no longer updated unless you turn on **Also update Equicord** on the Cordmuffin Updater page.
