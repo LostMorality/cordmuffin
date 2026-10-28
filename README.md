@@ -23,8 +23,9 @@ Windows might say "Windows protected your PC" because the installer isn't signed
 
 It downloads Equicord, adds your plugins, builds it, puts it into Discord, and turns your themes on. The first run takes a few minutes. After that it's faster.
 
+- **Updates install by themselves.** The installer adds a small plugin, **CordmuffinUpdater**, that checks for a newer Equicord, newer versions of the cordmuffin plugins you use, newer versions of plugins you got from Muffinshelf, and a newer installer. It builds them in the background while Discord stays open, and tells you when a restart will finish the job. Turn it off or switch to an "Update now" button in **User Settings → Cordmuffin Updater** (see [CordmuffinUpdater](#cordmuffinupdater-cordmuffinupdater)).
 - **Add or update plugins:** change the folders and run it again. Plugins you installed with Muffinshelf are kept too.
-- **Update Equicord:** run it again and click **Yes**. It always grabs the newest Equicord.
+- **Update by hand:** run it again and click **Yes**. It always grabs the newest Equicord, and swaps any cordmuffin plugins in **Plugins Go Here** for their newest version (the old copy is kept in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`).
 - **Remove it:** run it, click **No**, then confirm. Discord goes back to normal, and if you had another Discord mod before, it puts that back.
 
 It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need admin rights. If something goes wrong partway, Discord is left as it was, and if Equicord's files ever go missing, Discord simply starts without it.
@@ -33,17 +34,38 @@ It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need ad
 
 **It downloads from these places:**
 - **nodejs.org**: Node.js, which is needed to build Equicord. It's kept in `%LOCALAPPDATA%\Cordmuffin` and isn't installed on your PC.
-- **api.github.com and codeload.github.com**: the newest Equicord source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord).
+- **api.github.com and codeload.github.com**: the newest Equicord source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
+- **github.com**: newer releases of the installer itself, when CordmuffinUpdater finds one.
 - **registry.npmjs.org**: pnpm and the packages Equicord needs to build (Equicord's own `pnpm-lock.yaml` decides which).
 
 **It changes these on your PC:**
 - **Discord's `resources` folder**: it renames `app.asar` to `_app.asar` and adds a small `app.asar` folder that loads Equicord. This is the same way Equicord's own installer does it.
-- **`%LOCALAPPDATA%\Cordmuffin`**: Node.js, Equicord's source, pnpm's download cache, the built files and `install.log`. Removing Equicord deletes this folder.
+- **`%LOCALAPPDATA%\Cordmuffin`**: Node.js, Equicord's source, pnpm's download cache, the built files, a copy of the installer and of your plugins for background updates, `install.log` and `update.log`. Removing Equicord deletes this folder, except `plugin-backups` when updates saved old plugin copies there (delete it by hand if you don't need them).
 - **`%APPDATA%\Equicord\themes`** and the `enabledThemes` list in `%APPDATA%\Equicord\settings\settings.json`, only if you added themes.
 
 Nothing is uploaded anywhere.
 
 ## Custom Creations
+
+### CordmuffinUpdater (`cordmuffinUpdater`)
+
+Keeps Cordmuffin up to date. It isn't in the plugin list: the installer adds it on its own, and its switches are on its own page, **User Settings → Cordmuffin Updater** (in the Equicord Settings section). Equicord's own Updater page is switched off in Cordmuffin builds, because it would swap in the official Equicord files, which don't have these plugins in them, so this page takes over that job too.
+
+![The Cordmuffin Updater page](docs/updater-settings.png)
+
+- When Discord starts, and every 6 hours, it asks GitHub whether there's a newer Equicord, a newer version of a cordmuffin plugin you use, a newer version of a plugin you installed with Muffinshelf (checked in the GitHub repo it came from), or a newer installer.
+- Plugin and installer fixes go out right away. Equicord itself changes several times a day, so on its own it's updated at most once a day (pick once a week, every change, or only together with a plugin update under **Equicord updates**). Whenever a plugin update happens, the newest Equicord comes along. **Check now** offers everything at once.
+- If there is, it runs the installer in the background to build the update while Discord keeps working. When it's done, a notification says what was updated; click it to restart Discord, or the update is used the next time Discord starts.
+- Your other plugins, themes and settings are left alone. Before an update replaces a cordmuffin or Muffinshelf plugin, the old copy is saved in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`. If a Muffinshelf plugin's new version doesn't build, it stays on the old one and the rest still updates. If an update fails, nothing changes, and the reason is in `%LOCALAPPDATA%\Cordmuffin\update.log`.
+- **Settings** (User Settings → Cordmuffin Updater): turn off **Automatically update** to get an "Update now" button instead, turn off **Update Muffinshelf plugins** to leave Muffinshelf plugins alone, or turn off **Check for updates** to stop it completely. The page also has **Check now** and shows what's installed. Clicking an update notification opens it.
+
+When an update is ready, you get a notification, or with **Automatically update** off, a bar with an **Update now** button:
+
+![Update finished notification](docs/updater-notification.png)
+
+![The Update now bar](docs/updater-bar.png)
+
+**What it talks to:** **api.github.com**, **codeload.github.com** and **github.com** (including the repos your Muffinshelf plugins came from), plus **nodejs.org** and **registry.npmjs.org** while an update builds, the same places the installer uses.
 
 ### Game Browser (`gameTimeSpoof`)
 
@@ -59,6 +81,8 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when the next badge update should land.
 - **Works out the totals for you:** for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
 - **Real games count too.** The games you actually play also get reported, even with Equicord's NoTrack blocking Discord's own reports.
+
+![Add Play Time with the badge tracker (sample numbers)](docs/game-time-badges.png)
 
 It starts turned off. Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a game with the controller button.
 
@@ -87,7 +111,7 @@ A plugin store inside Discord for plugins Equicord doesn't ship. Open it from th
 ![Muffinshelf](docs/muffinshelf.png)
 
 - **Equicord plugins** from community GitHub repos and venpm `plugins.json` indexes. Muffinshelf downloads the plugin's folder, rebuilds Equicord, turns the plugin on and asks you to restart Discord. If anything goes wrong, your plugins are put back the way they were and Discord keeps working.
-- **BetterDiscord plugins** from the official BetterDiscord store. These run through Muffinshelf's own BetterDiscord layer, with no rebuild or restart. Plugins that need ZeresPluginLibrary, BDFDB or XenoLib get that library installed with them. They get the same Node.js modules BetterDiscord gives them, and can use files inside their own plugins folder.
+- **BetterDiscord plugins** from the official BetterDiscord store. These run through Muffinshelf's own BetterDiscord layer, with no rebuild or restart. Plugins that need ZeresPluginLibrary, BDFDB or XenoLib get that library installed with them. They get the same Node.js modules BetterDiscord gives them. Their file access is kept to their own plugins folder, but that's not a safety wall: like on BetterDiscord, they run with full access to your Discord account.
 - **Tested against the whole BetterDiscord store:** every store plugin was run in Muffinshelf, and 205 of the 207 tested work. The 2 that don't were made for an older Discord; they're hidden, with the reason shown. Some plugins (BetterAnimations, for example) are fixed up for today's Discord, and a few need one Discord restart after they're installed; Muffinshelf asks when that happens. A plugin that fails for you is hidden the same way, until a new version comes out.
 - **shelter, Moonlight, Replugged and Evi** plugins are listed too, with links, so you can find them. They're built for other mods and can't run on Equicord.
 - **Already in Equicord:** plugins Equicord already has (like InvisibleTyping, which is Equicord's SilentTyping) are marked and hidden by default.
@@ -169,7 +193,7 @@ cd equicord-installer
 go build -trimpath -ldflags "-s -w" -o "Cordmuffin Equicord Installer.exe" .
 ```
 
-To make the release zip, run `equicord-installer/build-release.ps1` in PowerShell. It only packs the installer and the empty **Plugins Go Here** and **Themes Go Here** folders, and stops if anything else would end up in the zip.
+To make the release zip, run `equicord-installer/build-release.ps1 -Version 1.2.3` in PowerShell, with the version you'll tag the release as (`v1.2.3`); the background updater compares the two to find a newer installer. It only packs the installer and the empty **Plugins Go Here** and **Themes Go Here** folders, and stops if anything else would end up in the zip. Upload both files it makes, the zip and `Cordmuffin Equicord Installer.zip.sha256`; the background updater checks a new installer against the checksum before using it.
 
 ## License
 
