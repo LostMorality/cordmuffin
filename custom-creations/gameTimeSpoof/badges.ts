@@ -8,8 +8,7 @@ import { RestAPI, UserStore } from "@webpack/common";
 
 import { settings } from ".";
 
-export const UPDATE_MIN_MS = 24 * 3_600_000;
-export const UPDATE_MAX_MS = 48 * 3_600_000;
+export const UPDATE_WITHIN_MS = 24 * 3_600_000;
 const FORGET_AFTER_MS = 72 * 3_600_000;
 
 export type BadgeKind = "time" | "variety";
