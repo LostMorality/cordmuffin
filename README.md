@@ -55,17 +55,19 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Click a cover** to open that game's real Discord page.
 - **Spoof** switches to that game right away. The game you're spoofing always stays at the top.
 - **Rotation:** cycles through your favorites or random games on a timer.
-- **Add Time** and **Add Random Games:** add play time to one game, all your favorites, or a set number of random games.
+- **Add Time** and **Add Random Games:** add play time to one game, all your favorites, or any number of random games (or all of them). It can stick to games you've never played, so each one counts toward Game Variety.
+- **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when the next badge update should land.
+- **Works out the totals for you:** for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
 - **Real games count too.** If you use NoTrack, the games you actually play also get reported.
 
 It starts turned off. Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a game with the controller button.
 
-Badges can take a day or two to update. For anything to count, **Use data to improve Discord** has to be on (User Settings, then Data & Privacy). Add Time works in chunks of up to 365 days and 100 games at a time.
+Badges don't update right away: Discord counts new play time about once a day, so it shows up 24 to 48 hours later. For anything to count, **Use data to improve Discord** has to be on (User Settings, then Data & Privacy). There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
 
 The Streaming badge can't be done this way. Discord only counts stream time when someone is really watching.
 
 **What it talks to:**
-- **discord.com** (Discord's own API): the list of detectable games, game pages, and the play-time reports that badges are counted from.
+- **discord.com** (Discord's own API): the list of detectable games, game pages, the play-time reports that badges are counted from, and your own badge progress and play history (read only).
 - **cdn.discordapp.com**: game cover art and icons.
 
 It talks to nothing else, and it doesn't use any loadstring or remote code.
