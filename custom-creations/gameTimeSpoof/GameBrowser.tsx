@@ -10,10 +10,11 @@ import { GameControllerIcon } from "@components/Icons";
 import { classNameFactory } from "@utils/css";
 import type { RenderModalProps } from "@vencord/discord-types";
 import { findByPropsLazy } from "@webpack";
-import { Modal, openModal, RunningGameStore, Select, showToast, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
+import { Modal, openModal, RunningGameStore, Select, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
 
 import { DetectableApp, isSpoofing, loadDetectable, settings } from ".";
 import { openAddTime } from "./AddTime";
+import { notify } from "./notify";
 
 const cl = classNameFactory("vc-gts-");
 const GameProfileActions: { openGameProfileModal(options: { gameId: string; gameProfileModalChecks: { shouldOpenGameProfile: boolean; gameId: string; }; source: string; }): void; } = findByPropsLazy("openGameProfileModal");
@@ -65,7 +66,7 @@ function openGameProfile(id: string) {
     try {
         GameProfileActions.openGameProfileModal({ gameId: id, gameProfileModalChecks: { shouldOpenGameProfile: true, gameId: id }, source: "quick_switcher" });
     } catch {
-        showToast({ text: "Discord's game page couldn't be opened.", variant: "critical" });
+        notify("Discord's game page couldn't be opened.", "critical");
     }
 }
 
