@@ -13,7 +13,9 @@ import { join, resolve } from "path";
 const REPO = "LostMorality/cordmuffin";
 const EQUICORD = "Equicord/Equicord";
 const UPDATE_TIMEOUT_MS = 30 * 60_000;
+const EXIT_OK = 0;
 const EXIT_BUSY = 10;
+const EXIT_UP_TO_DATE = 11;
 
 const work = join(process.env.LOCALAPPDATA ?? "", "Cordmuffin");
 const muffinshelfSaved = join(DATA_DIR, "muffinshelf", "userplugins");
@@ -41,6 +43,12 @@ export interface Info {
     plugins?: string[];
     builtAt?: string;
     muffinshelf?: string[];
+    changelog?: ChangelogSection[];
+}
+
+export interface ChangelogSection {
+    title: string;
+    items: string[];
 }
 
 export interface CheckResult extends Info {
@@ -49,6 +57,8 @@ export interface CheckResult extends Info {
     changedPlugins?: string[];
     changedMuffinshelf?: string[];
     installer?: string | null;
+    // Changelog lines on GitHub that the installed version doesn't have yet.
+    whatsNew?: ChangelogSection[];
     error?: string;
 }
 
@@ -69,7 +79,7 @@ function readState(): State | null {
     try {
         const state = readJson(join(work, "state.json"));
         if (typeof state?.equicord !== "string" || typeof state?.updater !== "string") return null;
-        return { ...state, plugins: Array.isArray(state.plugins) ? state.plugins : [] };
+        return { ...state, version: typeof state.version === "string" ? state.version : "", plugins: Array.isArray(state.plugins) ? state.plugins : [] };
     } catch {
         return null;
     }
@@ -139,6 +149,70 @@ function muffinshelfPlugins(): MuffinshelfPlugin[] {
     return plugins;
 }
 
+const CHANGELOG = "CHANGELOG.md";
+const CHANGELOG_SECTIONS = 3;
+const CHANGELOG_ITEMS = 12;
+
+// "## Title" starts a section, "- " starts an item; a line indented under an item continues it.
+function parseChangelog(text: string): ChangelogSection[] {
+    const sections: ChangelogSection[] = [];
+    for (const raw of text.split(/\r?\n/)) {
+        const line = raw.trim();
+        if (raw.startsWith("## ")) sections.push({ title: line.slice(3).trim(), items: [] });
+        else if (!sections.length || !line) continue;
+        else if (line.startsWith("- ")) sections.at(-1)!.items.push(line.slice(2).trim());
+        else if (/^\s/.test(raw) && sections.at(-1)!.items.length) {
+            const { items } = sections.at(-1)!;
+            items[items.length - 1] += " " + line;
+        }
+    }
+    // Markdown marks read fine on GitHub but not as plain text on the page.
+    return sections
+        .map(s => ({ ...s, items: s.items.map(i => i.replace(/\*\*|`/g, "")) }))
+        .filter(s => s.items.length);
+}
+
+// The installer keeps the cordmuffin source it built from; its changelog is the installed one.
+function installedChangelogText(state: State) {
+    const dir = join(work, "cordmuffin");
+    try {
+        if (readFileSync(join(dir, ".commit"), "utf8").trim() !== state.cordmuffin) return null;
+        return existsSync(join(dir, CHANGELOG)) ? readFileSync(join(dir, CHANGELOG), "utf8") : "";
+    } catch {
+        return null;
+    }
+}
+
+async function changelogAt(ref: string) {
+    const res = await github(`/repos/${REPO}/contents/${CHANGELOG}?ref=${ref}`, "application/vnd.github.raw");
+    if (res.status === 404) return "";
+    if (!res.ok) throw new Error(`GitHub didn't send the changelog (${res.status}).`);
+    return res.text();
+}
+
+// Never stops a check: without notes, the update is still offered.
+async function whatsNew(state: State): Promise<ChangelogSection[]> {
+    try {
+        const latest = parseChangelog(await changelogAt("main"));
+        let installedText = installedChangelogText(state);
+        if (installedText === null && SHA.test(state.cordmuffin)) installedText = await changelogAt(state.cordmuffin);
+        const installed = new Set(parseChangelog(installedText ?? "").flatMap(s => s.items));
+        let left = CHANGELOG_ITEMS;
+        return latest
+            .map(s => ({ title: s.title, items: s.items.filter(i => !installed.has(i)) }))
+            .filter(s => s.items.length)
+            .slice(0, CHANGELOG_SECTIONS)
+            .map(s => {
+                const items = s.items.slice(0, Math.max(left, 0));
+                left -= items.length;
+                return { ...s, items };
+            })
+            .filter(s => s.items.length);
+    } catch {
+        return [];
+    }
+}
+
 function baseInfo(state: State): Info {
     return {
         supported: true,
@@ -148,6 +222,7 @@ function baseInfo(state: State): Info {
         plugins: state.plugins,
         builtAt: state.builtAt,
         muffinshelf: muffinshelfPlugins().map(p => p.name),
+        changelog: parseChangelog(installedChangelogText(state) ?? "").slice(0, CHANGELOG_SECTIONS),
     };
 }
 
@@ -165,7 +240,7 @@ async function changedMuffinshelf() {
     const lookup = (p: MuffinshelfPlugin) => {
         const key = `${p.owner}/${p.repo}@${p.track}`;
         if (!latest.has(key)) {
-            latest.set(key, github(`/repos/${p.owner}/${p.repo}/commits/${encodeURIComponent(p.track)}`, "application/vnd.github.sha")
+            latest.set(key, github(`/repos/${p.owner}/${p.repo}/commits/${p.track.split("/").map(encodeURIComponent).join("/")}`, "application/vnd.github.sha")
                 .then(async res => {
                     const sha = res.ok ? (await res.text()).trim() : "";
                     return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
@@ -233,33 +308,39 @@ async function newerInstaller(state: State) {
     return tag && newer(tag, state.version) && version !== state.skippedRelease ? version : null;
 }
 
-export async function check(_: IpcMainInvokeEvent, includeMuffinshelf: boolean): Promise<CheckResult> {
+export async function check(_: IpcMainInvokeEvent, includeMuffinshelf: boolean, includeEquicord: boolean): Promise<CheckResult> {
     const got = getState();
     if ("reason" in got) return { supported: false, reason: got.reason };
     const { state } = got;
     const base = baseInfo(state);
     try {
         const [eq, changed, installer, muffinshelf] = await Promise.all([
-            equicordOutdated(state),
+            includeEquicord ? equicordOutdated(state) : Promise.resolve(false),
             changedPlugins(state),
             newerInstaller(state),
             includeMuffinshelf ? changedMuffinshelf() : Promise.resolve([]),
         ]);
-        return { ...base, equicordOutdated: eq, changedPlugins: changed, installer, changedMuffinshelf: muffinshelf };
+        // Only fetched when cordmuffin has something new, to stay well under GitHub's hourly limit.
+        const notes = changed.length || installer ? await whatsNew(state) : [];
+        return { ...base, equicordOutdated: eq, changedPlugins: changed, installer, changedMuffinshelf: muffinshelf, whatsNew: notes };
     } catch (e) {
         return { ...base, error: e instanceof Error ? e.message : String(e) };
     }
 }
 
+const names = (v: unknown) => Array.isArray(v) ? v.filter((n): n is string => typeof n === "string") : undefined;
+
 function readResult(): UpdateResult | null {
     try {
-        return readJson(join(work, "update-result.json"));
+        const r = readJson(join(work, "update-result.json"));
+        if (typeof r?.ok !== "boolean") return null;
+        return { ...r, updated: names(r.updated), skipped: names(r.skipped), error: typeof r.error === "string" ? r.error : undefined };
     } catch {
         return null;
     }
 }
 
-async function doUpdate(includeMuffinshelf: boolean): Promise<UpdateResult> {
+async function doUpdate(includeMuffinshelf: boolean, includeEquicord: boolean): Promise<UpdateResult> {
     const got = getState();
     if ("reason" in got) return { ok: false, error: got.reason };
     const exe = got.state.updater;
@@ -269,7 +350,8 @@ async function doUpdate(includeMuffinshelf: boolean): Promise<UpdateResult> {
     rmSync(join(work, "update-result.json"), { force: true });
     const code = await new Promise<number>(done => {
         // Detached, so closing Discord in the middle doesn't cut the build off; it finishes and is used next start.
-        const child = spawn(exe, includeMuffinshelf ? ["/update"] : ["/update", "/no-muffinshelf"], { cwd: work, windowsHide: true, detached: true, stdio: "ignore" });
+        const args = ["/update", ...(includeMuffinshelf ? [] : ["/no-muffinshelf"]), ...(includeEquicord ? [] : ["/no-equicord"])];
+        const child = spawn(exe, args, { cwd: work, windowsHide: true, detached: true, stdio: "ignore" });
         // The installer runs node and pnpm (and maybe a newer copy of itself), so the whole tree is stopped.
         const timer = setTimeout(() => {
             if (child.pid) spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).on("error", () => child.kill());
@@ -282,13 +364,16 @@ async function doUpdate(includeMuffinshelf: boolean): Promise<UpdateResult> {
     if (code === EXIT_BUSY) return { ok: false, error: "The Cordmuffin installer or Muffinshelf is busy building right now. It tries again later." };
     const result = readResult();
     if (result) return result;
+    // The installer only logs it when it can't save its result; its exit code still says how it went.
+    if (code === EXIT_OK) return { ok: true, needsRestart: true, updated: [] };
+    if (code === EXIT_UP_TO_DATE) return { ok: true, upToDate: true };
     return { ok: false, error: `The updater stopped without saying why (code ${code}). Its log is at ${join(work, "update.log")}` };
 }
 
 let running: Promise<UpdateResult> | null = null;
 
-export function runUpdate(_: IpcMainInvokeEvent, includeMuffinshelf: boolean) {
-    running ??= doUpdate(includeMuffinshelf).finally(() => running = null);
+export function runUpdate(_: IpcMainInvokeEvent, includeMuffinshelf: boolean, includeEquicord: boolean) {
+    running ??= doUpdate(includeMuffinshelf === true, includeEquicord === true).finally(() => running = null);
     return running;
 }
 
