@@ -17,6 +17,7 @@ import definePlugin, { OptionType } from "@utils/types";
 import { RunningGame } from "@vencord/discord-types";
 import { FluxDispatcher, RestAPI, RunningGameStore, showToast } from "@webpack/common";
 
+import type { PendingCredit } from "./badges";
 import { openGameBrowser } from "./GameBrowser";
 import { ReportedGame, reportPlaytime } from "./science";
 
@@ -67,6 +68,11 @@ export const settings = definePluginSettings({
     favorites: {
         type: OptionType.CUSTOM,
         default: [] as string[],
+        description: ""
+    },
+    pending: {
+        type: OptionType.CUSTOM,
+        default: [] as PendingCredit[],
         description: ""
     }
 });
