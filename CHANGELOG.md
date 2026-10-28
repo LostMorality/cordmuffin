@@ -9,6 +9,10 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   two. The badge tracker saved its list in a way that broke saving settings until Discord restarted.
 - GameTimeSpoof: when a run ends, the corner box now shows the whole result instead of a toast that cut it off.
 - GameTimeSpoof: spoofed games now report their play sessions to Discord properly. Discord was rejecting them.
+- GameTimeSpoof: works alongside tracking blockers. Turning Equicord's NoTrack analytics switch on or off no longer
+  makes real games count twice or not at all before the restart it needs. The Game Browser and Add Time window warn when
+  a blocker such as DoNotTrack is on, or when Discord's activity sharing is off, and a blocked send now says so right
+  away instead of retrying for a minute.
 - GameTimeSpoof: the badge update time is no longer a guess of "24 hours from now". The plugin learns when Discord's
   daily update runs for your account and shows that time, or says it doesn't know it yet.
 - Dictation, GameTimeSpoof, Muffinshelf, QuestRunner: messages too long for a toast now show as a notification with all of
