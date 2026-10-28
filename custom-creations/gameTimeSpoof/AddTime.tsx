@@ -16,6 +16,7 @@ import { Modal, openModal, TextInput, useEffect, useMemo, useState } from "@webp
 
 import { DetectableApp, exeName } from ".";
 import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, nextUpdate, tierFor } from "./badges";
+import { Conflicts } from "./conflicts";
 import { startCredit, useCrediting } from "./job";
 import { notify } from "./notify";
 import { CreditProgress, loadPlayedIds, planCredit } from "./science";
@@ -171,6 +172,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
             <Notice.Warning className={cl("notice")}>
                 Badges don't change right away. Discord updates them once a day, so new play time shows up at its next daily update, within about 24 hours.
             </Notice.Warning>
+            <Conflicts />
             {badges === null && <Paragraph className={cl("badges")}>Checking your badges...</Paragraph>}
             {badges === "failed" || knownBadges && !knownBadges.time && !knownBadges.variety
                 ? <Paragraph className={cl("badges")}>Couldn't read your badge progress. Discord may not have these badges on your account yet.</Paragraph>
