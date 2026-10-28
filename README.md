@@ -23,8 +23,8 @@ Windows might say "Windows protected your PC" because the installer isn't signed
 
 It downloads Equicord, adds your plugins, builds it, puts it into Discord, and turns your themes on. The first run takes a few minutes. After that it's faster.
 
-- **Updates install by themselves.** The installer adds a small plugin, **CordmuffinUpdater**, that checks for a newer Equicord, newer versions of the cordmuffin plugins you use, newer versions of plugins you got from Muffinshelf, and a newer installer. It builds them in the background while Discord stays open, and tells you when a restart will finish the job. Turn it off or switch to an "Update now" button in **User Settings → Cordmuffin Updater** (see [CordmuffinUpdater](#cordmuffinupdater-cordmuffinupdater)).
-- **Add or update plugins:** change the folders and run it again. Plugins you installed with Muffinshelf are kept too.
+- **Automatic updates (optional, on by default).** The installer adds a small plugin, **CordmuffinUpdater**, that checks for newer versions of the cordmuffin plugins you use, plugins you got from Muffinshelf, and the installer. It builds them in the background while Discord stays open, and tells you when a restart will finish the job. Equicord itself is left as it is unless you turn on **Also update Equicord**. In **User Settings → Cordmuffin Updater** you can turn updates off, or get an "Update now" button instead of automatic installs (see [CordmuffinUpdater](#cordmuffinupdater-cordmuffinupdater)).
+- **Add or update plugins:** change the folders and run it again. Plugins you installed with Muffinshelf are kept too. Running a newer download from a different folder keeps your plugins as well: the installer copies them from your last install into its **Plugins Go Here**.
 - **Update by hand:** run it again and click **Yes**. It always grabs the newest Equicord, and swaps any cordmuffin plugins in **Plugins Go Here** for their newest version (the old copy is kept in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`).
 - **Remove it:** run it, click **No**, then confirm. Discord goes back to normal, and if you had another Discord mod before, it puts that back.
 
@@ -34,7 +34,7 @@ It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need ad
 
 **It downloads from these places:**
 - **nodejs.org**: Node.js, which is needed to build Equicord. It's kept in `%LOCALAPPDATA%\Cordmuffin` and isn't installed on your PC.
-- **api.github.com and codeload.github.com**: the newest Equicord source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
+- **api.github.com and codeload.github.com**: Equicord's source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
 - **github.com**: newer releases of the installer itself, when CordmuffinUpdater finds one.
 - **registry.npmjs.org**: pnpm and the packages Equicord needs to build (Equicord's own `pnpm-lock.yaml` decides which).
 
@@ -49,15 +49,15 @@ Nothing is uploaded anywhere.
 
 ### CordmuffinUpdater (`cordmuffinUpdater`)
 
-Keeps Cordmuffin up to date. It isn't in the plugin list: the installer adds it on its own, and its switches are on its own page, **User Settings → Cordmuffin Updater** (in the Equicord Settings section). Equicord's own Updater page is switched off in Cordmuffin builds, because it would swap in the official Equicord files, which don't have these plugins in them, so this page takes over that job too.
+Keeps the cordmuffin plugins, your Muffinshelf plugins and the installer up to date. It isn't in the plugin list: the installer adds it on its own, and its switches are on its own page, **User Settings → Cordmuffin Updater** (in the Equicord Settings section). Everything on it is optional; by default updates are on, install by themselves, and leave Equicord alone.
 
 ![The Cordmuffin Updater page](docs/updater-settings.png)
 
-- When Discord starts, and every 6 hours, it asks GitHub whether there's a newer Equicord, a newer version of a cordmuffin plugin you use, a newer version of a plugin you installed with Muffinshelf (checked in the GitHub repo it came from), or a newer installer.
-- Plugin and installer fixes go out right away. Equicord itself changes several times a day, so on its own it's updated at most once a day (pick once a week, every change, or only together with a plugin update under **Equicord updates**). Whenever a plugin update happens, the newest Equicord comes along. **Check now** offers everything at once.
+- When Discord starts, and every 6 hours, it asks GitHub whether there's a newer version of a cordmuffin plugin you use, of a plugin you installed with Muffinshelf (checked in the GitHub repo it came from), or of the installer.
+- **Equicord updates are off by default**: updates rebuild with the Equicord you already have. Equicord's own updater can't be used, because it swaps in the official Equicord files, which don't have these plugins in them. Turn on **Also update Equicord** to update it from here: since Equicord changes several times a day, it's then updated at most once a day (or once a week, on every change, or only together with a plugin update), and the newest Equicord comes along whenever a plugin update happens.
 - If there is, it runs the installer in the background to build the update while Discord keeps working. When it's done, a notification says what was updated; click it to restart Discord, or the update is used the next time Discord starts.
 - Your other plugins, themes and settings are left alone. Before an update replaces a cordmuffin or Muffinshelf plugin, the old copy is saved in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`. If a Muffinshelf plugin's new version doesn't build, it stays on the old one and the rest still updates. If an update fails, nothing changes, and the reason is in `%LOCALAPPDATA%\Cordmuffin\update.log`.
-- **Settings** (User Settings → Cordmuffin Updater): turn off **Automatically update** to get an "Update now" button instead, turn off **Update Muffinshelf plugins** to leave Muffinshelf plugins alone, or turn off **Check for updates** to stop it completely. The page also has **Check now** and shows what's installed. Clicking an update notification opens it.
+- **Settings** (User Settings → Cordmuffin Updater): turn off **Automatically update** to get an "Update now" button instead, turn off **Update Muffinshelf plugins** to leave Muffinshelf plugins alone, turn on **Also update Equicord** to keep Equicord up to date too, or turn off **Check for updates** to stop it completely. The page also has **Check now** and shows what's installed. Clicking an update notification opens it.
 
 When an update is ready, you get a notification, or with **Automatically update** off, a bar with an **Update now** button:
 
