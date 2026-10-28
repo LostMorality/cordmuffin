@@ -80,6 +80,7 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Add Time** and **Add Random Games:** add play time to one game, all your favorites, or any number of random games (or all of them). It can stick to games you've never played, so each one counts toward Game Variety.
 - **Badge tracker:** Add Time shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when your added time should be counted.
 - **Works out the totals for you:** for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
+- **Runs in the background:** once you click Add Time the window closes and a small progress box in the bottom-right corner shows how far along it is, with a Stop button. Keep using Discord as normal; it sends at the same safe pace either way.
 - **Real games count too.** The games you actually play also get reported, even with Equicord's NoTrack blocking Discord's own reports.
 
 ![Add Play Time with the badge tracker (sample numbers)](docs/game-time-badges.png)
