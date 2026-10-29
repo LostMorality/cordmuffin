@@ -63,6 +63,13 @@
     left: calc(10px + var(--vc-pimg-shift, 0px));
 }
 
+/* the server name and menu arrow sit over the top of the server banner */
+.vc-pimg-guild {
+    top: auto;
+    right: 10px;
+    bottom: 10px;
+}
+
 .vc-pimg-pill {
     display: flex;
     align-items: center;
