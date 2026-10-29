@@ -3,6 +3,11 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-10-29
+
+- New plugin: ProfileImages. Adds View Avatar and View Banner buttons right on profiles (full profile, popout and DM
+  side panel), opening the full-size or animated image in Discord's viewer.
+
 ## 2026-10-28
 
 - GameTimeSpoof: fixed Add Time failing with "Discord didn't accept the play time" every time after the first run or
