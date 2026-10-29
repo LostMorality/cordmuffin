@@ -187,6 +187,31 @@ Works on Windows, Linux and macOS.
 
 **To install it:** copy the `custom-creations/dictation` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### ProfileImages (`profileImages`)
+
+See anyone's profile picture and banner full size with one click. Equicord's ViewIcons hides this in right-click menus; ProfileImages puts the buttons right on the profile.
+
+![The avatar and banner buttons next to Message](docs/profile-images-buttons.png)
+
+![Avatar and Banner buttons on a profile popout's banner](docs/profile-images-banner.png)
+
+- **Full profile:** two square buttons next to Message, one for the avatar and one for the banner. They look like Discord's own buttons, and themes style them the same way.
+- **Popout and DM side panel:** small **Avatar** and **Banner** buttons in the top corner of the banner. They move aside on their own so they never cover Discord's buttons there.
+- **Opens in Discord's own image viewer,** full size, and animated avatars and banners stay animated.
+- **Server profiles:** if someone has a server avatar or banner, that one opens first. Use the arrows in the viewer to see their main one (or pick the main one first in settings).
+- **No banner?** The banner button shows their banner colour instead. Hover it to see the colour code, and click it to copy it. You can hide the button instead in settings.
+- **Right-click a button** to pick the server or main version, view the avatar decoration, copy the link, open it in your browser, or copy the banner colour.
+
+![The right-click menu](docs/profile-images-menu.png)
+
+**Settings:** turn each button on or off, pick where they show (full profile, popout, DM side panel), which banner corner they sit in, the image format (webp, png or jpg, and webp or gif for animated ones) and the size (512 to 4096).
+
+It works fine next to ViewIcons, so you can keep both on.
+
+**What it talks to:** only **cdn.discordapp.com**, for the images themselves, through Discord's own viewer.
+
+**To install it:** copy the `custom-creations/profileImages` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
