@@ -204,7 +204,11 @@ See anyone's profile picture and banner full size with one click. Equicord's Vie
 
 ![The right-click menu](docs/profile-images-menu.png)
 
-**Settings:** turn each button on or off, pick where they show (full profile, popout, DM side panel), which banner corner they sit in, the image format (webp, png or jpg, and webp or gif for animated ones) and the size (512 to 4096).
+- **Servers too:** if a server has a banner, **Icon** and **Banner** buttons sit in its bottom-right corner at the top of the channel list. They open the server icon or banner full size, and right-click gives Copy Link and Open in Browser.
+
+![Icon and Banner buttons on a server banner](docs/profile-images-server.png)
+
+**Settings:** turn each button on or off, pick where they show (full profile, popout, DM side panel, server banner), which banner corner they sit in, the image format (webp, png or jpg, and webp or gif for animated ones) and the size (512 to 4096).
 
 It works fine next to ViewIcons, so you can keep both on.
 
