@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import type { User } from "@vencord/discord-types";
+import type { Guild, User } from "@vencord/discord-types";
 import { GuildMemberStore, IconUtils, openMediaModal, UserProfileStore } from "@webpack/common";
 
 import { settings } from "./settings";
@@ -99,6 +99,17 @@ export function collectImages(user: User, guildId: string | null | undefined, di
         ?? toHex(displayProfile?.primaryColor ?? displayProfile?.accentColor ?? UserProfileStore.getUserProfile(user.id)?.accentColor);
 
     return { avatars, banners, decoration, color };
+}
+
+export function collectGuildImages(guild: Guild) {
+    const icon = guild.icon
+        ? IconUtils.getGuildIconURL({ id: guild.id, icon: guild.icon, canAnimate: true, size: 1024 })
+        : null;
+    const banner = guild.banner ? IconUtils.getGuildBannerURL(guild, true) : null;
+    return {
+        icon: icon ? sized(icon, isAnimated(guild.icon), 512, 512, "Server Icon") : null,
+        banner: banner ? sized(banner, isAnimated(guild.banner), 1024, 576, "Server Banner") : null
+    };
 }
 
 export function openGallery(images: ProfileImage[], startingIndex = 0) {
