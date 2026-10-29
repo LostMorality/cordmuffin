@@ -92,6 +92,8 @@ Badges don't update right away: Discord updates them once a day, so new play tim
 **Settings you need (and the one you don't):**
 - **Leave NoTrack alone.** You don't need to turn off NoTrack or its "block analytics" option, whatever other guides say. GameTimeSpoof sends its own play-time reports, so they get through either way. Leaving it on is actually better: with it on, GameTimeSpoof also reports the real games you play, and nothing gets counted twice.
 - **Turn on both "Use data" options** in Discord: User Settings → Data & Privacy → **Use data to improve Discord** and **Use data to personalize my Discord experience**. These are saved on Discord's side, on your account, so no plugin can skip them. If either one is off, Discord ignores the play time and your badges won't move.
+- **Other tracking blockers do get in the way.** Unlike NoTrack, plugins such as DoNotTrack, NoTrack add-ons, ad blockers and Pi-hole can stop the play-time reports from reaching Discord. The Game Browser and the Add Time window show a warning when one of these plugins is on, and if a run gets blocked it stops right away and says so. Turn the blocker off (or let Discord's `/science` address through) while adding time.
+- **Keep "Share your detected activities with others" on** (User Settings → Activity Privacy) if you want people to see the game you spoof. Play time still counts with it off, but nobody sees the game. DoNotTrack's **Stop Process Monitor** option turns this off by itself. The Game Browser warns you when it's off and has a **Turn On** button.
 
 The Streaming badge can't be done this way. Discord only counts stream time when someone is really watching.
 
