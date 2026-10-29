@@ -1,0 +1,91 @@
+.vc-pimg-btn.vc-pimg-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: 32px;
+    height: 32px;
+    max-height: none;
+    flex-shrink: 0;
+    padding: 0;
+    cursor: pointer;
+}
+
+/* only used if Discord's button classes can't be found */
+.vc-pimg-fallback {
+    border: 1px solid var(--control-secondary-border-default, transparent);
+    border-radius: var(--radius-sm, 8px);
+    background-color: var(--control-secondary-background-default);
+    color: var(--control-secondary-text-default);
+    transition: background-color 0.15s ease-out, color 0.15s ease-out, border-color 0.15s ease-out;
+}
+
+.vc-pimg-fallback:hover {
+    background-color: var(--control-secondary-background-hover);
+    border-color: var(--control-secondary-border-hover, transparent);
+    color: var(--control-secondary-text-hover);
+}
+
+/* keep Discord's "More" (...) button at the end of the row */
+[class*="profileButtons"] > :not(.vc-pimg-btn):has(+ .vc-pimg-btn) {
+    order: 1;
+}
+
+.vc-pimg-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 35%);
+}
+
+.vc-pimg-swatch-sm {
+    width: 10px;
+    height: 10px;
+}
+
+:has(> .vc-pimg-pills) {
+    position: relative;
+}
+
+.vc-pimg-pills {
+    position: absolute;
+    top: 10px;
+    z-index: 2;
+    display: flex;
+    gap: 6px;
+}
+
+.vc-pimg-right {
+    right: calc(10px + var(--vc-pimg-shift, 0px));
+}
+
+.vc-pimg-left {
+    left: calc(10px + var(--vc-pimg-shift, 0px));
+}
+
+.vc-pimg-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    height: 22px;
+    padding: 0 9px;
+    border: 1px solid rgb(255 255 255 / 15%);
+    border-radius: 999px;
+    background: rgb(0 0 0 / 45%);
+    backdrop-filter: blur(6px);
+    color: #fff;
+    font-family: var(--font-primary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.85;
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.vc-pimg-pill:hover {
+    opacity: 1;
+    background: rgb(0 0 0 / 65%);
+}
