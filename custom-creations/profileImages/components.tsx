@@ -6,12 +6,12 @@
 
 import ErrorBoundary from "@components/ErrorBoundary";
 import { copyToClipboard } from "@utils/clipboard";
-import type { User } from "@vencord/discord-types";
+import type { Guild, User } from "@vencord/discord-types";
 import { findCssClassesLazy } from "@webpack";
-import { ContextMenuApi, GuildMemberStore, Menu, Tooltip, useEffect, useLayoutEffect, useRef, UserProfileStore, useState, useStateFromStores } from "@webpack/common";
+import { ContextMenuApi, GuildMemberStore, GuildStore, Menu, Tooltip, useEffect, useLayoutEffect, useRef, UserProfileStore, useState, useStateFromStores } from "@webpack/common";
 import type { MouseEvent, ReactNode } from "react";
 
-import { collectImages, openGallery, type ProfileImage, type ProfileImages, setBannerColor, subscribeBannerColors } from "./images";
+import { collectGuildImages, collectImages, openGallery, type ProfileImage, type ProfileImages, setBannerColor, subscribeBannerColors } from "./images";
 import { notify } from "./notify";
 import { settings } from "./settings";
 
@@ -44,6 +44,14 @@ function PictureIcon({ size = 16 }: { size?: number; }) {
     return (
         <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" fillRule="evenodd" d="M2 6a4 4 0 0 1 4-4h12a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V6Zm4-2a2 2 0 0 0-2 2v8.59l3.3-3.3a1 1 0 0 1 1.4 0L14 16.59l2.3-2.3a1 1 0 0 1 1.4 0L20 16.6V6a2 2 0 0 0-2-2H6Zm11 4.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+        </svg>
+    );
+}
+
+function ServerIcon({ size = 16 }: { size?: number; }) {
+    return (
+        <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" fillRule="evenodd" d="M12 23a11 11 0 1 0 0-22 11 11 0 0 0 0 22Zm0-2a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm-4.5-5.5 3-4 2.25 3 1.5-2 2.25 3h-9Zm7-6a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
         </svg>
     );
 }
@@ -239,6 +247,64 @@ export const BannerOverlay = ErrorBoundary.wrap(({ themeType, ...target }: Banne
                         ? <><PictureIcon size={12} /><span>Banner</span></>
                         : <><span className="vc-pimg-swatch vc-pimg-swatch-sm" style={{ backgroundColor: images.color! }} /><span>{images.color}</span></>}
                 </ImageButton>
+            )}
+        </div>
+    );
+}, { noop: true });
+
+function GuildPill({ image, children }: { image: ProfileImage; children: ReactNode; }) {
+    const label = `View ${image.label.toLowerCase()}`;
+    return (
+        <Tooltip text={label}>
+            {(tooltipProps: any) => (
+                <button
+                    {...tooltipProps}
+                    type="button"
+                    aria-label={label}
+                    className="vc-pimg-pill"
+                    onClick={e => {
+                        e.stopPropagation();
+                        openGallery([image]);
+                    }}
+                    onContextMenu={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        ContextMenuApi.openContextMenu(e, () => (
+                            <Menu.Menu navId="vc-profile-images" onClose={ContextMenuApi.closeContextMenu} aria-label="Server images">
+                                <Menu.MenuGroup>{imageItems("guild", [image], [image])}</Menu.MenuGroup>
+                            </Menu.Menu>
+                        ));
+                    }}
+                >
+                    {children}
+                </button>
+            )}
+        </Tooltip>
+    );
+}
+
+export const GuildBannerPills = ErrorBoundary.wrap(({ guild }: { guild: Guild; }) => {
+    const { guildHeader } = settings.use(["guildHeader", "format", "animatedFormat", "imgSize"]);
+    // The banner component gets a trimmed guild, so read the full one for its icon.
+    const full = useStateFromStores([GuildStore], () => GuildStore.getGuild(guild.id)) ?? guild;
+    if (!guildHeader) return null;
+
+    const { icon, banner } = collectGuildImages(full);
+    if (!icon && !banner) return null;
+
+    return (
+        <div className="vc-pimg-pills vc-pimg-guild" onMouseDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+            {icon && (
+                <GuildPill image={icon}>
+                    <ServerIcon size={12} />
+                    <span>Icon</span>
+                </GuildPill>
+            )}
+            {banner && (
+                <GuildPill image={banner}>
+                    <PictureIcon size={12} />
+                    <span>Banner</span>
+                </GuildPill>
             )}
         </div>
     );
