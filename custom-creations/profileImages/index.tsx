@@ -7,14 +7,15 @@
 import "./styles.css";
 
 import definePlugin from "@utils/types";
+import type { Guild } from "@vencord/discord-types";
 import type { ReactNode } from "react";
 
-import { BannerOverlay, ProfileButtons } from "./components";
+import { BannerOverlay, GuildBannerPills, ProfileButtons } from "./components";
 import { settings } from "./settings";
 
 export default definePlugin({
     name: "ProfileImages",
-    description: "Adds View Avatar and View Banner buttons right on profiles (popout, full profile, DM side panel). Opens the full-size or animated image in Discord's viewer; right-click a button for server/main versions, the avatar decoration, copy link and open in browser.",
+    description: "Adds View Avatar and View Banner buttons right on profiles (popout, full profile, DM side panel) and Icon/Banner buttons on server banners. Opens the full-size or animated image in Discord's viewer; right-click a button for server/main versions, the avatar decoration, copy link and open in browser.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     tags: ["Media", "Appearance"],
     searchTerms: ["ViewIcons", "avatar", "banner", "pfp"],
@@ -43,6 +44,15 @@ export default definePlugin({
         );
     },
 
+    renderGuildBanner(original: ReactNode, guild: Guild) {
+        return (
+            <>
+                {original}
+                <GuildBannerPills guild={guild} />
+            </>
+        );
+    },
+
     patches: [
         // The profile banner used by the popout, the full profile and the DM side panel
         {
@@ -57,6 +67,14 @@ export default definePlugin({
                     replace: "$&,vcThemeType:arguments[0].themeType"
                 }
             ]
+        },
+        // Server banner at the top of the channel list
+        {
+            find: "*90}px)`)},children:",
+            replacement: {
+                match: /children:(\(0,\i\.jsx\)\("img",\{className:.{0,80}?getGuildBannerURL\(\{id:(\i)\.id,banner:\i\},\i\).{0,40}?"aria-hidden":!0\}\))/,
+                replace: "children:$self.renderGuildBanner($1,$2)"
+            }
         },
         // Full profile: the Message / Add Friend / More row
         {
