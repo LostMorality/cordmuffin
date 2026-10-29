@@ -38,6 +38,11 @@ export const settings = definePluginSettings({
         description: "DM side panel: buttons on the banner",
         default: true
     },
+    guildHeader: {
+        type: OptionType.BOOLEAN,
+        description: "Server header: Icon and Banner buttons on the server banner",
+        default: true
+    },
     pillCorner: {
         type: OptionType.SELECT,
         description: "Which corner of the banner the buttons sit in",
