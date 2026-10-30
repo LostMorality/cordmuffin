@@ -5,6 +5,11 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-10-29
 
+- QuestRunner: video quests no longer open Discord's video player. QuestRunner watches them in the background and the
+  quest card counts down the time left.
+- QuestRunner: quest cards and the quest bar get a Complete button, including quests with a Launch Quest button (find
+  things inside an activity). Press it to finish that quest now, press it again to stop. Mobile-only video quests and
+  Xbox / PlayStation quests are supported too. Achievement quests no longer take away an activity you authorized yourself.
 - New plugin: HideClientBadges. Hides client mod badges (Vencord and Equicord donor, custom and contributor
   badges, other mods' badges and plugin badges) so profiles only show Discord's own badges.
 - New plugin: Discrub Loader. Opens Discrub (message export and cleanup by Prather Bytecraft) from a broom button in
