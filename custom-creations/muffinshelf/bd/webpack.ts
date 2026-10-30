@@ -234,6 +234,11 @@ export function makeExportsWritable() {
     moduleListeners.add(onModuleLoaded);
 }
 
+export function unhookExports() {
+    moduleListeners.delete(onModuleLoaded);
+    exportsHooked = false;
+}
+
 // --- React element types, unwrapped like BetterDiscord's getType ---
 
 const MEMO = Symbol.for("react.memo");
