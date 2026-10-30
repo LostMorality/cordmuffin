@@ -98,6 +98,7 @@ interface Engine {
     proc: ChildProcess;
     ready: Promise<void>;
     idle?: NodeJS.Timeout;
+    busy: number;
 }
 
 let download: { label: string; received: number; total: number; } | null = null;
@@ -240,7 +241,20 @@ function stopEngine(engine: Engine | null) {
 
 function touch(engine: Engine) {
     clearTimeout(engine.idle);
+    if (engine.busy) return;
     engine.idle = setTimeout(() => stopEngine(engine), IDLE_MS);
+}
+
+// The idle shutdown waits while a request is using the engine.
+async function using<T>(engine: Engine, work: () => Promise<T>) {
+    engine.busy++;
+    clearTimeout(engine.idle);
+    try {
+        return await work();
+    } finally {
+        engine.busy--;
+        touch(engine);
+    }
 }
 
 function launch(key: string, name: string, file: string, args: (port: number) => string[], probe: (port: number) => Promise<boolean>) {
@@ -266,6 +280,7 @@ function launch(key: string, name: string, file: string, args: (port: number) =>
             key,
             port,
             proc,
+            busy: 0,
             ready: (async () => {
                 const deadline = Date.now() + 180_000;
                 while (Date.now() < deadline) {
@@ -299,7 +314,10 @@ let speechStarting: { model: SpeechModel; promise: Promise<Engine>; } | null = n
 // Live previews and the warm up can ask at the same time, so they share one start.
 function startSpeech(model: SpeechModel) {
     if (speechStarting?.model !== model) {
-        if (speech?.key === model) return Promise.resolve(speech);
+        if (speech?.key === model) {
+            touch(speech);
+            return Promise.resolve(speech);
+        }
         const promise = launchSpeech(model).finally(() => {
             if (speechStarting?.promise === promise) speechStarting = null;
         });
@@ -353,8 +371,10 @@ function startGrammar() {
 async function launchGrammar() {
     const tier = GRAMMAR[await grammarTier()];
     if (grammar?.key === tier.file) {
-        await grammar.ready;
-        return grammar;
+        const engine = grammar;
+        await engine.ready;
+        touch(engine);
+        return engine;
     }
     stopEngine(grammar);
     if (!ready(LLAMA_DIR) || !ready(tier.file + ".d")) throw new Error("The grammar model isn't downloaded yet.");
@@ -459,11 +479,12 @@ export async function transcribe(_: IpcMainInvokeEvent, model: string, samples: 
 
     const engine = await startSpeech(model);
     const parts: string[] = [];
-    for (const piece of splitAtPauses(samples)) {
-        const text = (await decode(engine.port, piece)).trim();
-        if (text) parts.push(text);
-    }
-    touch(engine);
+    await using(engine, async () => {
+        for (const piece of splitAtPauses(samples)) {
+            const text = (await decode(engine.port, piece)).trim();
+            if (text) parts.push(text);
+        }
+    });
     return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -471,7 +492,7 @@ export async function fixGrammar(_: IpcMainInvokeEvent, text: string) {
     if (typeof text !== "string" || !text.trim() || text.length > 20_000) return text;
 
     const engine = await startGrammar();
-    const res = await fetch(`http://127.0.0.1:${engine.port}/v1/chat/completions`, {
+    const res = await using(engine, () => fetch(`http://127.0.0.1:${engine.port}/v1/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(120_000),
@@ -483,8 +504,7 @@ export async function fixGrammar(_: IpcMainInvokeEvent, text: string) {
                 { role: "user", content: text },
             ],
         }),
-    });
-    touch(engine);
+    }));
     if (!res.ok) throw new Error(`The grammar engine answered ${res.status}.`);
 
     const out = ((await res.json()) as { choices?: { message?: { content?: string; }; }[]; }).choices?.[0]?.message?.content ?? "";
