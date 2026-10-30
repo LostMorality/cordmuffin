@@ -1,0 +1,31 @@
+/* Discrub adds its own button next to Inbox; the plugin's top-bar button replaces it. */
+#discrub-floating-button {
+    display: none !important;
+}
+
+.vc-discrub-status {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 16px;
+    margin-bottom: 10px;
+    color: var(--text-default);
+}
+
+.vc-discrub-status dt {
+    color: var(--text-muted);
+}
+
+.vc-discrub-status dd {
+    margin: 0;
+}
+
+.vc-discrub-error {
+    color: var(--text-feedback-critical);
+    margin-bottom: 10px;
+}
+
+.vc-discrub-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
