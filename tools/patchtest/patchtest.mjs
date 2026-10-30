@@ -2,7 +2,7 @@
 // Read-only: Discord is only asked for module sources; patching and the compile check
 // happen here in Node, and patched code is compiled with new Function but never called.
 // The one exception is --eval, which runs the code you give it inside Discord.
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, extname, join, relative, resolve, sep } from "node:path";
@@ -40,7 +40,10 @@ function parseArgs(argv) {
         else if (a === "--keymap") opts.keymap = value();
         else if (a === "--show") opts.show = true;
         else if (a === "--verbose") opts.verbose = true;
-        else if (a === "--context") opts.context = Number(value()) || 120;
+        else if (a === "--context") {
+            const n = Number(value());
+            opts.context = Number.isInteger(n) && n >= 0 ? n : 120;
+        }
         else if (a === "--keys") opts.keys = [];
         else if (a === "--eval") opts.eval = value();
         else if (a === "-h" || a === "--help") opts.help = true;
@@ -169,8 +172,14 @@ const GLOBAL_DEFINES = {
 };
 
 async function loadPluginPatches(entry) {
-    const pluginDir = dirname(entry);
-    const inPlugin = p => p === pluginDir || p.startsWith(pluginDir + sep);
+    // esbuild follows junctions/symlinks, so resolveDir is a real path; compare real paths on both sides.
+    const real = p => {
+        try { return realpathSync.native(p); } catch { return p; }
+    };
+    const norm = p => process.platform === "win32" ? p.toLowerCase() : p;
+    entry = real(entry);
+    const pluginDir = norm(dirname(entry));
+    const inPlugin = p => (p = norm(real(p)), p === pluginDir || p.startsWith(pluginDir + sep));
     const stubPlugin = {
         name: "patchtest-stub",
         setup(build) {
@@ -289,7 +298,9 @@ async function connectDiscord(port) {
     for (const p of ports) {
         try {
             const targets = await (await fetch(`http://127.0.0.1:${p}/json`, { signal: AbortSignal.timeout(3000) })).json();
-            page = targets.find(t => t.type === "page" && /^https:\/\/([\w-]+\.)*discord\.com\//.test(t.url));
+            const pages = targets.filter(t => t.type === "page" && /^https:\/\/([\w-]+\.)*discord\.com\//.test(t.url));
+            // Popouts and the overlay are discord.com pages too, but only the main window has Equicord's webpack.
+            page = pages.find(t => !/^https:\/\/[^/]+\/(popout|overlay)/.test(t.url)) ?? pages[0];
             if (page) break;
         } catch { }
     }
@@ -310,8 +321,12 @@ async function connectDiscord(port) {
         pending.delete(msg.id);
         const r = msg.result;
         if (msg.error) p.reject(new Error(msg.error.message));
-        else if (r.exceptionDetails) p.reject(new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text));
-        else p.resolve(r.result.value);
+        else if (r.exceptionDetails) {
+            const ex = r.exceptionDetails.exception;
+            p.reject(new Error(ex?.description ?? (ex?.value !== undefined ? String(ex.value) : r.exceptionDetails.text)));
+        }
+        // NaN, Infinity, -0 and bigints only come back as unserializableValue ("NaN", "5n", ...).
+        else p.resolve(r.result.unserializableValue ?? r.result.value);
     };
     ws.onclose = () => {
         for (const p of pending.values()) p.reject(new Error("CDP connection closed"));
@@ -437,9 +452,11 @@ function runPatchOnModule(patch, moduleId, original, pluginName, canon, opts) {
 
         if (next === code) {
             const quiet = patch.noWarn || rep.noWarn;
-            row.status = quiet ? "WARN" : "FAIL";
+            // noWarn only silences the log; in a group Equicord still undoes the replacements that already applied.
+            const undoes = patch.group && rows.some(r => r.status === "PASS" || r.status === "WARN");
+            row.status = quiet && !undoes ? "WARN" : "FAIL";
             row.note = row.hits ? "replaced to identical code" : "match not found";
-            if (quiet) row.note += " (noWarn)";
+            if (quiet) row.note += undoes ? " (noWarn, but it undoes the group)" : " (noWarn)";
             if (patch.group) groupFailed = true;
             return;
         }
