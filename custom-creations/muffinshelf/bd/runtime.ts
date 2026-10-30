@@ -12,7 +12,7 @@ import { clearCommands, Commands } from "./extras";
 import { applyFixes } from "./fixes";
 import { Buffer, clearFiles, compatProblem, loadFiles, nodeRequire, processShim } from "./node";
 import { unpatchAll } from "./patcher";
-import { clearWaits, makeExportsWritable } from "./webpack";
+import { clearWaits, makeExportsWritable, unhookExports } from "./webpack";
 
 const logger = new Logger("Muffinshelf");
 
@@ -146,6 +146,7 @@ function start(plugin: BdPlugin) {
         fail(plugin, "failed to start", e);
         unpatchAll(plugin.meta.name);
         DOM.removeStyle(plugin.meta.name);
+        Commands.unregisterAll(plugin.meta.name);
     }
 }
 
@@ -218,6 +219,7 @@ export function stopRuntime() {
     clearWaits();
     clearFiles();
     clearCommands();
+    unhookExports();
     document.getElementById("vc-muffinshelf-bd-styles")?.remove();
     delete (window as any).BdApi;
     started = false;
