@@ -6,9 +6,10 @@
 
 import { registerCommand, sendBotMessage, unregisterCommand } from "@api/Commands";
 import { showNotification } from "@api/Notifications";
+import { BaseText } from "@components/BaseText";
 import { Button } from "@components/Button";
 import { openInviteModal } from "@utils/discord";
-import { Checkbox, closeModal, ColorPicker, Modal, openModal, React, Select, Slider, Text, TextInput, useEffect, useReducer, useRef, useState } from "@webpack/common";
+import { Checkbox, closeModal, ColorPicker, Modal, openModal, React, Select, Slider, TextInput, useEffect, useReducer, useRef, useState } from "@webpack/common";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 
 // BdApi pieces modelled on BetterDiscord's own versions (src/betterdiscord/ui, stores/base, modules/nodepatcher).
@@ -227,8 +228,8 @@ export const Inputs = {
                 {props.options?.map(o => (
                     <label key={String(o.value)} className="vc-muffinshelf-radio-option">
                         <input type="radio" name={props.name} checked={o.value === value} disabled={props.disabled} onChange={() => set(o.value)} />
-                        <Text variant="text-md/normal">{o.name ?? o.label}</Text>
-                        {(o.desc ?? o.description) && <Text variant="text-sm/normal">{o.desc ?? o.description}</Text>}
+                        <BaseText size="md" weight="normal">{o.name ?? o.label}</BaseText>
+                        {(o.desc ?? o.description) && <BaseText size="sm" weight="normal">{o.desc ?? o.description}</BaseText>}
                     </label>
                 ))}
             </div>
@@ -289,7 +290,7 @@ export const Inputs = {
     },
     Checkbox(props: InputProps<boolean> & { label?: ReactNode; }) {
         const [value, set] = useValue(props);
-        return <Checkbox value={!!value} disabled={props.disabled} onChange={(_: any, v: boolean) => set(v)}><Text variant="text-sm/normal">{props.label}</Text></Checkbox>;
+        return <Checkbox value={!!value} disabled={props.disabled} onChange={(_: any, v: boolean) => set(v)}><BaseText size="sm" weight="normal">{props.label}</BaseText></Checkbox>;
     },
 };
 
@@ -327,28 +328,47 @@ export const showInviteModal = (code: string) => openInviteModal(String(code).re
 // --- UI.showNotification / openFloatingWindow, DOM.animate, Utils.cache ---
 
 let notificationId = 0;
-const visibleNotifications = new Set<string>();
+interface NotificationControl { closed: boolean; dismiss?(): void; }
+const visibleNotifications = new Map<string, NotificationControl>();
+
+// Equicord's notifications have no close API, so the body presses the notification's own close button when asked.
+// A notification closed while still queued closes as soon as it shows.
+function BdNotificationBody({ control, children }: { control: NotificationControl; children?: ReactNode; }) {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const dismiss = () => ref.current?.closest(".vc-notification-root")?.querySelector<HTMLElement>(".vc-notification-close-btn")?.click();
+        if (control.closed) return void dismiss();
+        control.dismiss = dismiss;
+        return () => void (control.dismiss = undefined);
+    }, []);
+    return <div ref={ref}>{children}</div>;
+}
 
 export function showBdNotification(options: { id?: string; title?: string; content?: any; type?: string; duration?: number; icon?: any; onClick?(): void; onClose?(): void; actions?: { label: string; onClick?(): void; }[]; }) {
     const id = options.id ?? `muffinshelf-${++notificationId}`;
+    // Like BetterDiscord, showing an id that's already up returns the existing one instead of stacking a copy.
+    const control = visibleNotifications.get(id) ?? { closed: false };
     const handle = {
         id,
-        isVisible: () => visibleNotifications.has(id),
-        close: () => void visibleNotifications.delete(id),
+        isVisible: () => visibleNotifications.get(id) === control,
+        close: () => {
+            control.closed = true;
+            if (visibleNotifications.get(id) === control) visibleNotifications.delete(id);
+            control.dismiss?.();
+        },
     };
-    // Like BetterDiscord, showing an id that's already up returns the existing one instead of stacking a copy.
     if (visibleNotifications.has(id)) return handle;
-    visibleNotifications.add(id);
+    visibleNotifications.set(id, control);
     const { content } = options;
     showNotification({
         title: String(options.title ?? ""),
         body: typeof content === "string" ? content : "",
-        richBody: typeof content === "string" || content == null ? undefined : content,
+        richBody: <BdNotificationBody control={control}>{typeof content === "string" ? <p className="vc-notification-p">{content}</p> : content}</BdNotificationBody>,
         color: { success: "var(--status-positive)", error: "var(--status-danger)", warning: "var(--status-warning)" }[options.type ?? ""] ?? undefined,
         permanent: options.duration === Infinity || options.duration === 0,
         onClick: options.onClick ?? options.actions?.[0]?.onClick,
         onClose: () => {
-            visibleNotifications.delete(id);
+            if (visibleNotifications.get(id) === control) visibleNotifications.delete(id);
             options.onClose?.();
         },
         noPersist: true,
@@ -360,15 +380,17 @@ const floating = new Map<string, string>();
 
 export function openFloatingWindow(win: { id: string; title?: string; content?: any; onClose?(): void; }) {
     if (typeof win.id !== "string") throw new Error("Floating window requires id");
+    // onCloseCallback runs on every close path, Escape and backdrop clicks included, unlike the Modal's own onClose.
     const key = openModal(props => (
-        <Modal {...props as any} title={win.title ?? ""} onClose={() => {
-            floating.delete(win.id);
-            win.onClose?.();
-            props.onClose();
-        }}>
+        <Modal {...props as any} title={win.title ?? ""}>
             {typeof win.content === "function" ? React.createElement(win.content) : win.content}
         </Modal>
-    ));
+    ), {
+        onCloseCallback() {
+            if (floating.get(win.id) === key) floating.delete(win.id);
+            win.onClose?.();
+        },
+    });
     floating.set(win.id, key);
     return {
         close() {
