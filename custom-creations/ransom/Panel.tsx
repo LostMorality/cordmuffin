@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { isPluginEnabled } from "@api/PluginManager";
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
@@ -185,13 +186,21 @@ export function openPanel() {
     ));
 }
 
+// The settings modal shows these buttons even while Ransom is off, when nothing would clean up after them.
+function needsOn() {
+    if (isPluginEnabled("Ransom")) return false;
+    notify("Turn Ransom on first.", "critical");
+    return true;
+}
+
 export function tryChallenge() {
+    if (needsOn()) return;
     const reason = blockedReason();
     if (reason && reason !== "A window is open.") return notify(`No challenge right now: ${reason}`, "critical");
     // A short, silent pause so the click that started it doesn't count as moving.
     setTimeout(() => {
         const late = blockedReason();
-        if (late && late !== "A window is open.") return;
+        if (!isPluginEnabled("Ransom") || (late && late !== "A window is open.")) return;
         showSign();
     }, 1500);
 }
@@ -201,9 +210,10 @@ export function SettingsButtons() {
         <div className={cl("buttons")}>
             <Button size="small" onClick={openPanel}>Open finds and scores</Button>
             <Button size="small" variant="secondary" onClick={tryChallenge}>Try a challenge</Button>
-            <Button size="small" variant="secondary" onClick={() => isRunning() ? notify("Ransom is already here.", "critical") : jumpscare(true)}>Test the jumpscare</Button>
-            <Button size="small" variant="secondary" onClick={() => play("coin", settings.store.soundVolume)}>Test sound volume</Button>
+            <Button size="small" variant="secondary" onClick={() => needsOn() || (isRunning() ? notify("Ransom is already here.", "critical") : jumpscare(true))}>Test the jumpscare</Button>
+            <Button size="small" variant="secondary" onClick={() => needsOn() || play("coin", settings.store.soundVolume)}>Test sound volume</Button>
             <Button size="small" variant="secondary" onClick={() => {
+                if (needsOn()) return;
                 const channelId = SelectedChannelStore.getChannelId();
                 if (!channelId) return notify("Open a DM or channel first.", "critical");
                 const guildId = SelectedGuildStore.getGuildId() ?? undefined;
