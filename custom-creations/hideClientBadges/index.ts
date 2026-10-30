@@ -154,7 +154,11 @@ function refillDonorLists() {
     for (const [url, key] of Object.entries(DONOR_LISTS)) {
         realFetch(url, { cache: "no-cache" })
             .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
-            .then(data => Object.assign(api[key], data))
+            .then(data => {
+                // Blocking may have been turned back on while this was downloading.
+                if (running && settings.store.blockDonorLists) return;
+                Object.assign(api[key], data);
+            })
             .catch(e => logger.warn(`Couldn't reload ${url}`, e));
     }
 }
