@@ -475,6 +475,8 @@ function notify(rel: string, event: "change" | "rename") {
 }
 
 const isPluginFile = (rel: string) => PLUGIN_FILE.test(rel);
+// The loaded file's own spelling, so a write or delete in a different case reaches the same plugin, as it does on disk.
+const pluginName = (rel: string) => hooks.files().find(f => key(f) === key(rel)) ?? nameOf(rel);
 
 function lookup(rel: string): Entry | undefined {
     if (rel === "") return { name: "", dir: true, mtime: 0 };
@@ -522,7 +524,7 @@ function stats(entry: Entry) {
 function writeFileSync(path: unknown, data: any, opts?: any) {
     const rel = inside(path, "open");
     if (rel === "") throw fsError("EISDIR", "open", path);
-    if (isPluginFile(rel)) return hooks.write(nameOf(rel), decode(toBytes(data)));
+    if (isPluginFile(rel)) return hooks.write(pluginName(rel), decode(toBytes(data)));
     if (lookup(rel)?.dir) throw fsError("EISDIR", "open", path);
     const bytes = typeof data === "string" ? encode(data, encodingOf(opts)) : toBytes(data).slice();
     ensureDir(parentOf(rel));
@@ -545,7 +547,7 @@ function removeEntry(rel: string, path: unknown, recursive: boolean, syscall: st
     const entry = lookup(rel);
     if (!entry) throw fsError("ENOENT", syscall, path);
     if (rel === "") throw fsError("EACCES", syscall, path);
-    if (isPluginFile(rel)) return hooks.remove(nameOf(rel));
+    if (isPluginFile(rel)) return hooks.remove(pluginName(rel));
     const k = key(rel);
     if (entry.dir) {
         const nested = [...entries.keys()].filter(e => e.startsWith(`${k}/`));
@@ -564,8 +566,8 @@ function renameSync(from: unknown, to: unknown) {
     if (!entry) throw fsError("ENOENT", "rename", from);
     if (isPluginFile(a) || isPluginFile(b)) {
         if (!isPluginFile(a) || !isPluginFile(b)) throw fsError("EACCES", "rename", from);
-        hooks.write(nameOf(b), decode(entry.data!));
-        hooks.remove(nameOf(a));
+        hooks.write(pluginName(b), decode(entry.data!));
+        if (key(a) !== key(b)) hooks.remove(pluginName(a));
         return;
     }
     const ka = key(a);
@@ -726,7 +728,8 @@ export const fsShim: Record<string, any> = {
     rmdir: callbackStyle(sync.rmdirSync),
     realpath: callbackStyle(sync.realpathSync),
     access: callbackStyle(accessSync),
-    exists: callbackStyle(existsSync),
+    // Node's fs.exists calls back with just the boolean, no error argument.
+    exists: (path: unknown, cb?: (exists: boolean) => void) => setTimeout(() => cb?.(existsSync(path)), 0),
     constants: { F_OK: 0, R_OK: 4, W_OK: 2, X_OK: 1 },
     promises: {
         readFile: promiseStyle(readFileSync),
