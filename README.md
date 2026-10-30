@@ -284,6 +284,50 @@ It only changes what you see. Other people still see their badges, and yours, th
 
 **To install it:** copy the `custom-creations/hideClientBadges` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### Ransom (`ransom`)
+
+Ransom from DOORS lives in your Discord. Its little face wanders around the window like Oneko, and every now and then it stops and holds up its sign. Move your mouse or press a key while the sign is up and it encrypts your Discord: pay the gold it asks for before the 90 second timer runs out, using gold hidden around Discord.
+
+![Ransom wandering through a chat](docs/ransom-follow.png)
+
+- **The stop sign:** a split second of freeze, like in the game. Hold still and Ransom leaves. Move and it catches you.
+
+  ![The stop sign](docs/ransom-sign.png)
+- **The ransom:** names, channels and messages turn into scrambled text, the message box locks and pop-ups fill the screen. Click the gold piles that show up around Discord to pay it off. Spam clicking costs you gold. Paying it off always drops a Honey Pot.
+
+  ![Discord encrypted, with the ransom window and its timer](docs/ransom-encrypted.png)
+- **Run out of time** and Discord falls apart and stays broken. Revive with all of your gold (at least 1,000), or give up and Ransom kills you: you get the DOORS death screen with the Guiding Light and its music, then an overview of your run.
+
+  ![The revive card](docs/ransom-revive.png)
+  ![The death screen](docs/ransom-death.png)
+  ![The overview after dying](docs/ransom-overview.png)
+- **Loose gold:** like the gold in DOORS drawers, a small pile turns up somewhere in Discord now and then. Taking it brings Ransom sooner.
+- **Hidden items:** sometimes a small spooky item hides in a DM or server channel when you open it. Click it to collect it. Lose a ransom and it can take up to 3 of them.
+- **The Ransom panel** (Equicord toolbox, **Open Ransom**) shows your gold, your items and your scores, and lets you revive from there. The toolbox also has **Try a challenge** and **Drop some gold**.
+
+**Settings:**
+- Turn the wandering, the challenges, loose gold and hidden items on or off one by one.
+- How often challenges can happen, how much gold Ransom asks for, and how fast and big it is.
+- **Break UI** (Discord falls apart) and **Encrypt UI** (scrambled text) can be turned off. Both are only visual and everything comes back when it ends.
+- **See Through** tints the sign and download screens red instead of solid, so you can still read your chat.
+- **Jumpscare** with its own volume, or a plain "TIME'S UP" screen instead.
+- **Calm Effects:** no flashing, softer static and shaking.
+- Challenges can be kept away while you're typing or in a voice call or stream.
+
+**Things to know:**
+- The wait between challenges only counts down while you're actually using Discord, never while it's in the background, idle or you're in a call.
+- Nothing is really encrypted or deleted. Everything it does is on your screen only, and nobody else sees it.
+- Works in the Discord desktop app with Equicord, not in Discord on the web.
+
+**Credits:** Ransom, its art, sounds and music belong to LSPLASH, the makers of DOORS. They aren't in this repo: the plugin downloads them from the DOORS wiki. This plugin is unofficial and not made or supported by them.
+
+**What it talks to:**
+- **static.wikitide.net**: the DOORS wiki's files (Ransom's sprites, pop-ups, sounds and music), only while **Doors Assets** is on (it's on by default). With it off, or if a download fails, plain stand-ins are used.
+
+**Where files go:** `%APPDATA%\discord\RansomPlugin` (the downloaded DOORS files). Your gold, items and scores stay inside Discord.
+
+**To install it:** copy the `custom-creations/ransom` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
