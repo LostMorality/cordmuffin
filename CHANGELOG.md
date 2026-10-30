@@ -5,6 +5,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-10-29
 
+- New plugin: Bloatware Badge Removal. Hides client mod badges (Vencord and Equicord donor, custom and contributor
+  badges, other mods' badges and plugin badges) so profiles only show Discord's own badges.
 - New plugin: Discrub Loader. Opens Discrub (message export and cleanup by Prather Bytecraft) from a broom button in
   Discord's top bar, New or Classic. It loads Discrub's official build, checked against what Discrub publishes on GitHub.
 - New plugin: ProfileImages. Adds View Avatar and View Banner buttons right on profiles (full profile, popout and DM
