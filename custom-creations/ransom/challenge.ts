@@ -173,6 +173,7 @@ function setNext(wait: number) {
 
 export function scheduleNext(first = false) {
     if (first) stopped = false;
+    else if (stopped) return;
     stopTicker();
     if (!settings.store.challenges) return;
     const [min, max] = FREQUENCY[settings.store.frequency] ?? FREQUENCY.sometimes;
@@ -655,12 +656,19 @@ function ransomWindow(owed: number) {
     return { win, num, time, goldBox };
 }
 
+const countSteps = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>[]>();
+
 /** Counts a number shown on screen down to `to`, a few steps at a time. */
 function countTo(el: HTMLElement, to: number) {
+    // A newer value always wins over the steps of an older count still running.
+    for (const t of countSteps.get(el) ?? []) clearTimeout(t);
+    countSteps.delete(el);
     const from = Number(el.textContent) || 0;
     if (from <= to) return void (el.textContent = String(to));
     const steps = 6;
-    for (let i = 1; i <= steps; i++) setTimeout(() => el.textContent = String(Math.round(from - (from - to) * i / steps)), i * 40);
+    const pending: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i <= steps; i++) pending.push(setTimeout(() => el.textContent = String(Math.round(from - (from - to) * i / steps)), i * 40));
+    countSteps.set(el, pending);
 }
 
 const ANCHORS = '[class*="messageListItem"], [data-list-item-id]';
@@ -722,10 +730,9 @@ function startRansom() {
             el.remove();
             round.owed = Math.max(0, round.owed - pile.value);
             play("coin", vol);
-            const owedNow = round.owed;
             flyCoin(from, goldBox.getBoundingClientRect(), root, () => {
                 play("goldUp", vol * 0.8);
-                countTo(num, owedNow);
+                countTo(num, round.owed);
                 goldBox.classList.remove("vc-ransom-bump");
                 void goldBox.offsetWidth;
                 goldBox.classList.add("vc-ransom-bump");
@@ -816,7 +823,7 @@ function startRansom() {
     root.addEventListener("mousedown", spamGuard(root, fine => {
         if (round.over) return false;
         round.owed += fine;
-        num.textContent = String(round.owed);
+        countTo(num, round.owed);
         goldBox.classList.remove("vc-ransom-fined");
         void goldBox.offsetWidth;
         goldBox.classList.add("vc-ransom-fined");
@@ -928,10 +935,9 @@ function startEasterEgg() {
             const value = 5 * Math.max(1, Math.round(pileValue() * 1.25 * level().gold / 500 / 5));
             round.owed = Math.max(0, round.owed - value);
             play("coin", vol);
-            const owedNow = round.owed;
             flyCoin(from, target(), root, () => {
                 play("goldUp", vol * 0.8);
-                owedLabel.textContent = `PAY ${owedNow}`;
+                owedLabel.textContent = `PAY ${round.owed}`;
                 restart(hand, "vc-ransom-bump");
             });
             if (round.owed <= 0) {
