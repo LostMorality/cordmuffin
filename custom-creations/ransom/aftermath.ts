@@ -96,7 +96,7 @@ export async function afterLoss(easterEgg = false) {
     // Turning "Discord falls apart" or challenges off is always a way out.
     clearInterval(watch);
     watch = setInterval(() => {
-        if (!scene && (!settings.store.breakUI || !settings.store.challenges)) void mend().then(() => scheduleNext());
+        if (!scene && (!settings.store.breakUI || !settings.store.challenges)) void mend().then(() => { if (active) scheduleNext(); });
     }, 1000);
     const { goldFound } = await getStats();
     if (mine !== generation) return;
