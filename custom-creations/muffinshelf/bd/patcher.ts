@@ -33,8 +33,8 @@ const patches: Patch[] = [];
 
 function runChildren(patch: Patch, thisArg: any, args: any[]) {
     const { children, original } = patch;
-    for (const child of children) {
-        if (child.type !== "before") continue;
+    // Copies, so a patch that unpatches itself mid-call doesn't make the loop skip the next one.
+    for (const child of children.filter(c => c.type === "before")) {
         try {
             child.callback(thisArg, args);
         } catch (e) {
@@ -57,8 +57,7 @@ function runChildren(patch: Patch, thisArg: any, args: any[]) {
         }
     }
 
-    for (const child of children) {
-        if (child.type !== "after") continue;
+    for (const child of children.filter(c => c.type === "after")) {
         try {
             const ret = child.callback(thisArg, args, result);
             if (ret !== undefined) result = ret;
@@ -108,7 +107,8 @@ function revert(patch: Patch) {
             } catch { }
         }
     }
-    patches.splice(patches.indexOf(patch), 1);
+    const i = patches.indexOf(patch);
+    if (i !== -1) patches.splice(i, 1);
 }
 
 export function pushPatch(caller: string, module: any, functionName: PropertyKey, callback: AnyFn, type: PatchType) {
@@ -126,7 +126,9 @@ export function pushPatch(caller: string, module: any, functionName: PropertyKey
         callback,
         unpatch: () => {
             const i = patch.children.indexOf(child);
-            if (i !== -1) patch.children.splice(i, 1);
+            // Already unpatched: BetterDiscord ignores repeat calls, and plugins rely on that.
+            if (i === -1) return;
+            patch.children.splice(i, 1);
             if (!patch.children.length) revert(patch);
         }
     };
