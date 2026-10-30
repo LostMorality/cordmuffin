@@ -328,6 +328,38 @@ Ransom from DOORS lives in your Discord. Its little face wanders around the wind
 
 **To install it:** copy the `custom-creations/ransom` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### PluginPresets (`pluginPresets`)
+
+Save which plugins are on, along with their settings, as a named preset, and switch between presets in one go. Have a "Minimal" preset with 5 plugins and an "Everything" one with 100, and flip between them without clicking through 300 toggles. Presets can be shared as a code or a .json file, with your private settings left out.
+
+![The preset list on the plugin's settings page](docs/plugin-presets.png)
+
+Everything is on the plugin's settings page (**Plugins → PluginPresets**):
+- **Save Current** saves the plugins that are on now and every setting they have. Saving with a name that's already taken replaces that preset.
+- **Preview & Apply** shows what the preset turns on, turns off and changes before anything happens. Applying turns on exactly the plugins in the preset and turns the rest off. Required, core and API plugins aren't touched, and plugins that others depend on stay on.
+
+  ![Preview before applying](docs/plugin-presets-preview.png)
+- **Restarts:** most plugins switch right away. Plugins that change Discord's code, and some settings, only take effect after a restart. The preview lists them, and after applying you get **Restart Now** or can restart later. A plugin that fails to start is left off and listed.
+- **Rename** and **Delete** only change the saved preset, never your plugins.
+
+**Sharing:**
+- **Export** gives you a code to copy (it starts with `PP1.`) or a .json file. Before you copy it, it lists every setting it left out and why.
+
+  ![Export, with the left-out settings listed](docs/plugin-presets-export.png)
+- **Left out of exports:** API keys, tokens, passwords, webhooks, login and cookie values, user, channel and server IDs and lists of them, file paths, web addresses and free text that could be personal. It checks the setting's name, what the value looks like (token and key shapes, Discord IDs, emails, paths, addresses) and a list of plugins known to keep private settings, such as Translate's DeepL key or CustomRPC. If a value can't be shown to be harmless, it's left out. Switches, choices from a plugin's own list, plain numbers and default values are shared.
+- Plugins that aren't official Equicord or Vencord plugins (cordmuffin plugins, other userplugins, Muffinshelf BetterDiscord plugins) are shared by name only, without their settings. Exports carry nothing about your account.
+- **Import** takes a code or a .json file, checks it, and saves it as a preset you can look over before applying.
+
+  ![Import, with the unofficial plugins that stay off](docs/plugin-presets-import.png)
+- **An imported preset only turns on official Equicord and Vencord plugins you have,** and applying it turns everything else off, your own userplugins and BetterDiscord plugins included. Other plugins in it are listed with a warning and are never turned on, even if the preset has them on. If you already have one of them on, it stays on. Plugins you don't have are listed as missing.
+- Imported settings go through the same checks, so a preset can't point your plugins at someone else's server. Settings the sharer's export left out keep your own values.
+
+**Where files go:** nowhere new. Presets are saved in Equicord's own storage inside Discord, not in settings.json. Presets you save yourself keep everything, secrets included, so treat them like your settings.
+
+**What it talks to:** nothing.
+
+**To install it:** copy the `custom-creations/pluginPresets` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
