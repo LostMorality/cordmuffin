@@ -5,13 +5,14 @@
  */
 
 import { addContextMenuPatch, NavContextMenuPatchCallback, removeContextMenuPatch } from "@api/ContextMenu";
-import { popNotice, showNotice } from "@api/Notices";
+import { currentNotice, noticesQueue, popNotice, showNotice } from "@api/Notices";
+import { BaseText } from "@components/BaseText";
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Flex } from "@components/Flex";
 import { FormSwitch } from "@components/FormSwitch";
 import { Logger as VcLogger } from "@utils/Logger";
-import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast, Slider, Text, TextInput, Tooltip, useState } from "@webpack/common";
+import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast, Slider, TextInput, Tooltip, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { notify } from "../notify";
@@ -137,7 +138,7 @@ const DOM = {
 
 export function toNode(content: any): ReactNode {
     if (content == null) return null;
-    if (typeof content === "string") return content.split("\n").map((line, i) => <Text key={i} variant="text-md/normal">{line}</Text>);
+    if (typeof content === "string") return content.split("\n").map((line, i) => <BaseText key={i} size="md" weight="normal">{line}</BaseText>);
     if (Array.isArray(content)) return content.map((c, i) => <React.Fragment key={i}>{toNode(c)}</React.Fragment>);
     if (content instanceof Node) return <NodeHost node={content} />;
     if (typeof content === "function") return React.createElement(content);
@@ -176,9 +177,16 @@ const UI = {
     },
     showNotice(content: any, options: { buttons?: { label: string; onClick?(close: () => void): void; }[]; timeout?: number; } = {}) {
         const button = options.buttons?.[0];
-        showNotice(typeof content === "string" ? content : toNode(content), button?.label ?? "Close", () => button?.onClick?.(popNotice));
-        if (options.timeout) setTimeout(popNotice, options.timeout);
-        return popNotice;
+        // Notices are global, so only dismiss this one: pop it if it's showing, or drop it if it's still queued.
+        const close = () => {
+            if (currentNotice?.[3] === onClick) return popNotice();
+            const i = noticesQueue.findIndex(n => n[3] === onClick);
+            if (i !== -1) noticesQueue.splice(i, 1);
+        };
+        const onClick = () => button?.onClick ? button.onClick(close) : close();
+        showNotice(typeof content === "string" ? content : toNode(content), button?.label ?? "Close", onClick);
+        if (options.timeout) setTimeout(close, options.timeout);
+        return close;
     },
     createTooltip(node: HTMLElement, content: any) {
         if (typeof content === "string") node.title = content;
@@ -198,8 +206,8 @@ const UI = {
                 <Modal {...props} title={options.title ?? "Changelog"} subtitle={options.subtitle} actions={[{ text: "Close", variant: "secondary", onClick: props.onClose }]}>
                     {options.changes?.map(change => (
                         <div key={change.title} className="vc-muffinshelf-changelog">
-                            <Text variant="heading-md/semibold">{change.title}</Text>
-                            <ul>{change.items.map(item => <li key={item}><Text variant="text-md/normal">{item}</Text></li>)}</ul>
+                            <BaseText size="md" weight="semibold">{change.title}</BaseText>
+                            <ul>{change.items.map(item => <li key={item}><BaseText size="md" weight="normal">{item}</BaseText></li>)}</ul>
                         </div>
                     ))}
                     {toNode(options.footer)}
@@ -241,16 +249,16 @@ function SettingRow({ item, category, onChange }: { item: SettingItem; category:
         case "radio":
             return (
                 <div className="vc-muffinshelf-setting">
-                    <Text variant="text-md/semibold">{item.name}</Text>
-                    {item.note && <Text variant="text-sm/normal">{item.note}</Text>}
+                    <BaseText size="md" weight="semibold">{item.name}</BaseText>
+                    {item.note && <BaseText size="sm" weight="normal">{item.note}</BaseText>}
                     <Select options={item.options ?? []} select={update} isSelected={v => v === value} serialize={String} isDisabled={item.disabled} />
                 </div>
             );
         case "slider":
             return (
                 <div className="vc-muffinshelf-setting">
-                    <Text variant="text-md/semibold">{item.name}</Text>
-                    {item.note && <Text variant="text-sm/normal">{item.note}</Text>}
+                    <BaseText size="md" weight="semibold">{item.name}</BaseText>
+                    {item.note && <BaseText size="sm" weight="normal">{item.note}</BaseText>}
                     <Slider initialValue={value} minValue={item.min ?? 0} maxValue={item.max ?? 100} markers={item.markers} onValueChange={update} disabled={item.disabled} />
                 </div>
             );
@@ -261,15 +269,15 @@ function SettingRow({ item, category, onChange }: { item: SettingItem; category:
         case "category":
             return (
                 <details className="vc-muffinshelf-category" open={item.shown !== false}>
-                    <summary><Text variant="heading-md/semibold">{item.name}</Text></summary>
+                    <summary><BaseText size="md" weight="semibold">{item.name}</BaseText></summary>
                     {item.settings?.map(s => <SettingRow key={s.id} item={s} category={item.id} onChange={onChange} />)}
                 </details>
             );
         default:
             return (
                 <div className="vc-muffinshelf-setting">
-                    <Text variant="text-md/semibold">{item.name}</Text>
-                    {item.note && <Text variant="text-sm/normal">{item.note}</Text>}
+                    <BaseText size="md" weight="semibold">{item.name}</BaseText>
+                    {item.note && <BaseText size="sm" weight="normal">{item.note}</BaseText>}
                     <TextInput
                         type={item.type === "number" ? "number" : item.type === "color" ? "color" : "text"}
                         value={value == null ? "" : String(value)}
@@ -542,14 +550,14 @@ const Components = {
         <FormSwitch title="" value={value} onChange={onChange} disabled={disabled} hideBorder />,
     SettingItem: ({ name, note, children }: { name?: string; note?: string; children?: ReactNode; }) => (
         <div className="vc-muffinshelf-setting">
-            <Text variant="text-md/semibold">{name}</Text>
-            {note && <Text variant="text-sm/normal">{note}</Text>}
+            <BaseText size="md" weight="semibold">{name}</BaseText>
+            {note && <BaseText size="sm" weight="normal">{note}</BaseText>}
             {children}
         </div>
     ),
     SettingGroup: ({ name, children }: { name?: string; children?: ReactNode; }) => (
         <details className="vc-muffinshelf-category" open>
-            <summary><Text variant="heading-md/semibold">{name}</Text></summary>
+            <summary><BaseText size="md" weight="semibold">{name}</BaseText></summary>
             {children}
         </details>
     ),
