@@ -75,6 +75,8 @@ const pluginNames: Record<string, string> = {
     cordmuffinupdater: "CordmuffinUpdater",
 };
 const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
+// Every plugin in custom-creations/, so changelog lines about one can be hidden from people who don't have it.
+const cordmuffinPlugins = ["cordmuffinUpdater", "dictation", "discrubLoader", "gameTimeSpoof", "hideClientBadges", "muffinshelf", "pluginPresets", "profileImages", "questRunner", "ransom", "translateItAll"];
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
@@ -248,6 +250,12 @@ async function updateNow(auto: boolean) {
     const updated = r.updated?.length ? r.updated.map(prettyName) : status.what.filter(n => !r.skipped?.includes(n));
     const what = updated.length ? updated : ["Cordmuffin"];
     if (!r.needsRestart) {
+        // An earlier update in this session may still be waiting for a restart.
+        if (restartPending) {
+            setStatus({ phase: "updated", what, message: skipped.trim() });
+            showNotification({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}.${skipped} An earlier update still needs a restart: click here to restart Discord, or it's used the next time Discord starts.`, onClick: relaunch });
+            return;
+        }
         setStatus({ phase: "upToDate", what: [] });
         showNotification({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}. Nothing else to do.`, onClick: openSettings });
         return;
@@ -295,8 +303,8 @@ const when = (time: number) => `${new Date(time).toLocaleString(undefined, { mon
 
 // Lines about one of cordmuffin's plugins ("QuestRunner: ...") only show for people who have that plugin.
 function relevant(sections: ChangelogSection[], installed: string[]) {
-    const have = new Set(installed.map(n => prettyName(n).toLowerCase()));
-    const known = new Set(Object.values(pluginNames).map(n => n.toLowerCase()));
+    const have = new Set(installed.flatMap(n => [n, prettyName(n)]).map(n => n.toLowerCase()));
+    const known = new Set([...cordmuffinPlugins, ...Object.keys(pluginNames), ...Object.values(pluginNames)].map(n => n.toLowerCase()));
     return sections
         .map(s => ({
             ...s,
