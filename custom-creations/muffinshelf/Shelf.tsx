@@ -84,7 +84,7 @@ function openBdSettings(file: string) {
 }
 
 function confirm(title: string, body: string, confirmText: string) {
-    return new Promise<boolean>(resolve => Alerts.show({ title, body, confirmText, cancelText: "Cancel", onConfirm: () => resolve(true), onCancel: () => resolve(false) }));
+    return new Promise<boolean>(resolve => Alerts.show({ title, body, confirmText, cancelText: "Cancel", onConfirm: () => resolve(true), onCancel: () => resolve(false), onCloseCallback: () => resolve(false) }));
 }
 
 function showBuildError(result: BuildResult) {
@@ -566,7 +566,27 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
 
     useEffect(() => {
         Native.getInfo().then(setInfo);
-        Native.isBuilding().then(running => running && !status.step && setStatus({ step: "A rebuild is still running..." }));
+        const STILL_RUNNING = "A rebuild is still running...";
+        let timer: ReturnType<typeof setInterval> | undefined;
+        let closed = false;
+        // No runBuild owns a build left over from before a reload, so watch for it to end here.
+        Native.isBuilding().then(running => {
+            if (closed || (status.step && status.step !== STILL_RUNNING)) return;
+            if (!running) {
+                if (status.step) setStatus({ step: null });
+                return;
+            }
+            setStatus({ step: STILL_RUNNING });
+            timer = setInterval(() => Native.isBuilding().then(still => {
+                if (still || closed) return;
+                clearInterval(timer);
+                if (status.step === STILL_RUNNING) setStatus({ step: null });
+            }), 3000);
+        });
+        return () => {
+            closed = true;
+            clearInterval(timer);
+        };
     }, []);
 
     useEffect(() => {
