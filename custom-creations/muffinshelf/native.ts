@@ -335,9 +335,16 @@ function cleanRepoPath(path: string) {
     return parts.join("/");
 }
 
+// Folders backed up since the last commit or rollback; any other backup on disk was left by a run that never finished.
+const backedUp = new Set<string>();
+
 async function backupFolder(mode: Exclude<BuildMode, { kind: "none"; }>, folder: string) {
     const backup = childOf(join(workDir(mode), "backup"), folder);
-    if (existsSync(backup)) return;
+    if (existsSync(backup)) {
+        if (backedUp.has(folder)) return;
+        await removeTree(backup);
+    }
+    backedUp.add(folder);
     await mkdir(backup, { recursive: true });
     const target = childOf(userpluginsDir(mode) as string, folder);
     const saved = childOf(SAVED_USERPLUGINS, folder);
@@ -433,6 +440,7 @@ export async function removeUserplugin(_: IpcMainInvokeEvent, folder: string) {
 export async function rollbackUserplugins(_: IpcMainInvokeEvent, folders: string[]) {
     const mode = requireBuild();
     for (const folder of folders) {
+        backedUp.delete(folder);
         const backup = childOf(join(workDir(mode), "backup"), folder);
         if (!existsSync(backup)) continue;
         const target = childOf(userpluginsDir(mode) as string, folder);
@@ -448,7 +456,10 @@ export async function rollbackUserplugins(_: IpcMainInvokeEvent, folders: string
 
 export async function commitUserplugins(_: IpcMainInvokeEvent, folders: string[]) {
     const mode = requireBuild();
-    for (const folder of folders) await removeTree(childOf(join(workDir(mode), "backup"), folder));
+    for (const folder of folders) {
+        backedUp.delete(folder);
+        await removeTree(childOf(join(workDir(mode), "backup"), folder));
+    }
     await cleanWork(mode);
 }
 
@@ -709,7 +720,8 @@ export async function bdFsRename(_: IpcMainInvokeEvent, from: string, to: string
 
 export async function bdShowPath(_: IpcMainInvokeEvent, rel: string, reveal: boolean) {
     const full = rel ? bdPath(rel) : BD_PLUGINS;
-    if (reveal) shell.showItemInFolder(full);
+    // Only folders are opened; a file is shown in Explorer instead of being run by its default handler.
+    if (reveal || (rel && !(existsSync(full) && statSync(full).isDirectory()))) shell.showItemInFolder(full);
     else await shell.openPath(full);
 }
 
