@@ -8,10 +8,19 @@ import { promptToRestart } from "@utils/promptToRestart";
 
 import { settings, YANDEX_API } from "../settings";
 
-function isTokiPona(text: string) {
-    const dictionary = /\b(?:leko|weka|pan|lete|linja|lipu|suli|nimi|akesi|misikeke|selo|ike|sijelo|sona|lili|pimeja|ante|jo|loje|telo|walo|kijetesantakalu|kasi|waso|wile|utala|lukin|sina|lape|ma|pilin|jasima|la|olin|pipi|meso|lawa|pi|pakala|oko|tan|ken|jaki|unpa|esun|seme|sitelen|len|kule|soko|open|ala|tenpo|lon|sinpin|pini|kokosila|mama|musi|monsi|mewika|taso|ona|mun|kiwen|tomo|mute|mi|nena|palisa|meli|laso|wawa|ale|kipisi|kulupu|ilo|lupa|nanpa|en|mu|jelo|kili|tonsi|moku|ni|kama|pu|poki|monsuta|sin|lasina|poka|soweli|sewi|elena|epiku|moli|pona|lanpan|alasa|anu|kute|uta|luka|suno|sama|awen|namako|suwi|noka|seli|mije|sike|jan|pali|tawa|inli|nasa|mani|wan|insa|nijon|nasin|kalama|ijo|toki|anpa|kala|kepeken|ko|kon|pana|tu|supa|kin|usawi|yupekosi)\b/gm;
+const SHARED_WORDS = new Set(["la", "en", "mi", "ma", "ni", "pan", "open", "ken", "mama", "sin", "tan", "jan", "len", "e"]);
 
-    return (text.match(dictionary) || []).length >= text.split(/\s+/).length * 0.5;
+function isTokiPona(text: string) {
+    const dictionary = /\b(?:leko|weka|pan|lete|linja|lipu|suli|nimi|akesi|misikeke|selo|ike|sijelo|sona|lili|pimeja|ante|jo|loje|telo|walo|kijetesantakalu|kasi|waso|wile|utala|lukin|sina|lape|ma|pilin|jasima|la|olin|pipi|meso|lawa|pi|pakala|oko|tan|ken|jaki|unpa|esun|seme|sitelen|len|kule|soko|open|ala|tenpo|lon|sinpin|pini|kokosila|mama|musi|monsi|mewika|taso|ona|mun|kiwen|tomo|mute|mi|nena|palisa|meli|laso|wawa|ale|kipisi|kulupu|ilo|lupa|nanpa|en|mu|jelo|kili|tonsi|moku|ni|kama|pu|poki|monsuta|sin|lasina|poka|soweli|sewi|elena|epiku|moli|pona|lanpan|alasa|anu|kute|uta|luka|suno|sama|awen|namako|suwi|noka|seli|mije|sike|jan|pali|tawa|inli|nasa|mani|wan|insa|nijon|nasin|kalama|ijo|toki|anpa|kala|kepeken|ko|kon|pana|tu|supa|kin|usawi|yupekosi|li|e)\b/gm;
+
+    // Short messages and words other languages use too (Spanish "mi casa en la playa", English "open it") are not enough.
+    const words = text.split(/\s+/).filter(Boolean);
+    if (words.length < 3) return false;
+
+    const hits = text.match(dictionary) ?? [];
+    const distinctive = hits.filter(word => !SHARED_WORDS.has(word)).length;
+
+    return hits.length >= words.length * 0.8 && distinctive * 3 >= hits.length;
 }
 
 function isSitelen(text: string) {
@@ -94,7 +103,7 @@ async function google(target: string, text: string) {
 
         return {
             src: translate.src,
-            text: translate.sentences?.map(s => s.trans).filter(Boolean).join("\n")
+            text: translate.sentences?.map(s => s.trans).filter(Boolean).join("")
         };
     } catch (error) {
         console.error("[TranslatePlus] Google Translate request failed:", error);
@@ -171,10 +180,10 @@ export async function translate(text: string): Promise<any> {
 
     const output = { src: "", text: "" };
 
-    if ((isTokiPona(text) || isSitelen(text)) && (toki || sitelen)) {
-        if (isSitelen(text) && sitelen) text = await translateSitelen(text);
+    const sitelenText = sitelen && isSitelen(text);
 
-        console.log(text);
+    if (sitelenText || (toki && isTokiPona(text))) {
+        if (sitelenText) text = await translateSitelen(text);
 
         const translate = await (await fetch("https://aiapi.serversmp.xyz/toki", {
             method: "POST",
@@ -188,8 +197,6 @@ export async function translate(text: string): Promise<any> {
                 target: "en"
             })
         })).json();
-
-        console.log(translate);
 
         output.src = "tp";
         output.text = target === "en" ? translate.translation[0] : (await machine(target, translate.translation[0])).text;
