@@ -1,6 +1,7 @@
 // Test Equicord plugin patches against the running Discord over its debug port (CDP).
 // Read-only: Discord is only asked for module sources; patching and the compile check
 // happen here in Node, and patched code is compiled with new Function but never called.
+// The one exception is --eval, which runs the code you give it inside Discord.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -14,6 +15,7 @@ let esbuild;
 const USAGE = `usage:
   node patchtest.mjs <plugin folder | index.tsx | patches.json> [options]
   node patchtest.mjs --keys <NAME or hashed key> [...]
+  node patchtest.mjs --eval <code | file.js>
 
 options:
   --equicord <dir>  Equicord source folder (default: found from the plugin path, or EQUICORD_DIR)
@@ -21,10 +23,12 @@ options:
   --keymap <file>   hashed-key -> name JSON for --keys (default: key_map.json next to this script)
   --show            print the code around each match and the replaced result
   --context <n>     characters of context for --show (default 120)
-  --verbose         list every module id a find hits`;
+  --verbose         list every module id a find hits
+  --eval <code>     run JavaScript inside Discord like its console does (await works, let/const can be
+                    reused between runs) and print the result; a path ending in .js runs that file`;
 
 function parseArgs(argv) {
-    const opts = { port: null, equicord: null, keymap: null, show: false, verbose: false, context: 120, keys: null, target: null };
+    const opts = { port: null, equicord: null, keymap: null, show: false, verbose: false, context: 120, keys: null, eval: null, target: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const value = () => {
@@ -38,6 +42,7 @@ function parseArgs(argv) {
         else if (a === "--verbose") opts.verbose = true;
         else if (a === "--context") opts.context = Number(value()) || 120;
         else if (a === "--keys") opts.keys = [];
+        else if (a === "--eval") opts.eval = value();
         else if (a === "-h" || a === "--help") opts.help = true;
         else if (a.startsWith("--")) throw new Error(`unknown option: ${a}`);
         else if (opts.keys) opts.keys.push(a);
@@ -314,11 +319,11 @@ async function connectDiscord(port) {
     };
 
     return {
-        evaluate(expression) {
+        evaluate(expression, extra = {}) {
             const id = nextId++;
             return new Promise((resolve, reject) => {
                 pending.set(id, { resolve, reject });
-                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true } }));
+                ws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true, ...extra } }));
             });
         },
         close: () => ws.close(),
@@ -487,12 +492,29 @@ function printTable(rows) {
     for (const d of data) console.log(line(d));
 }
 
+// ---------- --eval ----------
+
+async function runEval(code, opts) {
+    const file = resolve(code);
+    if (extname(code) === ".js" && existsSync(file)) code = readFileSync(file, "utf8");
+    const discord = await connectDiscord(opts.port);
+    try {
+        // replMode is what Discord's own console uses: top-level await, and redeclaring let/const is allowed.
+        const value = await discord.evaluate(code, { replMode: true, userGesture: true });
+        if (value === undefined) console.log("undefined");
+        else console.log(typeof value === "string" ? value : JSON.stringify(value, null, 2));
+    } finally {
+        discord.close();
+    }
+}
+
 // ---------- main ----------
 
 async function main() {
     const opts = parseArgs(process.argv.slice(2));
     if (opts.help) return void console.log(USAGE);
     if (opts.keys) return lookupKeys(opts.keys, opts);
+    if (opts.eval != null) return runEval(opts.eval, opts);
     if (!opts.target) {
         console.error(USAGE);
         process.exitCode = 2;
