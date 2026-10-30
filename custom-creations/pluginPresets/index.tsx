@@ -11,7 +11,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import definePlugin, { OptionType } from "@utils/types";
 
 import { Manager } from "./Manager";
-import { applyPreset, captureCurrent, deletePreset, isManaged, isOfficial, loadPresets, planApply, savePreset } from "./presets";
+import { addPreset, applyPreset, captureCurrent, deletePreset, isManaged, isOfficial, loadPresets, planApply, savePreset } from "./presets";
 import { buildExport, prepareImport, toCode } from "./share";
 
 const settings = definePluginSettings({
@@ -37,6 +37,7 @@ export default definePlugin({
     prepareImport,
     loadPresets,
     savePreset,
+    addPreset,
     deletePreset,
     toCode,
 });
