@@ -744,7 +744,7 @@ func addPlugins(src, inbox string) (added, kept, skipped []string, err error) {
 
 	saved, _ := os.ReadDir(muffinshelfSaved())
 	for _, e := range saved {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || exists(filepath.Join(dest, e.Name())) {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || isTempCopy(e.Name()) || exists(filepath.Join(dest, e.Name())) {
 			continue
 		}
 		if cerr := copyTree(filepath.Join(muffinshelfSaved(), e.Name()), filepath.Join(dest, e.Name())); cerr == nil {
@@ -942,6 +942,28 @@ func syncCordmuffin(src, repoDir, kitPlugins string, added []string, fromMirror 
 		updated = append(updated, name)
 	}
 	return
+}
+
+// When cordmuffin couldn't be downloaded, the updater still goes in from the last build or an older download,
+// so one failed download doesn't drop it from the build and the saved plugin copy for good.
+func keepUpdater(src string, added []string) (extra []string) {
+	if containsFold(added, updaterPlugin) {
+		return nil
+	}
+	dest := filepath.Join(src, "src", "userplugins", updaterPlugin)
+	for _, from := range []string{
+		filepath.Join(mirrorDir(), updaterPlugin),
+		filepath.Join(cordmuffinSrc(), "custom-creations", updaterPlugin),
+	} {
+		if len(findPluginRoots(from, 0)) != 1 {
+			continue
+		}
+		if copyTree(from, dest) == nil {
+			return []string{updaterPlugin}
+		}
+		removeAll(dest)
+	}
+	return nil
 }
 
 // Whether any of cordmuffin's plugins in the last build differ from the newest published ones.
@@ -1347,6 +1369,10 @@ func build(opts buildOptions) (buildResult, error) {
 	}
 	if cmErr != nil {
 		say("Couldn't get cordmuffin's newest plugins, so they aren't updated this time (%v).", cmErr)
+		res.extra = keepUpdater(src, res.added)
+		if len(res.extra) == 0 && !containsFold(res.added, updaterPlugin) {
+			say("No copy of the CordmuffinUpdater plugin was found, so automatic updates aren't set up. Run this installer again later.")
+		}
 	} else {
 		res.cordmuffinSha = cm
 		res.tracked, res.updated, res.extra = syncCordmuffin(src, cordmuffinSrc(), opts.kitPlugins, res.added, opts.fromMirror)
@@ -1737,8 +1763,10 @@ func install() {
 	if len(res.kept) > 0 {
 		fmt.Fprintf(&text, "\n\nKept the plugins you installed with Muffinshelf: %s", strings.Join(res.kept, ", "))
 	}
-	if containsFold(res.tracked, updaterPlugin) {
+	if containsFold(res.tracked, updaterPlugin) || containsFold(res.extra, updaterPlugin) {
 		text.WriteString("\n\nCordmuffin's plugins now update by themselves while Discord is open. You can turn that off, or turn on Equicord updates, in Discord: User Settings, then Cordmuffin Updater.")
+	} else if res.cordmuffinSha == "" && !containsFold(res.added, updaterPlugin) {
+		text.WriteString("\n\nCouldn't download cordmuffin, so automatic updates aren't set up yet. Run this installer again later to turn them on.")
 	}
 	if len(themes) > 0 {
 		fmt.Fprintf(&text, "\n\nThemes added and turned on: %s", strings.Join(themes, ", "))
