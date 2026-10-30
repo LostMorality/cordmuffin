@@ -89,10 +89,14 @@ function readSetting(name: string, key: string): Json | undefined {
     return toJson(Settings.plugins[name]?.[key]);
 }
 
+// Only settings the user picks. Custom and undeclared keys are the plugin's own state (install records, counters,
+// caches), and putting an old copy of those back would break the plugin.
+const USER_SETTINGS = new Set([OptionType.BOOLEAN, OptionType.SELECT, OptionType.NUMBER, OptionType.SLIDER, OptionType.STRING, OptionType.BIGINT]);
+
 function settingKeys(name: string) {
-    const keys = new Set(Object.keys(PlainSettings.plugins[name] ?? {}));
+    const keys = new Set<string>();
     for (const [key, def] of Object.entries(plugins[name]?.settings?.def ?? {}))
-        if (def.type !== OptionType.COMPONENT) keys.add(key);
+        if (USER_SETTINGS.has(def.type)) keys.add(key);
     keys.delete("enabled");
     if (name === "Muffinshelf") keys.delete("bdEnabled");
     return [...keys];
@@ -102,6 +106,13 @@ function readBd(): string[] | null {
     if (!plugins.Muffinshelf) return null;
     const list = PlainSettings.plugins.Muffinshelf?.bdEnabled;
     return Array.isArray(list) ? list.map(String).sort() : [];
+}
+
+// Every installed BetterDiscord file, from Muffinshelf's runtime once it has started. Null when that can't be told.
+function installedBd(): Set<string> | null {
+    if (!plugins.Muffinshelf?.started) return null;
+    const all = (window as any).BdApi?.Plugins?.getAll?.();
+    return Array.isArray(all) ? new Set(all.map((p: any) => String(p?.filename))) : null;
 }
 
 export function newId() {
@@ -174,11 +185,15 @@ export function planApply(preset: Preset): Plan {
         if (!restart.has(n) && changed.some(key => defs[key]?.restartNeeded)) restart.add(`${n} (settings)`);
     }
 
-    // BetterDiscord plugins: a saved preset sets the list exactly; an imported one only keeps those it lists that are on.
+    // BetterDiscord plugins: a saved preset sets the list exactly, minus files that were deleted since; an imported
+    // one only keeps those it lists that are on.
     const current = readBd();
+    const installed = imported ? null : installedBd();
     const bdTarget = !current ? null
         : imported ? current.filter(f => imported.betterDiscord.includes(f))
-            : preset.bd;
+            : installed && preset.bd ? preset.bd.filter(f => installed.has(f) || current.includes(f))
+                : preset.bd;
+    if (bdTarget && preset.bd && !imported) missing.push(...preset.bd.filter(f => !bdTarget.includes(f)));
     const bdOn = bdTarget && current ? bdTarget.filter(f => !current.includes(f)) : [];
     const bdOff = bdTarget && current ? current.filter(f => !bdTarget.includes(f)) : [];
     if (bdOn.length || bdOff.length) restart.add("Muffinshelf BetterDiscord plugins");
@@ -248,6 +263,8 @@ export function applyPreset(preset: Preset): ApplyResult {
 
 const NAME_RE = /^[\w .+\-()]{1,80}$/;
 const BD_RE = /^[\w .+\-()[\]]{1,120}\.plugin\.js$/i;
+// Muffinshelf's own file rule, for the local list: any name it can install has to survive a restart.
+const BD_FILE_RE = /^[^\\/:*?"<>|\p{C}]{1,120}\.plugin\.js$/u;
 
 function strings(value: unknown, re: RegExp, max = 2000) {
     return Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === "string" && re.test(v)))].slice(0, max) : [];
@@ -272,7 +289,7 @@ function cleanStored(value: unknown): Preset[] {
             created: typeof raw.created === "number" ? raw.created : Date.now(),
             enabled: strings(raw.enabled, NAME_RE),
             settings,
-            bd: raw.bd === null || raw.bd === undefined ? null : strings(raw.bd, BD_RE),
+            bd: raw.bd === null || raw.bd === undefined ? null : strings(raw.bd, BD_FILE_RE),
             ...(imported && { imported }),
         });
     }
@@ -306,6 +323,16 @@ export async function savePreset(preset: Preset) {
     const list = await loadPresets();
     const same = list.findIndex(p => p.name.toLowerCase() === preset.name.toLowerCase());
     await store(same === -1 ? [...list, preset] : list.map((p, i) => i === same ? { ...preset, id: p.id } : p));
+}
+
+/** Adds a preset and never replaces a saved one: a name that's taken gets a number, like "Gaming (2)". */
+export async function addPreset(preset: Preset) {
+    const list = await loadPresets();
+    const taken = new Set(list.map(p => p.name.toLowerCase()));
+    let { name } = preset;
+    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${preset.name.slice(0, 57)} (${i})`;
+    await store([...list, { ...preset, name }]);
+    return name;
 }
 
 export async function renamePreset(id: string, name: string) {
