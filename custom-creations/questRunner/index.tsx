@@ -7,13 +7,14 @@
 import { definePluginSettings, Settings } from "@api/Settings";
 import { Button } from "@components/Button";
 import { Card } from "@components/Card";
+import ErrorBoundary from "@components/ErrorBoundary";
 import { HeadingTertiary } from "@components/Heading";
 import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import type { Quest } from "@vencord/discord-types";
-import { findByCodeLazy, findStoreLazy } from "@webpack";
+import { findByCodeLazy, findComponentByCodeLazy, findStoreLazy } from "@webpack";
 import { ChannelStore, GuildChannelStore, QuestStore, React, RestAPI, RunningGameStore, UserStore } from "@webpack/common";
 
 import { notify } from "./notify";
@@ -28,6 +29,16 @@ const getProxyTicket: (appId: string) => Promise<string> = findByCodeLazy(".expi
 
 const GameStore: { getDetectableGame(id: string): { thirdPartySkus?: { distributor: string; id?: string; }[]; } | null; } = findStoreLazy("GameStore");
 
+// Discord's own button, so the quest card button looks like the one it replaces.
+const DiscordButton = findComponentByCodeLazy<{
+    text: string;
+    size: string;
+    variant: "primary" | "secondary";
+    fullWidth?: boolean;
+    disabled?: boolean;
+    onClick(): void;
+}>("BUTTON_LOADING_STARTED_LABEL)),");
+
 const QUEST_HOME_DESKTOP = 11;
 const HEARTBEAT_MS = 60_000;
 const DETECT_TIMEOUT_MS = 120_000;
@@ -35,7 +46,8 @@ const LOST_TIMEOUT_MS = 90_000;
 const RETRY_MS = 5 * 60_000;
 const ENROLL_RETRY_MS = 30 * 60_000;
 
-type TaskType = "WATCH_VIDEO" | "WATCH_VIDEO_ON_MOBILE" | "PLAY_ON_DESKTOP" | "PLAY_ACTIVITY" | "ACHIEVEMENT_IN_ACTIVITY";
+type TaskType = "WATCH_VIDEO" | "WATCH_VIDEO_ON_MOBILE" | "PLAY_ON_DESKTOP" | "PLAY_ON_DESKTOP_V2" | "PLAY_ON_XBOX" | "PLAY_ON_PLAYSTATION"
+    | "STREAM_ON_DESKTOP" | "PLAY_ACTIVITY" | "ACHIEVEMENT_IN_ACTIVITY" | "ACHIEVEMENT_IN_GAME";
 type RunKind = "video" | "game" | "direct" | "achievement";
 
 interface Task {
@@ -53,6 +65,9 @@ interface Run {
     appId?: string;
     note: string;
     abort: AbortController;
+    progress: number;
+    // When progress was last known; null while it isn't moving yet (a stand-in game not detected).
+    progressAt: number | null;
 }
 
 const settings = definePluginSettings({
@@ -78,6 +93,17 @@ const settings = definePluginSettings({
         default: true,
         onChange: () => scheduleEvaluate(),
     },
+    skipVideoPlayer: {
+        type: OptionType.BOOLEAN,
+        description: "Don't open Discord's video player when you start a video quest. QuestRunner watches it in the background, and the quest card shows the time left.",
+        default: true,
+    },
+    cardButtons: {
+        type: OptionType.BOOLEAN,
+        description: "Put a Complete button on quest cards and the quest bar. Press it to finish that quest now, even kinds that are turned off below. Press it again to stop.",
+        default: true,
+        restartNeeded: true,
+    },
     games: {
         type: OptionType.BOOLEAN,
         description: "Finish play quests by running a tiny invisible stand-in game.",
@@ -92,13 +118,13 @@ const settings = definePluginSettings({
     },
     direct: {
         type: OptionType.BOOLEAN,
-        description: "Also finish quests that have no game to run (activities, console-only games) by telling Discord directly. Riskier: this is the Questify way, which Discord can catch.",
+        description: "Also finish quests that have no game to run (play-an-activity, Xbox and PlayStation quests) by telling Discord directly. Riskier: this is the Questify way, which Discord can catch.",
         default: false,
         onChange: () => scheduleEvaluate(),
     },
     achievements: {
         type: OptionType.BOOLEAN,
-        description: "Finish activity achievement quests. Gives the activity access to your account for a moment, then removes it.",
+        description: "Finish activity achievement quests (the ones with a Launch Quest button) on their own. Gives the activity access to your account for a moment, then removes it.",
         default: false,
         onChange: () => scheduleEvaluate(),
     },
@@ -117,6 +143,9 @@ const unsupported = new Set<string>();
 const toasted = new Set<string>();
 const lastProblem = new Map<string, string>();
 const appExeCache = new Map<string, GameLaunch>();
+// Quests the user pressed Complete on (run even if that kind is off) and quests they pressed Stop on.
+const forced = new Set<string>();
+const paused = new Set<string>();
 let evaluateTimer: ReturnType<typeof setTimeout> | null = null;
 let enrolling = false;
 let warnedSuspended = false;
@@ -152,16 +181,19 @@ function isLive(quest: Quest): boolean {
     return new Date(quest.config.expiresAt).getTime() > now && new Date(quest.config.startsAt).getTime() <= now;
 }
 
-function pickTask(quest: Quest): { task: Task; kind: RunKind; } | null {
-    const config = quest.config.taskConfigV2 as { tasks: Record<string, Task>; joinOperator?: string; } | undefined;
+// force: the user asked for this quest on its card, so its kind counts as on.
+function pickTask(quest: Quest, force = forced.has(quest.id)): { task: Task; kind: RunKind; } | null {
+    const config = quest.config.taskConfigV2 as { tasks: Partial<Record<TaskType, Task>>; joinOperator?: string; } | undefined;
     const tasks = config?.tasks;
     if (!tasks || (config.joinOperator === "and" && Object.keys(tasks).length > 1)) return null;
 
     const s = settings.store;
-    if (tasks.WATCH_VIDEO && s.videos) return { task: tasks.WATCH_VIDEO, kind: "video" };
-    if (tasks.PLAY_ON_DESKTOP && (s.games || s.direct)) return { task: tasks.PLAY_ON_DESKTOP, kind: s.games ? "game" : "direct" };
-    if (tasks.ACHIEVEMENT_IN_ACTIVITY && s.achievements) return { task: tasks.ACHIEVEMENT_IN_ACTIVITY, kind: "achievement" };
-    if (tasks.PLAY_ACTIVITY && s.direct) return { task: tasks.PLAY_ACTIVITY, kind: "direct" };
+    const video = tasks.WATCH_VIDEO ?? tasks.WATCH_VIDEO_ON_MOBILE;
+    if (video && (s.videos || force)) return { task: video, kind: "video" };
+    if (tasks.PLAY_ON_DESKTOP && (s.games || s.direct || force)) return { task: tasks.PLAY_ON_DESKTOP, kind: s.games || force ? "game" : "direct" };
+    if (tasks.ACHIEVEMENT_IN_ACTIVITY && (s.achievements || force)) return { task: tasks.ACHIEVEMENT_IN_ACTIVITY, kind: "achievement" };
+    const direct = tasks.PLAY_ACTIVITY ?? tasks.PLAY_ON_XBOX ?? tasks.PLAY_ON_PLAYSTATION;
+    if (direct && (s.direct || force)) return { task: direct, kind: "direct" };
     return null;
 }
 
@@ -210,6 +242,12 @@ function evaluate() {
 
         if (status?.completedAt || !isLive(quest)) {
             if (run) finishRun(run, !!status?.completedAt);
+            forced.delete(quest.id);
+            paused.delete(quest.id);
+            continue;
+        }
+        if (paused.has(quest.id)) {
+            if (run) finishRun(run, false);
             continue;
         }
 
@@ -273,7 +311,10 @@ async function enrollAll(quests: Quest[]) {
 }
 
 function startRun(quest: Quest, task: Task, kind: RunKind) {
-    const run: Run = { questId: quest.id, name: questName(quest), kind, task, appIds: [], note: "Starting", abort: new AbortController() };
+    const run: Run = {
+        questId: quest.id, name: questName(quest), kind, task, appIds: [], note: "Starting", abort: new AbortController(),
+        progress: progressOf(quest, task), progressAt: null,
+    };
     const active = [...runs.values()];
 
     if (kind === "game") {
@@ -302,6 +343,8 @@ function startRun(quest: Quest, task: Task, kind: RunKind) {
             if (!done) scheduleEvaluate(31_000);
         } else {
             failedAt.set(run.questId, Date.now());
+            // A Complete press on an achievement means one try; don't keep authorizing the activity every 5 minutes.
+            if (run.kind === "achievement") forced.delete(run.questId);
             finishRun(run, false);
             scheduleEvaluate(RETRY_MS + 1000);
         }
@@ -309,6 +352,7 @@ function startRun(quest: Quest, task: Task, kind: RunKind) {
         if (run.abort.signal.aborted) return;
         logger.error(`${run.name} failed`, e);
         if (String(e).includes("429")) problem(run, "Discord is rate limiting quest progress. Trying again in 5 minutes.");
+        if (run.kind === "achievement") forced.delete(run.questId);
         failedAt.set(run.questId, Date.now());
         finishRun(run, false);
         scheduleEvaluate(RETRY_MS + 1000);
@@ -325,6 +369,7 @@ function finishRun(run: Run, completed: boolean) {
     }
 
     if (completed) {
+        forced.delete(run.questId);
         lastProblem.delete(run.questId);
         toast(`Quest done: ${run.name}`, "success");
         logger.info(`completed ${run.name}`);
@@ -381,10 +426,13 @@ async function runVideo(run: Run): Promise<boolean> {
     while (done < target) {
         const step = Math.min(target - done, jitter(6, 8));
         run.note = `Watching ${Math.floor(done)}/${target}s`;
+        run.progress = done;
+        run.progressAt = Date.now();
         await sleep(step * 1000, signal);
         done = Math.min(target, done + step);
         await reportVideoProgress(run.questId, done >= target ? target : Number(done.toFixed(6)));
     }
+    run.progress = target;
     return true;
 }
 
@@ -407,7 +455,7 @@ async function runGame(run: Run): Promise<boolean> {
             }
         }
         if (!appId || !info?.exe) {
-            if (settings.store.direct) {
+            if (settings.store.direct || forced.has(run.questId)) {
                 run.kind = "direct";
                 run.appId = run.appIds[0];
                 return runDirect(run);
@@ -441,6 +489,10 @@ async function runGame(run: Run): Promise<boolean> {
 
         const progress = progressOf(quest, run.task);
         if (isAppRunning(appId)) seenAt = Date.now();
+        if (progress !== run.progress || seenAt && run.progressAt === null) {
+            run.progress = progress;
+            run.progressAt = seenAt ? Date.now() : null;
+        }
 
         if (seenAt || progress > startProgress) {
             if (seenAt && Date.now() - seenAt > LOST_TIMEOUT_MS && !await Native.isGameRunning(appId)) {
@@ -482,6 +534,8 @@ async function runDirect(run: Run): Promise<boolean> {
         const quest = QuestStore.getQuest(run.questId);
         const progress = quest ? progressOf(quest, run.task) : 0;
         run.note = `${Math.floor(progress / 60)}/${Math.round(run.task.target / 60)} min (direct)`;
+        run.progress = progress;
+        run.progressAt = Date.now();
 
         if (!quest || quest.userStatus?.completedAt || progress >= run.task.target) {
             await sendHeartbeat({ questId: run.questId, applicationId, streamKey, terminal: true });
@@ -499,44 +553,59 @@ async function runAchievement(run: Run): Promise<boolean> {
     const appId = run.task.applications?.[0]?.id;
     if (!appId) return false;
 
-    run.note = "Authorizing activity";
-    const auth = await RestAPI.post({
-        url: `/oauth2/authorize?client_id=${appId}&response_type=code&scope=identify%20applications.entitlements&state=`,
-        body: { authorize: true },
-    });
-    const location = (auth.body as { location?: string; })?.location;
-    const code = location ? new URL(location).searchParams.get("code") : null;
+    const grantsFor = async () => ((await RestAPI.get({ url: "/oauth2/tokens" })).body as { id: string; application?: { id: string; }; }[])
+        .filter(t => t.application?.id === appId)
+        .map(t => t.id);
+
+    // Only take away access QuestRunner itself gave; an activity the user already authorized keeps working.
+    const hadGrant = (await grantsFor()).length > 0;
+    if (hadGrant) logger.info(`${run.name}: the activity already had access before, so it keeps it afterwards`);
+    if (signal.aborted) return false;
 
     let result: { ok: boolean; error: string | null; } = { ok: false, error: "No authorization code" };
-    if (code && !signal.aborted) {
-        let referrer: string | undefined;
-        try {
-            const url = new URL(`https://${appId}.discordsays.com/`);
-            url.searchParams.set("instance_id", `i-${Math.random().toString(36).slice(2, 12)}`);
-            url.searchParams.set("platform", "desktop");
-            url.searchParams.set("discord_proxy_ticket", await getProxyTicket(appId));
-            referrer = url.toString();
-        } catch (e) {
-            logger.warn("proxy ticket failed", e);
-        }
-
-        if (!signal.aborted) {
-            run.note = "Posting achievement";
-            result = await Native.completeActivityAchievement(appId, code, run.task.target, run.questId, referrer);
-        }
-    }
-
+    let authorized = false;
     try {
-        const tokens = (await RestAPI.get({ url: "/oauth2/tokens" })).body as { id: string; application: { id: string; }; }[];
-        for (const token of tokens.filter(t => t.application?.id === appId)) {
-            await RestAPI.del({ url: `/oauth2/tokens/${token.id}` });
+        run.note = "Authorizing activity";
+        const auth = await RestAPI.post({
+            url: `/oauth2/authorize?client_id=${appId}&response_type=code&scope=identify%20applications.entitlements&state=`,
+            body: { authorize: true },
+        });
+        const location = (auth.body as { location?: string; })?.location;
+        const code = location ? new URL(location).searchParams.get("code") : null;
+        authorized = !!code;
+
+        if (code && !signal.aborted) {
+            let referrer: string | undefined;
+            try {
+                const url = new URL(`https://${appId}.discordsays.com/`);
+                url.searchParams.set("instance_id", `i-${Math.random().toString(36).slice(2, 12)}`);
+                url.searchParams.set("platform", "desktop");
+                url.searchParams.set("discord_proxy_ticket", await getProxyTicket(appId));
+                referrer = url.toString();
+            } catch (e) {
+                logger.warn("proxy ticket failed", e);
+            }
+
+            if (!signal.aborted) {
+                run.note = "Posting achievement";
+                result = await Native.completeActivityAchievement(appId, code, run.task.target, run.questId, referrer);
+            }
         }
-    } catch (e) {
-        logger.warn("deauthorize failed", e);
-        toast(`${run.name}: couldn't remove the activity's access. Remove it in User Settings, Authorized Apps.`, "critical");
+    } finally {
+        if (authorized && !hadGrant) {
+            try {
+                for (const id of await grantsFor()) await RestAPI.del({ url: `/oauth2/tokens/${id}` });
+            } catch (e) {
+                logger.warn("deauthorize failed", e);
+                toast(`${run.name}: couldn't remove the activity's access. Remove it in User Settings, Authorized Apps.`, "critical");
+            }
+        }
     }
 
-    if (!result.ok) {
+    if (result.ok) {
+        run.progress = run.task.target;
+        run.progressAt = Date.now();
+    } else {
         logger.error(`${run.name} achievement failed`, result.error);
         if (!signal.aborted) problem(run, "The activity didn't accept the achievement.");
     }
@@ -582,14 +651,113 @@ function QuestifyNotice() {
     return <Notice variant="info">Questify is off. You don't need it for QuestRunner to work.</Notice>;
 }
 
+function useTick(ms = 1000) {
+    const [, tick] = React.useReducer((n: number) => n + 1, 0);
+    React.useEffect(() => {
+        const id = setInterval(tick, ms);
+        return () => clearInterval(id);
+    }, [ms]);
+}
+
+function clock(seconds: number): string {
+    const s = Math.max(0, Math.ceil(seconds));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+// Videos, play time and direct heartbeats all move in real time, so the card can count down between reports.
+function shownProgress(quest: Quest, task: Task, run: Run | undefined): number {
+    const stored = progressOf(quest, task);
+    if (!run || run.progressAt === null) return Math.max(stored, run?.progress ?? 0);
+    const live = run.kind === "achievement" ? run.progress : run.progress + (Date.now() - run.progressAt) / 1000;
+    return Math.min(task.target, Math.max(stored, live));
+}
+
+function completeNow(questId: string) {
+    forced.add(questId);
+    paused.delete(questId);
+    failedAt.delete(questId);
+    unsupported.delete(questId);
+    lastProblem.delete(questId);
+    scheduleEvaluate(0);
+}
+
+function stopQuest(questId: string) {
+    paused.add(questId);
+    forced.delete(questId);
+    const run = runs.get(questId);
+    if (run) finishRun(run, false);
+}
+
+function cardState(quest: Quest) {
+    const picked = pickTask(quest, true);
+    if (!picked) return null;
+    const run = runs.get(quest.id);
+    const left = picked.task.target - shownProgress(quest, picked.task, run);
+    const instant = picked.kind === "achievement";
+
+    if (run) return { text: instant ? "Completing..." : `Completing (${clock(left)})`, running: true };
+    if (!paused.has(quest.id) && pickTask(quest) && !unsupported.has(quest.id)) {
+        const retrying = Date.now() - (failedAt.get(quest.id) ?? 0) < RETRY_MS;
+        return { text: retrying ? "Trying again soon" : "Queued", running: true };
+    }
+    return { text: instant ? "Complete now" : `Complete (${clock(left)})`, running: false };
+}
+
+function QuestCardButton({ quest, size }: { quest: Quest; size: string; }) {
+    useTick();
+    const current = QuestStore.getQuest(quest.id) ?? quest;
+    if (current.userStatus?.completedAt) return null;
+    const state = cardState(current);
+    if (!state) return null;
+
+    return (
+        <DiscordButton
+            size={size}
+            variant={state.running ? "secondary" : "primary"}
+            fullWidth={true}
+            text={state.text}
+            onClick={() => state.running ? stopQuest(quest.id) : completeNow(quest.id)}
+        />
+    );
+}
+
+// Replaces Discord's button on accepted quests QuestRunner can do; anything else keeps Discord's own button.
+function questButton(quest: Quest | undefined, size: string, accepted: boolean) {
+    if (!accepted || !started || !quest || questifyFinisherOn() || QuestStore.isQuestAccessSuspended) return null;
+    if (!quest.userStatus?.enrolledAt || quest.userStatus.completedAt || !isLive(quest) || !pickTask(quest, true)) return null;
+    return (
+        <ErrorBoundary noop>
+            <QuestCardButton quest={quest} size={size} />
+        </ErrorBoundary>
+    );
+}
+
+// Discord enrolls the quest just before this runs; only the player itself is skipped.
+function skipVideoPlayer(quest: Quest | undefined): boolean {
+    if (!started || !quest || !settings.store.skipVideoPlayer || quest.userStatus?.completedAt || QuestStore.isQuestAccessSuspended || !isLive(quest)) return false;
+    if (pickTask(quest)?.kind !== "video") return false;
+
+    paused.delete(quest.id);
+    failedAt.delete(quest.id);
+    const busy = settings.store.oneVideoAtATime && [...runs.values()].some(r => r.kind === "video" && r.questId !== quest.id);
+    toast(busy
+        ? `${questName(quest)}: queued. QuestRunner watches one video at a time, in the background.`
+        : `${questName(quest)}: QuestRunner is watching it in the background. The quest card shows the time left.`);
+    scheduleEvaluate(0);
+    return true;
+}
+
 function waitingQuests() {
     const out: string[] = [];
     for (const quest of QuestStore.quests.values()) {
         const status = quest.userStatus;
         if (runs.has(quest.id) || !status?.enrolledAt || status.completedAt || !isLive(quest)) continue;
         const name = questName(quest);
-        if (unsupported.has(quest.id)) out.push(`${name}: can't be done (${lastProblem.get(quest.id) ?? "not supported"})`);
-        else if (!pickTask(quest)) out.push(`${name}: this kind of quest is turned off or not supported`);
+        if (paused.has(quest.id)) out.push(`${name}: stopped by you. Press Complete on the quest card to start it again`);
+        else if (unsupported.has(quest.id)) out.push(`${name}: can't be done (${lastProblem.get(quest.id) ?? "not supported"})`);
+        else if (!pickTask(quest)) out.push(pickTask(quest, true)
+            ? `${name}: this kind of quest is turned off. Press Complete on the quest card to do it anyway`
+            : `${name}: this kind of quest isn't supported`);
         else if (failedAt.has(quest.id) && Date.now() - (failedAt.get(quest.id) ?? 0) < RETRY_MS) out.push(`${name}: trying again soon${lastProblem.has(quest.id) ? ` (${lastProblem.get(quest.id)})` : ""}`);
         else out.push(`${name}: waiting for its turn`);
     }
@@ -597,11 +765,7 @@ function waitingQuests() {
 }
 
 function StatusPanel() {
-    const [, tick] = React.useReducer((n: number) => n + 1, 0);
-    React.useEffect(() => {
-        const id = setInterval(tick, 1000);
-        return () => clearInterval(id);
-    }, []);
+    useTick();
 
     const list = [...runs.values()];
     const waiting = waitingQuests();
@@ -611,7 +775,9 @@ function StatusPanel() {
             <Card>
                 <HeadingTertiary>What is this?</HeadingTertiary>
                 <Paragraph>QuestRunner does your Discord quests for you. Press Accept on a quest and it finishes it on its own. You only come back to claim the reward, and solve the captcha Discord shows when you claim.</Paragraph>
-                <Paragraph>Video quests: it plays the video in the background in real time, reporting progress every few seconds like a real viewer, so it takes as long as the video. By default it watches one video at a time.</Paragraph>
+                <Paragraph>Video quests: it plays the video in the background in real time, reporting progress every few seconds like a real viewer, so it takes as long as the video. Discord's video player doesn't open. By default it watches one video at a time.</Paragraph>
+                <Paragraph>Quests with a Launch Quest button (find things inside an activity): press Complete on the quest card. QuestRunner gives the activity access to your account for a moment, tells it the goal was reached, then takes the access away again.</Paragraph>
+                <Paragraph>Every quest it can do gets a Complete button on its card, even kinds you turned off below. While a quest runs, the button shows the time left. Press it to stop that quest.</Paragraph>
                 <Paragraph>Play quests: it starts a tiny, invisible stand-in program named after the game, so Discord's own game detection sees a process for that game. When the time is up, the quest is done and the stand-in closes. Play quests can't go faster than their real time, because Discord's servers time them, but several can run at once.</Paragraph>
                 <Paragraph>While a stand-in runs, your friends see "Playing" that game on your profile, and Discord may add it to your Registered Games. Antivirus software sometimes blocks the stand-in, since it's a brand-new unsigned file. Allow it if that happens.</Paragraph>
             </Card>
@@ -676,6 +842,8 @@ function onConnectionOpen() {
     unsupported.clear();
     toasted.clear();
     lastProblem.clear();
+    forced.clear();
+    paused.clear();
     scheduleEvaluate(3000);
 }
 
@@ -687,6 +855,8 @@ export default definePlugin({
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
     cleanStack,
+    questButton,
+    skipVideoPlayer,
 
     patches: [
         {
@@ -695,6 +865,32 @@ export default definePlugin({
             replacement: {
                 match: /stack_trace:Error\(\)\.stack\?\?""/g,
                 replace: "stack_trace:$self.cleanStack(Error().stack)"
+            }
+        },
+        {
+            // Opening a video quest: Discord enrolls it, then opens the player. Stop before the player.
+            find: ".QUEST_VIDEO_ENROLLMENT_RETRY_ATTEMPTED,",
+            replacement: {
+                match: /(?=let\{setCaptionEnabled:)/,
+                replace: "if($self.skipVideoPlayer(arguments[0]?.quest))return;"
+            }
+        },
+        {
+            // Quest card button. Put in front of Discord's choice instead of inside it, so Questify's own patch here still fits.
+            find: "config.taskConfigV2.tasks).length)return",
+            predicate: () => settings.store.cardButtons && !questifyFinisherOn(),
+            replacement: {
+                match: /(?<=\i=)(?=function\(\)\{switch\((\i)\)\{case (\i\.\i)\.UNENROLLED:return\(0,\i\.jsx\)\(\i,\{quest:(\i),taskType:\i,size:(\i),)/,
+                replace: "$self.questButton($3,$4,$1===$2.ENROLLED||$1===$2.INCOMPLETE)??"
+            }
+        },
+        {
+            // Quest bar above the account panel.
+            find: "collapsed-with-rewards\":\"collapsed-without-rewards",
+            predicate: () => settings.store.cardButtons && !questifyFinisherOn(),
+            replacement: {
+                match: /(?<=,(\i)=null;return )(?=(\i)\?\1=\(0,\i\.jsx\)\(\i,\{quest:(\i),sourceQuestContent:\i\}\):)/,
+                replace: "!$2&&($1=$self.questButton($3,\"sm\",!0))?0:"
             }
         }
     ],
