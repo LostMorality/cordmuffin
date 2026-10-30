@@ -12,7 +12,9 @@ import { cl, Translation } from "../misc/types";
 import { Icon } from "./icon";
 import { translate } from "./translator";
 
-const setters = new Map();
+// A message can be on screen twice (chat and search), so keep every copy's setter.
+type Setters = Set<(translation: Translation | undefined) => void>;
+const setters = new Map<string, Setters>();
 
 export function Accessory({ message }: { message: Message; }) {
     const [translation, setTranslation] = useState<Translation | undefined>(undefined);
@@ -20,9 +22,14 @@ export function Accessory({ message }: { message: Message; }) {
     useEffect(() => {
         if ((message as any).vencordEmbeddedBy) return;
 
-        setters.set(message.id, setTranslation);
+        const own: Setters = setters.get(message.id) ?? new Set();
+        setters.set(message.id, own);
+        own.add(setTranslation);
 
-        return () => void setters.delete(message.id);
+        return () => {
+            own.delete(setTranslation);
+            if (!own.size && setters.get(message.id) === own) setters.delete(message.id);
+        };
     }, []);
 
     if (!translation) return null;
@@ -38,5 +45,16 @@ export function Accessory({ message }: { message: Message; }) {
 }
 
 export async function handleTranslate(message: Message) {
-    setters.get(message.id)!(await translate(message.content));
+    const own = setters.get(message.id);
+    if (!own?.size) return;
+
+    let translation: Translation;
+    try {
+        translation = await translate(message.content);
+    } catch (error) {
+        console.error("[TranslateItAll] Translation failed:", error);
+        translation = { src: "en", text: "Translation failed due to an error." };
+    }
+
+    for (const set of own) set(translation);
 }
