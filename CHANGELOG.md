@@ -5,6 +5,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-10-29
 
+- New plugin: PluginPresets. Save which plugins are on, with their settings, as named presets and switch between them.
+  Share presets as a code or .json file with private settings (keys, tokens, IDs, paths) left out. Imports only ever
+  turn on official Equicord and Vencord plugins, and turn everything else off.
 - New plugin: Ransom. Ransom from DOORS wanders around your Discord and holds up its stop sign now and then. Move
   while it's up and it encrypts your Discord until you pay it in gold you find around the window. Run out of time and
   you revive or get the DOORS death screen.
