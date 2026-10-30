@@ -5,6 +5,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-10-29
 
+- New plugin: Ransom. Ransom from DOORS wanders around your Discord and holds up its stop sign now and then. Move
+  while it's up and it encrypts your Discord until you pay it in gold you find around the window. Run out of time and
+  you revive or get the DOORS death screen.
 - QuestRunner: video quests no longer open Discord's video player. QuestRunner watches them in the background and the
   quest card counts down the time left.
 - QuestRunner: quest cards and the quest bar get a Complete button, including quests with a Launch Quest button (find
