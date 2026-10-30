@@ -31,7 +31,7 @@ export async function installBdEntry(entry: ShelfEntry) {
         added.push(lib.file);
     }
 
-    await installBd(entry.bd.file, code);
+    await installBd(entry.bd.file, code, !present.has(entry.bd.file));
     setBdOrigin(entry.bd.file, { key: entry.key, url: entry.bd.url, version: entry.version });
     return added;
 }
