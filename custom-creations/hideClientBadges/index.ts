@@ -11,7 +11,7 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, StartAt } from "@utils/types";
 import { UserStore } from "@webpack/common";
 
-const logger = new Logger("BloatwareBadgeRemoval");
+const logger = new Logger("HideClientBadges");
 
 type DonorList = Record<string, unknown>;
 
@@ -175,7 +175,7 @@ function blockingFetch(input: RequestInfo | URL, init?: RequestInit) {
 let realGetBadges: BadgeApi["getBadges"] | null = null;
 
 export default definePlugin({
-    name: "BloatwareBadgeRemoval",
+    name: "HideClientBadges",
     description: "Hides client mod badges (Vencord and Equicord donor, custom and contributor badges, other mods' badges and plugin badges) so profiles only show Discord's own badges.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     tags: ["Appearance"],
