@@ -1,0 +1,10 @@
+{
+  "name": "ProfileImages",
+  "patches": [
+    {
+      "find": "\"UserProfileModalV2Buttons\"",
+      "match": "/(className:\\i\\.profileButtons,children:)(\\(0,\\i\\.jsx\\)\\(\\i,(\\{user:\\i,[^}]*?\\})\\))/",
+      "replace": "$1$self.renderRow($2,$3)"
+    }
+  ]
+}
