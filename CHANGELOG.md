@@ -3,6 +3,49 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-10-30 (installer v1.2.2)
+
+- Installer: if cordmuffin can't be downloaded during an install, CordmuffinUpdater is kept from the last install so
+  updates keep working, and leftover half-copied Muffinshelf folders are no longer built in as plugins.
+
+## 2026-10-30
+
+- Muffinshelf: builds again with the newest Equicord, which removed a text component Muffinshelf used. Older Equicord
+  versions keep working too.
+- Updater: changelog lines about one plugin now only show for people who have that plugin, for every cordmuffin plugin.
+- Updater: an update that doesn't need a restart no longer hides that an earlier one still does.
+- Dictation: the speech and grammar engines are no longer shut down by the idle timer while they're still working.
+- Dictation: turning on Fix Grammar while dictating now tells you to finish first instead of switching itself back off.
+- Dictation: turning the plugin off mid-transcription no longer shows an error or types the text anyway.
+- Dictation: Dictation's items no longer show up in Discord's own mic menu after its menu is closed by clicking away.
+- DiscrubLoader: turning the plugin off right after a Discrub update can no longer roll it back or reload it.
+- DiscrubLoader: a failed "use the new version now" shows an error instead of doing nothing.
+- TranslateItAll: ordinary Spanish or English messages are no longer mistaken for Toki Pona and sent to the Toki Pona
+  translator.
+- TranslateItAll: the Toki Pona and Sitelen Pona switches now work on their own, a failed translation shows an error,
+  and Google translations with several sentences stay on one line.
+- HideClientBadges: switching donor list blocking off and on quickly no longer lets donor lists back in.
+- ProfileImages: the profile buttons keep their styling if a Discord update moves its button styles.
+- Muffinshelf: closing an Install or Remove confirm with Escape or a click outside no longer locks every button.
+- Muffinshelf: the "A rebuild is still running" banner now goes away when the build finishes.
+- Muffinshelf: updating a BetterDiscord plugin you turned off keeps it off.
+- Muffinshelf: BetterDiscord plugins can no longer open (run) files in their folder. Files are shown in Explorer instead.
+- Muffinshelf: a backup left over from a crashed rebuild is replaced, so a later failed build restores the right version.
+- Muffinshelf: BetterDiscord notices, notifications and floating windows close properly, unpatching twice no longer
+  breaks another plugin's patches, fs.exists gives the right answer, and a plugin that fails to start no longer
+  leaves its slash commands behind.
+- PluginPresets: importing a preset with the same name as one you saved keeps both ("Name (2)").
+- PluginPresets: presets only save and restore settings you can change yourself, so applying an older preset no longer
+  rolls back plugins' own data (like Muffinshelf install records or GameTimeSpoof's tracking).
+- PluginPresets: BetterDiscord files with unusual names stay in saved presets, deleted ones are skipped without asking
+  for a restart, and a failed save, rename or delete shows an error.
+- QuestRunner: turning on direct heartbeats now retries play quests that failed for lack of a PC game, and turning it
+  off stops the ones already using them.
+- QuestRunner: activity achievement quests are no longer re-authorized every 5 minutes while waiting for Discord.
+- Ransom: the gold owed no longer jumps back to an older number when a coin lands right after a spam fine.
+- Ransom: the test buttons in its settings say "Turn Ransom on first." while the plugin is off, instead of starting a
+  ransom that can't be cleaned up.
+
 ## 2026-10-29
 
 - New plugin: PluginPresets. Save which plugins are on, with their settings, as named presets and switch between them.
