@@ -16,6 +16,14 @@ const gamesRoot = join(app.getPath("appData"), "QuestRunner", "games");
 const running = new Map<string, ChildProcess>();
 const stub = Buffer.from(STUB_EXE_BASE64, "base64");
 const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)$/i;
+const DISCORD_ORIGIN = /^https:\/\/(?:canary\.|ptb\.)?discord\.com$/;
+
+// Only Discord's own page may start programs or post achievements, not an embed or a popup it opened.
+function trusted(event: IpcMainInvokeEvent): boolean {
+    if (event.sender.isDestroyed()) return false;
+    const frame = event.senderFrame;
+    return !!frame && frame === event.sender.mainFrame && DISCORD_ORIGIN.test(frame.origin);
+}
 
 function cleanSegment(name: string): string {
     const clean = name.replace(/[<>:"/\\|?*\x00-\x1f™®©]/g, "").replace(/\s+/g, " ").trim().replace(/[. ]+$/, "").slice(0, 64).trim() || "Game";
@@ -58,7 +66,8 @@ function ensureExe(exePath: string): void {
 
 const shortPath = (exePath: string) => exePath.split(sep).slice(-2).join("/");
 
-export async function launchGame(_: IpcMainInvokeEvent, appId: string, gameName: string, executable: string, args: string[] = []): Promise<{ pid: number | null; path: string; error: string | null; }> {
+export async function launchGame(event: IpcMainInvokeEvent, appId: string, gameName: string, executable: string, args: string[] = []): Promise<{ pid: number | null; path: string; error: string | null; }> {
+    if (!trusted(event)) return { pid: null, path: "", error: "Untrusted caller." };
     if (process.platform !== "win32") {
         return { pid: null, path: "", error: "Stand-in games only work on Windows." };
     }
@@ -153,7 +162,8 @@ function activityHeaders(questId: string, authToken: string, referrer?: string):
 
 // Achievement-in-activity quests: trade an OAuth code for the activity's token, then post the progress the activity would.
 // Runs here because discordsays.com rejects the renderer's origin.
-export async function completeActivityAchievement(_: IpcMainInvokeEvent, appId: string, authCode: string, target: number, questId: string, referrer?: string): Promise<{ ok: boolean; error: string | null; }> {
+export async function completeActivityAchievement(event: IpcMainInvokeEvent, appId: string, authCode: string, target: number, questId: string, referrer?: string): Promise<{ ok: boolean; error: string | null; }> {
+    if (!trusted(event)) return { ok: false, error: "Untrusted caller." };
     if (!/^\d{17,20}$/.test(appId) || !/^\d{17,20}$/.test(questId)) {
         return { ok: false, error: "Bad application or quest id." };
     }
@@ -165,6 +175,7 @@ export async function completeActivityAchievement(_: IpcMainInvokeEvent, appId: 
             method: "POST",
             headers: activityHeaders(questId, "", referrer),
             body: JSON.stringify({ code: authCode }),
+            redirect: "error",
             signal: AbortSignal.timeout(15_000),
         });
         const auth = await authRes.json().catch(() => null) as { token?: unknown; } | null;
@@ -177,6 +188,7 @@ export async function completeActivityAchievement(_: IpcMainInvokeEvent, appId: 
             method: "POST",
             headers: activityHeaders(questId, auth.token, referrer),
             body: JSON.stringify({ progress: target }),
+            redirect: "error",
             signal: AbortSignal.timeout(15_000),
         });
 
