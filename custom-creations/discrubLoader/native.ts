@@ -264,7 +264,7 @@ function checkedFiles(archive: Buffer, hashes: Hashes) {
     delete manifest.update_url;
     files.set("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf8"));
 
-    const extra = [...files.keys()].filter(n => !(n in hashes.files));
+    const extra = [...files.keys()].filter(n => !Object.hasOwn(hashes.files, n));
     if (extra.length) throw new Error(`The package has files GitHub doesn't list: ${extra.slice(0, 3).join(", ")}`);
     for (const [name, expected] of Object.entries(hashes.files)) {
         const data = files.get(name);
