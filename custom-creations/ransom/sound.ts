@@ -17,7 +17,8 @@ const doors = new Map<SoundName, AudioBuffer>();
 // Songs stay compressed until they play: decoded, a few minutes of music takes tens of MB.
 const songs = new Map<SoundName, ArrayBuffer>();
 // Set once the plugin stops, so a late timer can't open a fresh AudioContext that nothing closes.
-let closed = false;
+// Stays closed until start() opens it, so nothing plays while Ransom is off.
+let closed = true;
 const playing = new Set<AudioScheduledSourceNode>();
 
 function audio() {
@@ -197,6 +198,7 @@ function songShape(buf: AudioBuffer): SongShape {
 
 /** Plays `song` from start to end if it's loaded, otherwise the three DOORS layers. */
 export function startMusic(volume: number, song?: SoundName): Music {
+    if (closed) return { intensity() { }, riser() { }, bass: () => 0, song: false, dropTime: 0, beat: 0, stop() { } };
     const ac = audio();
     const analyser = ac.createAnalyser();
     analyser.fftSize = 256;
