@@ -27,6 +27,8 @@ const DISCRUB_BUTTON = "discrub-floating-button";
 
 let firstTimer: ReturnType<typeof setTimeout> | undefined;
 let repeatTimer: ReturnType<typeof setInterval> | undefined;
+let startPoll: ReturnType<typeof setInterval> | undefined;
+let running = false;
 let checking = false;
 
 function BroomIcon({ width = 24, height = 24, className }: { width?: number; height?: number; className?: string; }) {
@@ -66,7 +68,12 @@ async function reloadDiscord(reason: string) {
         "Later",
     );
     if (!yes) return;
-    setStatus(await Native.applyStaged());
+    try {
+        setStatus(await Native.applyStaged());
+    } catch (e) {
+        Native.getStatus().then(setStatus).catch(() => { });
+        return void notify(errorText(e), "critical");
+    }
     location.reload();
 }
 
@@ -164,15 +171,17 @@ async function openDiscrub() {
 function watchStart(status: Status) {
     if (!status.justUpdated || !status.loaded) return;
     const started = Date.now();
-    const poll = setInterval(async () => {
+    clearInterval(startPoll);
+    startPoll = setInterval(async () => {
+        if (!running) return void clearInterval(startPoll);
         if (document.getElementById(DISCRUB_BUTTON)) {
-            clearInterval(poll);
+            clearInterval(startPoll);
             setStatus(await Native.confirmStarted());
         } else if (Date.now() - started > START_GRACE) {
-            clearInterval(poll);
+            clearInterval(startPoll);
             try {
                 const back = setStatus(await Native.rollback("its button never showed up"));
-                reloadDiscord(back.lastError ?? `Went back to Discrub v${back.installed}.`);
+                if (running) void reloadDiscord(back.lastError ?? `Went back to Discrub v${back.installed}.`);
             } catch (e) {
                 notify(`Discrub v${status.justUpdated} didn't start, and there's no older copy to go back to. ${errorText(e)}`, "critical");
             }
@@ -204,6 +213,7 @@ export default definePlugin({
     },
 
     async start() {
+        running = true;
         try {
             const status = setStatus(await Native.start());
             if (status.lastError?.includes("Went back")) notify(status.lastError, "critical");
@@ -216,6 +226,8 @@ export default definePlugin({
     },
 
     stop() {
+        running = false;
+        clearInterval(startPoll);
         clearTimeout(firstTimer);
         clearInterval(repeatTimer);
         Native.stop().then(setStatus).catch(() => { });
