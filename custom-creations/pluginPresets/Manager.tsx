@@ -18,7 +18,7 @@ import type { RenderModalProps } from "@vencord/discord-types";
 import { Modal, openModal, showToast, TextArea, TextInput, useMemo, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
-import { applyPreset, ApplyResult, captureCurrent, deletePreset, isManaged, planApply, Preset, renamePreset, savePreset, usePresets } from "./presets";
+import { addPreset, applyPreset, ApplyResult, captureCurrent, deletePreset, isManaged, planApply, Preset, renamePreset, savePreset, usePresets } from "./presets";
 import { Removed } from "./scrub";
 import { buildExport, fileNameFor, ImportReport, prepareImport, toCode, toFileText } from "./share";
 
@@ -26,6 +26,10 @@ const cl = classNameFactory("vc-pp-");
 
 function plural(n: number, word: string) {
     return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function failed(what: string, e: unknown) {
+    showToast({ text: `Couldn't ${what}: ${e instanceof Error ? e.message : String(e)}`, variant: "critical" });
 }
 
 function cleanInput(text: string) {
@@ -237,9 +241,13 @@ function ImportModal({ modalProps }: { modalProps: RenderModalProps; }) {
 
     async function save() {
         if (!report) return;
-        await savePreset(report.preset);
-        showToast({ text: `Imported "${report.preset.name}".`, variant: "success" });
-        modalProps.onClose();
+        try {
+            const name = await addPreset(report.preset);
+            showToast({ text: `Imported "${name}".`, variant: "success" });
+            modalProps.onClose();
+        } catch (e) {
+            failed("import", e);
+        }
     }
 
     const scrubbedNames = report ? Object.entries(report.scrubbed).filter(([, k]) => k.length).map(([p, k]) => `${p} (${k.length})`) : [];
@@ -312,7 +320,7 @@ function RenameModal({ modalProps, preset }: { modalProps: RenderModalProps; pre
             title="Rename Preset"
             actions={[
                 { text: "Cancel", variant: "secondary", onClick: modalProps.onClose },
-                { text: "Save", variant: "primary", disabled: !trimmed, onClick: () => renamePreset(preset.id, trimmed).then(modalProps.onClose) },
+                { text: "Save", variant: "primary", disabled: !trimmed, onClick: () => renamePreset(preset.id, trimmed).then(modalProps.onClose, e => failed("rename", e)) },
             ]}
         >
             <TextInput value={name} onChange={v => setName(cleanInput(v))} placeholder="Preset name" autoFocus />
@@ -329,7 +337,7 @@ function DeleteModal({ modalProps, preset }: { modalProps: RenderModalProps; pre
             subtitle="This only removes the saved preset. Your plugins stay as they are."
             actions={[
                 { text: "Cancel", variant: "secondary", onClick: modalProps.onClose },
-                { text: "Delete", variant: "critical-primary", onClick: () => deletePreset(preset.id).then(modalProps.onClose) },
+                { text: "Delete", variant: "critical-primary", onClick: () => deletePreset(preset.id).then(modalProps.onClose, e => failed("delete", e)) },
             ]}
         />
     );
