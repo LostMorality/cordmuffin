@@ -259,17 +259,17 @@ Opens [Discrub](https://github.com/pratherbytecraft/discrub) inside Discord. Dis
 
 **To install it:** copy the `custom-creations/discrubLoader` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
-### Bloatware Badge Removal (`bloatwareBadgeRemoval`)
+### HideClientBadges (`hideClientBadges`)
 
 Client mods hand out their own profile badges to donors and contributors, and donors can pick custom ones that everyone with the mod sees. In a big server, half the profiles end up covered in them. This plugin takes them all off, so profiles only show Discord's own badges: Nitro, server boost, HypeSquad, Active Developer, quests, game badges and the rest.
 
-![Profiles before and after, in the full profile, popout, DM side panel and badge window](docs/bloatware-badges.png)
+![Profiles before and after, in the full profile, popout, DM side panel and badge window](docs/hide-client-badges.png)
 
 - **Everywhere badges show:** the profile popout, the full profile, the DM side panel, and the badge window you get when you click a badge.
 - **Hides:** Vencord and Equicord donor, custom, translator and contributor badges, badges from other mods that the GlobalBadges plugin shows (Aliucord, BetterDiscord, Replugged, Nekocord, ReviewDB and more), and badges that plugins add, like FriendshipRanks.
 - **It removes them from the badge list itself,** so there are no gaps and the "+3" count stays right. Discord's own badges aren't touched.
 
-![Bloatware Badge Removal's settings](docs/bloatware-badges-settings.png)
+![HideClientBadges settings](docs/hide-client-badges-settings.png)
 
 **Settings:**
 - **Hide All** is on by default. Turn it off to pick which kinds to hide: Vencord, Equicord, other mods or plugins.
@@ -282,7 +282,7 @@ It only changes what you see. Other people still see their badges, and yours, th
 
 **What it talks to:** nothing new. With Block Donor Lists on, it talks to less: badges.vencord.dev and badge.equicord.org stop getting asked.
 
-**To install it:** copy the `custom-creations/bloatwareBadgeRemoval` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+**To install it:** copy the `custom-creations/hideClientBadges` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
 ## Building it yourself
 
