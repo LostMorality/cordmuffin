@@ -12,6 +12,8 @@ For each patch it tells you:
 
 patchtest connects to Discord's debug port and asks for one thing: the source text of Discord's modules. Patching and checking happen on your side in Node. The patched code is only parsed (`new Function`) to see if it's still valid JavaScript. It never runs. Nothing in Discord changes: no settings, no messages, no patches applied, no reload.
 
+The one exception is `--eval` (below). It runs whatever code you hand it, so that part is only as read-only as your code.
+
 ## What you need
 
 - **Node.js 22 or newer** ([nodejs.org](https://nodejs.org))
@@ -71,8 +73,23 @@ You can give it a plugin folder, its `index.ts(x)`, or a JSON file of patches.
 | `--port <n>` | Discord's debug port |
 | `--keys <NAME or hash> ...` | turns a Discord text-key name like `DEAFEN` into the hash Discord uses. Turning a hash back into a name needs a key map, see below |
 | `--keymap <file>` | JSON of `{"hash": "NAME"}` for `--keys` (default: `key_map.json` next to the script) |
+| `--eval <code or file.js>` | runs JavaScript inside Discord and prints what it returns, see below |
 
 The exit code is 0 when everything passes and 1 when something fails, so it fits in scripts.
+
+## Running code in Discord (`--eval`)
+
+Handy for poking at things while you write a plugin, without opening DevTools:
+
+```sh
+node patchtest.mjs --eval "Vencord.Plugins.plugins.BadgeAPI.getBadges({ userId: '123', guildId: '' }).length"
+node patchtest.mjs --eval "await new Promise(r => setTimeout(r, 500)); document.title"
+node patchtest.mjs --eval check.js
+```
+
+It runs the code the same way Discord's own console does: `await` works at the top level, and you can declare the same `const` or `let` again on the next run. The last value is printed, strings as plain text and everything else as JSON. A path ending in `.js` runs that file. An error prints its message and exits with 1.
+
+Values that can't be turned into JSON, like DOM elements, print as `{}`. Return the parts you want instead (`el.textContent`, `el.className`).
 
 ## Reading the table
 
