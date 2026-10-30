@@ -108,7 +108,7 @@ const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Finish play quests by running a tiny invisible stand-in game.",
         default: true,
-        onChange: () => scheduleEvaluate(),
+        onChange: onPlaySettingChange,
     },
     oneGameAtATime: {
         type: OptionType.BOOLEAN,
@@ -120,7 +120,7 @@ const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Also finish quests that have no game to run (play-an-activity, Xbox and PlayStation quests) by telling Discord directly. Riskier: this is the Questify way, which Discord can catch.",
         default: false,
-        onChange: () => scheduleEvaluate(),
+        onChange: onPlaySettingChange,
     },
     achievements: {
         type: OptionType.BOOLEAN,
@@ -140,6 +140,8 @@ const runs = new Map<string, Run>();
 const failedAt = new Map<string, number>();
 const enrollFailedAt = new Map<string, number>();
 const unsupported = new Set<string>();
+// Achievements the activity accepted; wait for Discord's completedAt instead of authorizing the activity again.
+const achievementPosted = new Set<string>();
 const toasted = new Set<string>();
 const lastProblem = new Map<string, string>();
 const appExeCache = new Map<string, GameLaunch>();
@@ -210,6 +212,12 @@ function problem(run: Run, text: string, once = true) {
     toast(`${run.name}: ${text}`, "critical");
 }
 
+// Only a missing exe with direct off lands in unsupported, so a play setting change can fix it.
+function onPlaySettingChange() {
+    unsupported.clear();
+    scheduleEvaluate();
+}
+
 function scheduleEvaluate(delay = 750) {
     if (!started) return;
     if (evaluateTimer) clearTimeout(evaluateTimer);
@@ -244,6 +252,7 @@ function evaluate() {
             if (run) finishRun(run, !!status?.completedAt);
             forced.delete(quest.id);
             paused.delete(quest.id);
+            achievementPosted.delete(quest.id);
             continue;
         }
         if (paused.has(quest.id)) {
@@ -253,10 +262,10 @@ function evaluate() {
 
         const picked = pickTask(quest);
         if (run) {
-            if (!picked || picked.kind !== run.kind && !(run.kind === "direct" && picked.kind === "game")) finishRun(run, false);
+            if (!picked || picked.kind !== run.kind && !(run.kind === "direct" && picked.kind === "game" && (settings.store.direct || forced.has(quest.id)))) finishRun(run, false);
             continue;
         }
-        if (!picked || unsupported.has(quest.id)) continue;
+        if (!picked || unsupported.has(quest.id) || achievementPosted.has(quest.id)) continue;
 
         if (!status?.enrolledAt) {
             if (settings.store.autoEnroll && !hidden.has(quest.id) && now - (enrollFailedAt.get(quest.id) ?? 0) > ENROLL_RETRY_MS) toEnroll.push(quest);
@@ -338,7 +347,7 @@ function startRun(quest: Quest, task: Task, kind: RunKind) {
             // Progress can land a moment after the last report; check again shortly instead of restarting right away.
             if (!done) failedAt.set(run.questId, Date.now() - RETRY_MS + 30_000);
             // Achievements count as done before Discord says so; wait for that instead of running them again.
-            else if (run.kind === "achievement") failedAt.set(run.questId, Date.now());
+            else if (run.kind === "achievement") achievementPosted.add(run.questId);
             finishRun(run, done);
             if (!done) scheduleEvaluate(31_000);
         } else {
@@ -677,6 +686,7 @@ function completeNow(questId: string) {
     paused.delete(questId);
     failedAt.delete(questId);
     unsupported.delete(questId);
+    achievementPosted.delete(questId);
     lastProblem.delete(questId);
     scheduleEvaluate(0);
 }
@@ -696,7 +706,7 @@ function cardState(quest: Quest) {
     const instant = picked.kind === "achievement";
 
     if (run) return { text: instant ? "Completing..." : `Completing (${clock(left)})`, running: true };
-    if (!paused.has(quest.id) && pickTask(quest) && !unsupported.has(quest.id)) {
+    if (!paused.has(quest.id) && pickTask(quest) && !unsupported.has(quest.id) && !achievementPosted.has(quest.id)) {
         const retrying = Date.now() - (failedAt.get(quest.id) ?? 0) < RETRY_MS;
         return { text: retrying ? "Trying again soon" : "Queued", running: true };
     }
@@ -755,6 +765,7 @@ function waitingQuests() {
         const name = questName(quest);
         if (paused.has(quest.id)) out.push(`${name}: stopped by you. Press Complete on the quest card to start it again`);
         else if (unsupported.has(quest.id)) out.push(`${name}: can't be done (${lastProblem.get(quest.id) ?? "not supported"})`);
+        else if (achievementPosted.has(quest.id)) out.push(`${name}: achievement sent, waiting for Discord to mark it done`);
         else if (!pickTask(quest)) out.push(pickTask(quest, true)
             ? `${name}: this kind of quest is turned off. Press Complete on the quest card to do it anyway`
             : `${name}: this kind of quest isn't supported`);
@@ -840,6 +851,7 @@ function onConnectionOpen() {
     failedAt.clear();
     enrollFailedAt.clear();
     unsupported.clear();
+    achievementPosted.clear();
     toasted.clear();
     lastProblem.clear();
     forced.clear();
