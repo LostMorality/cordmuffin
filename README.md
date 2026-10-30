@@ -216,6 +216,49 @@ It works fine next to ViewIcons, so you can keep both on.
 
 **To install it:** copy the `custom-creations/profileImages` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### Discrub Loader (`discrubLoader`)
+
+Opens [Discrub](https://github.com/pratherbytecraft/discrub) inside Discord. Discrub, made by [Prather Bytecraft](https://github.com/pratherbytecraft), exports, searches and cleans up your Discord messages, and normally runs as a browser extension. Open it from the broom button in Discord's top bar.
+
+![Discrub's start screen inside Discord](docs/discrub-launcher.png)
+
+- **Both versions in one:** the new Discrub and Discrub Classic, the older version that's no longer updated. In settings you pick which one opens: New, Classic, or ask each time on Discrub's own start screen.
+- **The real thing, unchanged:** the plugin downloads Discrub's official Chrome Web Store build and runs it as it is, with nothing copied into this repo and nothing edited. Discrub signs in with your Discord session on its own, like it does in the browser.
+- **Checked before it's used:** a download is only used if:
+  - it matches the size and fingerprint the Chrome Web Store announces,
+  - it's signed by Discrub's own developer key,
+  - and every file matches the list Discrub publishes on GitHub for that version.
+
+  If any check fails, nothing is installed.
+- **Updates:** it looks for a new Discrub 20 seconds after Discord starts and every 6 hours after that. Pick how updates happen:
+  - **Ask before updating** (default)
+  - **Always take the latest**
+  - **Stay on the installed version**
+
+  A new version starts after Discord reloads. If it won't start, the plugin goes back to the last one that worked.
+- **Settings page** shows the installed version, the newest one on the store, any update waiting, when it last checked, and a **Check now** button.
+
+![Discrub Loader's settings](docs/discrub-settings.png)
+
+**Things to know:**
+- The first install needs one Discord reload, and the plugin asks before reloading.
+- Exports save straight to your Downloads folder.
+- Discrub Classic signs in on its own only while the Discord window is focused, which is always the case when you click the broom yourself.
+- Works in the Discord desktop app with Equicord, not in Discord on the web.
+
+**Credits:** Discrub is by Prather Bytecraft. Its code isn't in this repo and isn't changed: the plugin only downloads their official build. "Discrub" is their trademark. This plugin is unofficial and not made or supported by them, so please don't send Discrub's author support requests about it. If you like Discrub, [support them on Ko-fi](https://ko-fi.com/prathercc).
+
+**What it talks to:**
+- **clients2.google.com** and **clients2.googleusercontent.com**: the Chrome Web Store, to check for and download Discrub.
+- **raw.githubusercontent.com**: Discrub's published file list, to check each download.
+- **discord.com**: Discrub itself, using your own account.
+
+**Where files go:** `%APPDATA%\Equicord\discrubLoader` (about 11 MB for each saved version, plus one 11 MB working copy; it keeps the current version and the one before it). Discrub keeps its own settings inside Discord.
+
+**Heads up:** bulk deleting or exporting with your own account is automation Discord's rules don't allow, the same as with the browser extension. Discrub waits between requests and slows down when Discord asks it to, so keep its delays at their defaults.
+
+**To install it:** copy the `custom-creations/discrubLoader` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
