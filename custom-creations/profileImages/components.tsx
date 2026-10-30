@@ -17,13 +17,14 @@ import { settings } from "./settings";
 
 const ButtonClasses = findCssClassesLazy("button", "sm", "secondary", "buttonChildrenWrapper");
 
-// Discord's own button classes, so themes style these like the buttons next to them. Falls back to our CSS if they move.
+// Discord's own button classes, so themes style these like the buttons next to them. Falls back to our CSS if they move
+// (a missing module gives an empty object, not an error).
 function rowButtonClass() {
     try {
-        return `vc-pimg-btn ${ButtonClasses.button} ${ButtonClasses.sm} ${ButtonClasses.secondary}`;
-    } catch {
-        return "vc-pimg-btn vc-pimg-fallback";
-    }
+        const { button, sm, secondary } = ButtonClasses;
+        if (button && sm && secondary) return `vc-pimg-btn ${button} ${sm} ${secondary}`;
+    } catch { }
+    return "vc-pimg-btn vc-pimg-fallback";
 }
 
 interface Target {
