@@ -219,6 +219,8 @@ function confirm(title: string, body: string, confirmText: string) {
 async function download(what: "cohere" | "parakeet" | "grammar", title: string, body: string, doneText: string) {
     if (phase !== "idle" || !await confirm(title, body, "Download")) return false;
 
+    // The download keeps going if the plugin stops, but a stopped plugin stays quiet about it.
+    const gen = generation;
     setPhase("downloading", "Starting download");
     const job = Native.install(what);
     let done = false;
@@ -226,6 +228,7 @@ async function download(what: "cohere" | "parakeet" | "grammar", title: string, 
 
     while (!done) {
         const { download } = await Native.getStatus(currentModel());
+        if (gen !== generation) break;
         if (download?.total) setPhase("downloading", `Downloading ${download.label}: ${Math.floor(download.received / download.total * 100)}%`);
         else if (download?.label) setPhase("downloading", `Unpacking ${download.label}`);
         await sleep(1000);
@@ -233,14 +236,14 @@ async function download(what: "cohere" | "parakeet" | "grammar", title: string, 
 
     try {
         await job;
-        notify(doneText, "success");
+        if (gen === generation) notify(doneText, "success");
         return true;
     } catch (e) {
         logger.error("Download failed", e);
-        notify(`Download failed: ${errorText(e)}`, "critical");
+        if (gen === generation) notify(`Download failed: ${errorText(e)}`, "critical");
         return false;
     } finally {
-        setPhase("idle");
+        if (gen === generation) setPhase("idle");
     }
 }
 
@@ -251,6 +254,10 @@ async function ensureGrammar() {
         return notify("Grammar fixing isn't available on this kind of computer.", "critical");
     }
     if (status.grammarInstalled) return;
+    if (phase !== "idle") {
+        settings.store.grammar = false;
+        return notify("Finish dictating first, then turn on grammar fixing.", "default");
+    }
 
     const ok = await download(
         "grammar",
@@ -475,22 +482,27 @@ async function discordMicConstraints(): Promise<MediaTrackConstraints> {
     };
 }
 
-function closeMicMenu() {
-    fromDictation = false;
-    ContextMenuApi.closeContextMenu();
-}
-
-function openMicMenu(e: React.MouseEvent) {
-    fromDictation = true;
-    ContextMenuApi.openContextMenu(e, () => (
+// Discord's own mic menu shares this navId, so the flag lives exactly as long as this menu is on screen,
+// however it gets closed (item, Escape, outside click or another menu opening).
+function MicMenu() {
+    useEffect(() => {
+        fromDictation = true;
+        return () => void (fromDictation = false);
+    }, []);
+    return (
         <AudioDeviceMenu
-            onClose={closeMicMenu}
+            onClose={ContextMenuApi.closeContextMenu}
             renderInputDevices
             renderInputProfiles
             renderInputVolume
             renderSettingsButton
         />
-    ));
+    );
+}
+
+function openMicMenu(e: React.MouseEvent) {
+    fromDictation = true;
+    ContextMenuApi.openContextMenu(e, () => <MicMenu />);
 }
 
 function releaseRecording() {
@@ -529,27 +541,32 @@ async function stopRecording() {
         return notify("Didn't hear you talking, so nothing was added. Check that your mic is on.", "default");
     }
 
+    // Stopping the plugin mid-way drops the result quietly instead of typing or warning from a disabled plugin.
+    const gen = generation;
     setPhase("working", "Turning your voice into text");
     try {
         let text = cleanText(await Native.transcribe(currentModel(), samplesOf(rec, range.start, range.end)));
+        if (gen !== generation) return;
         if (!text) return notify("Didn't catch anything. Try again a bit louder.", "default");
 
         if (settings.store.grammar) {
             setPhase("working", "Fixing grammar");
             text = await Native.fixGrammar(text).catch(e => {
                 logger.warn("Grammar fix failed", e);
-                notify(`Grammar fix skipped: ${errorText(e)}`, "default");
+                if (gen === generation) notify(`Grammar fix skipped: ${errorText(e)}`, "default");
                 return text;
             });
+            if (gen !== generation) return;
         }
         if (!settings.store.punctuation) text = text.replace(/[.,!?;:]+(?=\s|$)/g, "");
 
         insertInto(activeChannel, text + " ");
     } catch (e) {
+        if (gen !== generation) return;
         logger.error("Transcription failed", e);
         notify(`Dictation failed: ${errorText(e)}`, "critical");
     } finally {
-        finish();
+        if (gen === generation) finish();
     }
 }
 
