@@ -3,6 +3,13 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-02
+
+- QuestRunner: activity quests like How To Rob A Bank finish now. Some activities refused the Complete button with
+  "didn't accept the achievement". When one still refuses, the message says why.
+- QuestRunner, Muffinshelf, Updater: their pages work on the newest Equicord again. It removed some heading parts they
+  used, which made those pages show an error. Older Equicord versions keep working too.
+
 ## 2026-10-30 (installer v1.2.2)
 
 - Installer: if cordmuffin can't be downloaded during an install, CordmuffinUpdater is kept from the last install so
