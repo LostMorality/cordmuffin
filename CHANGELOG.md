@@ -5,6 +5,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-02
 
+- New plugin: GreetStickerPicker+. A bigger GreetStickerPicker: works on DM wave buttons too, right-click opens Discord's
+  real sticker picker, left-click sends your default sticker, and any server sticker can be a greet.
 - QuestRunner: activity quests like How To Rob A Bank finish now. Some activities refused the Complete button with
   "didn't accept the achievement". When one still refuses, the message says why.
 - QuestRunner, Muffinshelf, Updater: their pages work on the newest Equicord again. It removed some heading parts they
