@@ -8,7 +8,7 @@ import { definePluginSettings, Settings } from "@api/Settings";
 import { Button } from "@components/Button";
 import { Card } from "@components/Card";
 import ErrorBoundary from "@components/ErrorBoundary";
-import { HeadingTertiary } from "@components/Heading";
+import { Heading } from "@components/Heading";
 import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { Logger } from "@utils/Logger";
@@ -616,7 +616,7 @@ async function runAchievement(run: Run): Promise<boolean> {
         run.progressAt = Date.now();
     } else {
         logger.error(`${run.name} achievement failed`, result.error);
-        if (!signal.aborted) problem(run, "The activity didn't accept the achievement.");
+        if (!signal.aborted) problem(run, `The activity didn't accept the achievement (${result.error ?? "no reason given"}).`);
     }
     return result.ok && !signal.aborted;
 }
@@ -784,7 +784,7 @@ function StatusPanel() {
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <Card>
-                <HeadingTertiary>What is this?</HeadingTertiary>
+                <Heading tag="h4">What is this?</Heading>
                 <Paragraph>QuestRunner does your Discord quests for you. Press Accept on a quest and it finishes it on its own. You only come back to claim the reward, and solve the captcha Discord shows when you claim.</Paragraph>
                 <Paragraph>Video quests: it plays the video in the background in real time, reporting progress every few seconds like a real viewer, so it takes as long as the video. Discord's video player doesn't open. By default it watches one video at a time.</Paragraph>
                 <Paragraph>Quests with a Launch Quest button (find things inside an activity): press Complete on the quest card. QuestRunner gives the activity access to your account for a moment, tells it the goal was reached, then takes the access away again.</Paragraph>
@@ -793,29 +793,29 @@ function StatusPanel() {
                 <Paragraph>While a stand-in runs, your friends see "Playing" that game on your profile, and Discord may add it to your Registered Games. Antivirus software sometimes blocks the stand-in, since it's a brand-new unsigned file. Allow it if that happens.</Paragraph>
             </Card>
             <Card>
-                <HeadingTertiary>Before you use it</HeadingTertiary>
+                <Heading tag="h4">Before you use it</Heading>
                 <Paragraph>Automating quests breaks Discord's Terms of Service. Discord can suspend quest access, or worse, on accounts it catches. Use it on an account you're fine risking.</Paragraph>
             </Card>
             <Card>
-                <HeadingTertiary>How is this different from Questify?</HeadingTertiary>
+                <Heading tag="h4">How is this different from Questify?</Heading>
                 <Paragraph>Questify is mostly a better quest page: sorting, hiding, alerts and more. Its quest finisher just tells Discord "I'm playing", with no game running. Discord has started suspending quest access for that.</Paragraph>
                 <Paragraph>QuestRunner only finishes quests. For play quests it runs a process Discord can actually see, instead of only claiming one is running.</Paragraph>
             </Card>
             <QuestifyNotice />
             <Card>
-                <HeadingTertiary>Running now</HeadingTertiary>
+                <Heading tag="h4">Running now</Heading>
                 {list.length
                     ? list.map(r => <Paragraph key={r.questId}>{r.name}: {r.note}</Paragraph>)
                     : <Paragraph>Nothing running. Accept a quest and it shows up here.</Paragraph>}
                 {waiting.length > 0 && (
                     <>
-                        <HeadingTertiary>Waiting</HeadingTertiary>
+                        <Heading tag="h4">Waiting</Heading>
                         {waiting.map(w => <Paragraph key={w}>{w}</Paragraph>)}
                     </>
                 )}
             </Card>
             <Card>
-                <HeadingTertiary>Stand-in files</HeadingTertiary>
+                <Heading tag="h4">Stand-in files</Heading>
                 <Paragraph>Stand-ins are kept in %APPDATA%\QuestRunner\games so the next quest for the same game starts faster. Each one is under 300 KB.</Paragraph>
                 <Button
                     size="small"
