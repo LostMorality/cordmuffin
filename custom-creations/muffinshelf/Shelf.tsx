@@ -7,7 +7,7 @@
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { FormSwitch } from "@components/FormSwitch";
-import { HeadingSecondary, HeadingTertiary } from "@components/Heading";
+import { Heading } from "@components/Heading";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { escapeRegExp } from "@utils/text";
@@ -156,7 +156,7 @@ function EntryCard({ entry, source, installed, bdFiles, busy, onInstall }: CardP
         <div className={cl("card", `card-${entry.kind}`)}>
             {entry.image && <img className={cl("thumb")} src={entry.image} loading="lazy" alt="" />}
             <div className={cl("card-head")}>
-                <HeadingTertiary className={cl("card-title")}>{entry.name}</HeadingTertiary>
+                <Heading tag="h4" className={cl("card-title")}>{entry.name}</Heading>
                 <span className={cl("badge", `badge-${entry.kind}`)}>{KIND_LABEL[entry.kind]}</span>
             </div>
             {meta && <Paragraph size="xs" className={cl("meta")}>{meta}</Paragraph>}
@@ -325,7 +325,7 @@ function InstalledTab({ installed, info, busy }: { installed: InstalledUserplugi
 
     return (
         <>
-            <HeadingSecondary>Equicord plugins added by Muffinshelf</HeadingSecondary>
+            <Heading tag="h3">Equicord plugins added by Muffinshelf</Heading>
             {info?.build.kind === "none" && <Paragraph size="sm" className={cl("meta")}>{info.build.reason}</Paragraph>}
             {missing.length > 0 && (
                 <div className={cl("note")}>
@@ -357,7 +357,7 @@ function InstalledTab({ installed, info, busy }: { installed: InstalledUserplugi
                 ))
                 : <Paragraph size="sm" className={cl("meta")}>None yet.</Paragraph>}
 
-            <HeadingSecondary className={cl("section")}>BetterDiscord plugins</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>BetterDiscord plugins</Heading>
             <FormSwitch
                 title="Run BetterDiscord plugins"
                 description="Turning this off stops every BetterDiscord plugin right away. Their files are kept."
@@ -432,7 +432,7 @@ function SourcesTab({ states, reload }: { states: Record<string, SourceState>; r
 
     return (
         <>
-            <HeadingSecondary>Add your own source</HeadingSecondary>
+            <Heading tag="h3">Add your own source</Heading>
             <Paragraph size="sm" className={cl("meta")}>
                 Paste a GitHub repo (or a folder in one), a venpm plugins.json link, or a link to a single .plugin.js file.
             </Paragraph>
@@ -446,7 +446,7 @@ function SourcesTab({ states, reload }: { states: Record<string, SourceState>; r
             </div>
             {error && <Paragraph size="sm" className={cl("error")}>{error}</Paragraph>}
 
-            <HeadingSecondary className={cl("section")}>Where plugins come from</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>Where plugins come from</Heading>
             {sources.map(s => {
                 const state = states[s.id];
                 const count = state?.entries?.filter(e => !e.hidden).length;
@@ -480,13 +480,13 @@ function AboutTab({ info }: { info: Info | null; }) {
     const build = info?.build;
     return (
         <div className={cl("about")}>
-            <HeadingSecondary>What Muffinshelf does</HeadingSecondary>
+            <Heading tag="h3">What Muffinshelf does</Heading>
             <Paragraph>
                 Muffinshelf is a plugin store for things Equicord doesn't ship: community Equicord and Vencord userplugins, and BetterDiscord plugins.
                 It also lists plugins from shelter, Moonlight, Replugged and Evi so you can find them, even though those can't run on Equicord.
             </Paragraph>
 
-            <HeadingSecondary className={cl("section")}>How installing works</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>How installing works</Heading>
             <Paragraph>
                 <b>Equicord plugins</b> are source code, so they have to be built into Equicord. Muffinshelf downloads the plugin's folder from GitHub into
                 your Equicord source's userplugins folder, rebuilds Equicord, and turns the plugin on. Restart Discord afterwards to load it.
@@ -512,7 +512,7 @@ function AboutTab({ info }: { info: Info | null; }) {
                 so Muffinshelf only links to them.
             </Paragraph>
 
-            <HeadingSecondary className={cl("section")}>Where everything comes from</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>Where everything comes from</Heading>
             <ul className={cl("list")}>
                 {allSources().map(s => <li key={s.id}><Paragraph size="sm"><b>{s.name}</b>: {s.url}</Paragraph></li>)}
             </ul>
@@ -521,7 +521,7 @@ function AboutTab({ info }: { info: Info | null; }) {
                 You can turn any source off or add your own in the Sources tab.
             </Paragraph>
 
-            <HeadingSecondary className={cl("section")}>Where files go</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>Where files go</Heading>
             <ul className={cl("list")}>
                 <li><Paragraph size="sm"><b>Equicord plugins:</b> {build && build.kind !== "none" ? build.userplugins : "unavailable on this install"}</Paragraph></li>
                 <li><Paragraph size="sm"><b>BetterDiscord plugins:</b> {info?.bdFolder}</Paragraph></li>
@@ -533,7 +533,7 @@ function AboutTab({ info }: { info: Info | null; }) {
                 {build?.kind === "none" && build.reason}
             </Paragraph>
 
-            <HeadingSecondary className={cl("section")}>Before you install</HeadingSecondary>
+            <Heading tag="h3" className={cl("section")}>Before you install</Heading>
             <Paragraph>
                 Plugins are code that runs inside your Discord with full access to your account. Only install ones from people you trust, and check the Source button if you're unsure.
             </Paragraph>
