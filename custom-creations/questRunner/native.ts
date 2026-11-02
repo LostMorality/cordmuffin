@@ -149,6 +149,12 @@ export function deleteStandIns(): { ok: boolean; error: string | null; } {
     }
 }
 
+// Only the activity's own short message, never the rest of its reply (the authorize reply carries account details).
+function reasonOf(body: unknown): string {
+    const message = (body as { message?: unknown; } | null)?.message;
+    return typeof message === "string" ? `: ${message.slice(0, 200)}` : "";
+}
+
 function activityHeaders(questId: string, authToken: string, referrer?: string): Record<string, string> {
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
@@ -178,21 +184,23 @@ export async function completeActivityAchievement(event: IpcMainInvokeEvent, app
             redirect: "error",
             signal: AbortSignal.timeout(15_000),
         });
-        const auth = await authRes.json().catch(() => null) as { token?: unknown; } | null;
+        const auth = await authRes.json().catch(() => null) as { token?: unknown; message?: unknown; } | null;
 
         if (!authRes.ok || typeof auth?.token !== "string") {
-            return { ok: false, error: `authorize ${authRes.status}: ${JSON.stringify(auth)}` };
+            return { ok: false, error: `authorize ${authRes.status}${reasonOf(auth)}` };
         }
 
         const progressRes = await fetch(`${base}/quest/progress`, {
             method: "POST",
             headers: activityHeaders(questId, auth.token, referrer),
-            body: JSON.stringify({ progress: target }),
+            // Some activities read the quest from the body and answer 400 "quest_id missing" without it.
+            body: JSON.stringify({ quest_id: questId, progress: target }),
             redirect: "error",
             signal: AbortSignal.timeout(15_000),
         });
 
-        return progressRes.ok ? { ok: true, error: null } : { ok: false, error: `progress ${progressRes.status}` };
+        if (progressRes.ok) return { ok: true, error: null };
+        return { ok: false, error: `progress ${progressRes.status}${reasonOf(await progressRes.json().catch(() => null))}` };
     } catch (e) {
         return { ok: false, error: String(e) };
     }
