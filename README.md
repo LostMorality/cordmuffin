@@ -360,6 +360,30 @@ Everything is on the plugin's settings page (**Plugins → PluginPresets**):
 
 **To install it:** copy the `custom-creations/pluginPresets` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### GreetStickerPicker+ (`greetStickerPickerPlus`)
+
+A bigger version of Vencord's GreetStickerPicker, for the **Wave to say hi!** button you get on welcome messages and in new DMs.
+
+![The Shift+right-click list menu](docs/greet-sticker-picker-menu.png)
+
+**What it does that the original doesn't:**
+- **Works in DMs.** The original only reacts on a server's welcome message. GreetStickerPicker+ also works on the wave buttons in new DMs and on the in-channel greet.
+- **Right-click opens Discord's real sticker picker** in a small window: search, the server list on the side, thumbnails and favorites. Pick any sticker and it's sent as your greet. Shift+right-click opens the list menu instead.
+- **Left-click sends your default sticker.** Turn on **Set as default** in the picker window (or use the list menu) to choose it. Without a default, left-click does Discord's normal random wave.
+- **Any server sticker as a greet.** A searchable Server Stickers menu, with thumbnails, lists every sticker you're allowed to send, grouped by server.
+- **Thumbnails** next to the stickers in the menus (PNG, APNG and GIF ones; Discord's Lottie stickers, like most of the default welcome ones, have no plain image, so they show just the name).
+- **Unholy Multi-Greet** (up to 3 welcome stickers in one message) has a normal switch in settings. In the original it's a hidden setting you can't turn on from the settings page.
+
+The original's things all still work: Greet or Normal Message mode, and picking which welcome sticker to wave with.
+
+**Settings:** greet mode, right-click opens the picker or the list menu, the Server Stickers menu on or off, only this server's stickers, and Unholy Multi-Greet.
+
+**If you used the original:** GreetStickerPicker+ takes over its settings and turns it off, so the two don't fight over the same button. If you turn the original back on, GreetStickerPicker+ stands aside and says so.
+
+**What it talks to:** only Discord itself, plus **cdn.discordapp.com** and **media.discordapp.net** for the sticker thumbnails.
+
+**To install it:** copy the `custom-creations/greetStickerPickerPlus` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
