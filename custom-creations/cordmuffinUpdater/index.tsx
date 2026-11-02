@@ -11,7 +11,7 @@ import { Button } from "@components/Button";
 import { Card } from "@components/Card";
 import { Divider } from "@components/Divider";
 import { FormSwitch } from "@components/FormSwitch";
-import { Heading, HeadingTertiary } from "@components/Heading";
+import { Heading } from "@components/Heading";
 import { UpdaterIcon } from "@components/Icons";
 import { Paragraph } from "@components/Paragraph";
 import { SettingsTab, wrapTab } from "@components/settings/tabs/BaseTab";
@@ -319,7 +319,7 @@ function relevant(sections: ChangelogSection[], installed: string[]) {
 function Changelog({ title, sections }: { title: string; sections: ChangelogSection[]; }) {
     return (
         <Card className={Margins.top8} defaultPadding>
-            <HeadingTertiary>{title}</HeadingTertiary>
+            <Heading tag="h4">{title}</Heading>
             {sections.map(s => (
                 <div key={s.title} className={Margins.top8}>
                     <Paragraph weight="semibold">{s.title}</Paragraph>
@@ -449,7 +449,7 @@ function UpdaterPage() {
                 : recent.length > 0 && <Changelog title="Recent changes" sections={recent} />}
             {info && (
                 <Card className={Margins.top8} defaultPadding>
-                    <HeadingTertiary>What's installed</HeadingTertiary>
+                    <Heading tag="h4">What's installed</Heading>
                     <Paragraph>Installer v{info.version || "unknown"}, Equicord {info.equicord?.slice(0, 7) || "unknown"}{info.cordmuffin ? `, cordmuffin ${info.cordmuffin.slice(0, 7)}` : ""}.</Paragraph>
                     <Paragraph>Kept up to date: {joinNames([...(prefs.updateEquicord ? ["Equicord"] : []), ...(info.plugins ?? []).map(prettyName), ...(prefs.muffinshelfUpdates ? info.muffinshelf ?? [] : []), "the installer"])}.</Paragraph>
                 </Card>
