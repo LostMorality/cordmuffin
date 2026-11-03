@@ -11,9 +11,10 @@ import { createRoot, useEffect, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
 import { changeStreamProfile, pluginActive, settings } from ".";
+import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
 import { cancelLink, canHostSecond, linkSecondAccount, showSecondAccount, signOutSecondAccount, useSecondStatus } from "./secondAccount";
-import { onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
+import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 
 const cl = classNameFactory("vc-stf-");
 
@@ -33,8 +34,18 @@ export function useStreamStatus() {
     return status;
 }
 
-export const callSecond = () => changeStreamProfile({ role: "streamer" });
-export const hangUp = () => changeStreamProfile({ role: "off" });
+// Call and Hang up swap places, so a double click would undo the first click straight away.
+let lastPress = 0;
+const once = (action: () => void) => () => {
+    const now = Date.now();
+    if (now - lastPress < 1_000) return;
+    lastPress = now;
+    action();
+};
+
+export const callSecond = once(() => changeStreamProfile({ role: "streamer" }));
+export const hangUp = once(() => changeStreamProfile({ role: "off" }));
+const hangUpLogin = once(cancelLink);
 
 type Tone = "idle" | "busy" | "live" | "bad";
 
@@ -43,7 +54,7 @@ function useCallState(): { tone: Tone; text: string; account: SecondAccountInfo 
     const second = useSecondStatus();
     const stream = useStreamStatus();
     const { role, account: saved } = useProfile();
-    const inCall = role === "streamer";
+    const inCall = role === "streamer" && !hangingUp();
     const account = second.account ?? saved;
 
     switch (second.phase) {
@@ -51,6 +62,8 @@ function useCallState(): { tone: Tone; text: string; account: SecondAccountInfo 
             return { tone: "bad", text: "Equicord's web build is missing. Rebuild Equicord with the cordmuffin installer.", account, inCall };
         case "login":
             return { tone: "busy", text: "Log in to your second account in the window that opened.", account: null, inCall };
+        case "broken":
+            return { tone: "bad", text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it.", account, inCall };
         case "same":
             return { tone: "bad", text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
         case "starting":
@@ -133,6 +146,7 @@ export function SecondAccountCard() {
                     ? <Button size="small" variant="dangerPrimary" onClick={hangUp}>Hang up</Button>
                     : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable"}>Call</Button>}
                 {inCall && <Button size="small" variant="secondary" onClick={() => showSecondAccount()}>Open its window</Button>}
+                {inCall && <Button size="small" variant="secondary" onClick={enterAfk}>AFK mode</Button>}
                 <Button size="small" variant="dangerSecondary" onClick={() => signOutSecondAccount()}>Sign out</Button>
             </div>
         </div>
@@ -172,7 +186,9 @@ function Widget() {
                     : inCall
                         ? <Button size="small" variant="dangerPrimary" onClick={hangUp}>Hang up</Button>
                         : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable"}>Call</Button>}
+                {inCall && second.phase === "login" && <Button size="small" variant="dangerPrimary" onClick={hangUpLogin}>Hang up</Button>}
                 {inCall && second.phase !== "login" && <Button size="small" variant="secondary" onClick={() => showSecondAccount()}>Open</Button>}
+                {inCall && second.phase !== "login" && <Button size="small" variant="secondary" onClick={enterAfk} title="Hide Discord behind a black screen so it uses almost nothing. Esc twice brings it back.">AFK</Button>}
             </div>
         </div>
     );
