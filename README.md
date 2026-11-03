@@ -69,7 +69,7 @@ When an update is ready, you get a notification, or with **Automatically update*
 
 ### Game Browser (`gameTimeSpoof`)
 
-Makes Discord think you're playing any game Discord can detect, so your Game Time and Game Variety profile badges keep counting. Its stream farm earns Streaming badge time with a second account.
+Makes Discord think you're playing any game Discord can detect, so your Game Time and Game Variety profile badges keep counting.
 
 ![The Game Browser](docs/game-browser.png)
 
@@ -95,23 +95,10 @@ Badges don't update right away: Discord updates them once a day, so new play tim
 - **Other tracking blockers do get in the way.** Unlike NoTrack, plugins such as DoNotTrack, NoTrack add-ons, ad blockers and Pi-hole can stop the play-time reports from reaching Discord. The Game Browser and the Add Time window show a warning when one of these plugins is on, and if a run gets blocked it stops right away and says so. Turn the blocker off (or let Discord's `/science` address through) while adding time.
 - **Keep "Share your detected activities with others" on** (User Settings → Activity Privacy) if you want people to see the game you spoof. Play time still counts with it off, but nobody sees the game. DoNotTrack's **Stop Process Monitor** option turns this off by itself. The Game Browser warns you when it's off and has a **Turn On** button.
 
-**Stream farm (Streaming badge):** play time can't be faked for streaming. Discord only counts stream time while someone else in the call is watching. So the stream farm uses a second account of yours as the watcher, and runs it inside the same Discord. No second Discord needed.
-- In GameTimeSpoof's settings, press **Log in to second account** and log your other account in once (QR code or email and password) in the window that opens. The settings then show its picture, name, tag and ID. Calls only ever go to the account logged in there.
-
-![The stream farm's settings with a second account logged in (placeholder account shown)](docs/stream-farm-settings.png)
-
-- Press **Call** (in the settings or in the small call widget in the bottom-right corner). Your account calls the second one in DMs, mutes itself and goes live at 480p / 5 fps with a random open window (or the screen, or a window you pick; only your second account sees it). The second account joins, mutes, deafens itself (so nothing can feed back) and watches. If either one drops, they reconnect on their own.
-
-![The call widget in the bottom-right corner](docs/stream-farm-widget.png)
-
-- **Hang up** in the widget or settings, or just leave the call in Discord, ends the stream and fully closes the second account's window. Its login stays saved, so the next Call starts straight away. **Open** shows its window as a small panel if you want to see or control it. **Sign out** forgets it.
-- Time only counts while the second account is really watching; the widget and settings show what's happening and the time counted. Prefer a server? Pick **A server voice channel** instead of the DM call.
-- Stream farm settings and totals are saved per account, so two accounts on one PC don't overwrite each other. Your own Go Live quality is put back after each call.
-- The badge itself still updates on Discord's daily schedule, like the play-time badges.
-- **Report real games** (on by default): while Discord's analytics are blocked (by NoTrack or similar), Discord stops counting games you really play, so GameTimeSpoof reports them itself. Turn it off to send nothing for real games.
+**Report real games** (on by default): while Discord's analytics are blocked (by NoTrack or similar), Discord stops counting games you really play, so GameTimeSpoof reports them itself. Turn it off to send nothing for real games.
 
 **What it talks to:**
-- **discord.com** (Discord's own API): the list of detectable games, game pages, the play-time reports that badges are counted from, and your own badge progress and play history (read only). The stream farm uses Discord's own calls and Go Live, like pressing the buttons yourself.
+- **discord.com** (Discord's own API): the list of detectable games, game pages, the play-time reports that badges are counted from, and your own badge progress and play history (read only).
 - **cdn.discordapp.com**: game cover art and icons.
 
 It talks to nothing else, and it never downloads or runs code from the internet: everything it does is in the plugin's own files.
@@ -119,6 +106,31 @@ It talks to nothing else, and it never downloads or runs code from the internet:
 **Heads up:** play-time reports are made-up analytics sent to Discord. That's against Discord's rules, so use it on an account you're fine risking.
 
 **To install it:** copy the `custom-creations/gameTimeSpoof` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins` like any other user plugin.
+
+### StreamTimeFarmer (`streamTimeFarmer`)
+
+Earns Streaming badge time with a second account of yours. Stream time can't be faked: Discord only counts it while someone else in the call is watching. So StreamTimeFarmer uses your second account as the watcher, and runs it hidden inside the same Discord. No second Discord needed.
+
+- In StreamTimeFarmer's settings, press **Log in to second account** and log your other account in once (QR code or email and password) in the window that opens. The settings then show its picture, name, tag and ID. Calls only ever go to the account logged in there.
+
+![StreamTimeFarmer's settings with a second account logged in (placeholder account shown)](docs/stream-farm-settings.png)
+
+- Press **Call** (in the settings or in the small call widget in the bottom-right corner). Your account calls the second one in DMs, mutes itself and goes live at 480p / 5 fps with a random open window (or the screen, or a window you pick; only your second account sees it). The second account joins, mutes, deafens itself (so nothing can feed back) and watches. If either one drops, they reconnect on their own.
+
+![The call widget in the bottom-right corner](docs/stream-farm-widget.png)
+
+- **Hang up** in the widget or settings, or just leave the call in Discord, ends the stream and fully closes the second account's window. Its login stays saved, so the next Call starts straight away. **Open** shows its window as a small panel if you want to see or control it. **Sign out** forgets it.
+- Time only counts while the second account is really watching; the widget and settings show what's happening and the time counted. Prefer a server? Pick **A server voice channel** instead of the DM call.
+- Settings and totals are saved per account, so two accounts on one PC don't overwrite each other. Your own Go Live quality is put back after each call.
+- The badge itself updates on Discord's daily schedule, like the play-time badges.
+
+It starts turned off. Turn on **StreamTimeFarmer** in Discord (User Settings, then Plugins). It used to be part of GameTimeSpoof: if you used the stream farm there, updating adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
+
+It needs the desktop app, and the web version of Equicord that the Cordmuffin installer builds next to it (installers from before November 2026 don't build it; run the newest one once).
+
+**What it talks to:** **discord.com** and Discord's voice servers, through Discord's own calls and Go Live, like pressing the buttons yourself. The second account's window is Discord's own web app.
+
+**To install it:** copy the `custom-creations/streamTimeFarmer` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins` like any other user plugin; run `pnpm buildWeb` too and copy `dist/Equicord.user.js` next to the desktop build so the second account can start.
 
 ### Muffinshelf (`muffinshelf`)
 
