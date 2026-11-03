@@ -9,7 +9,7 @@ import type { PluginNative } from "@utils/types";
 import { useEffect, UserStore, useState } from "@webpack/common";
 
 import { changeStreamProfile, pluginActive } from ".";
-import { profile, type SecondAccountInfo, updateProfile } from "./profile";
+import { currentUserId, profile, type SecondAccountInfo, updateProfile } from "./profile";
 import type { StreamStatus } from "./stream";
 
 const logger = new Logger("StreamTimeFarmer");
@@ -21,8 +21,12 @@ const logger = new Logger("StreamTimeFarmer");
 
 const Native = IS_DISCORD_DESKTOP ? VencordNative.pluginHelpers.StreamTimeFarmer as PluginNative<typeof import("./native")> : null;
 
+// Which saved login the window uses: this account's own, or the old shared one.
+const loginKey = () => profile().ownLogin ? currentUserId() : "";
+
 // off: no second account linked. idle: linked, window closed until the next call. same: logged into this account.
-export type SecondPhase = "unavailable" | "off" | "idle" | "starting" | "login" | "same" | "ready";
+// broken: its page keeps loading without Equicord (or with an Equicord too old to run the farm).
+export type SecondPhase = "unavailable" | "off" | "idle" | "starting" | "login" | "same" | "broken" | "ready";
 
 export interface SecondStatus {
     phase: SecondPhase;
@@ -43,6 +47,10 @@ let loggedOutReads = 0;
 // Checks in a row that got no answer at all: its page crashed or froze, so the window is rebuilt.
 let failedReads = 0;
 const FAILED_READS_LIMIT = 3;
+// Checks in a row where the page answered but Equicord never got going there. After a minute the window is rebuilt
+// once (which reads the web build again); if that doesn't help either, the user is told.
+let stuckReads = 0;
+const STUCK_READS_LIMIT = 12;
 let status: SecondStatus = { phase: "off", account: null, viewer: null };
 const listeners = new Set<() => void>();
 
@@ -75,7 +83,7 @@ function setStatus(next: SecondStatus) {
 const READ = `(() => {
     const V = window.Vencord;
     const me = V?.Webpack?.Common?.UserStore?.getCurrentUser?.();
-    if (!me) return { ready: !!V && /^\\/(login|register)/.test(location.pathname), loggedIn: false };
+    if (!me) return { ready: !!V && /^\\/(login|register)/.test(location.pathname), loggedIn: false, noVencord: !V?.Plugins?.plugins };
     const P = V.Plugins.plugins.StreamTimeFarmer;
     let avatar = "";
     try { avatar = me.getAvatarURL?.(undefined, 80, false) ?? ""; } catch { }
@@ -109,25 +117,32 @@ async function tick() {
     const stale = () => run !== generation || !timer;
     busy = true;
     try {
-        if (!await Native.openSecondAccount(false)) return setStatus({ phase: "unavailable", account: null, viewer: null });
+        const opened = await Native.openSecondAccount(false, loginKey());
         if (stale()) return;
-        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; } | null;
+        if (!opened) return setStatus({ phase: "unavailable", account: null, viewer: null });
+        // Rebuilt while the user was logging in: its window has to be shown again.
+        if (opened === "created" && loggingIn) void Native.openSecondAccount(true, loginKey());
+        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; } | null;
         if (stale()) return;
         if (r == null) {
             if (++failedReads >= FAILED_READS_LIMIT) {
                 failedReads = 0;
                 await Native.closeSecondAccount();
+                if (stale()) return;
             }
             return setStatus({ phase: "starting", account: status.account ?? profile().account, viewer: null });
         }
         failedReads = 0;
-        if (!r.ready) return setStatus({ ...status, phase: status.phase === "ready" ? "ready" : "starting", account: status.account ?? profile().account });
+        if (!r.ready) {
+            if (r.noVencord) return void await stuck();
+            return setStatus({ ...status, phase: status.phase === "ready" ? "ready" : "starting", account: status.account ?? profile().account });
+        }
         if (!r.loggedIn || !r.account) {
             if (++loggedOutReads < LOGGED_OUT_READS) return;
             // Logged out (or never logged in): show its window so the user can log in.
             if (!loggingIn) {
                 loggingIn = true;
-                void Native.openSecondAccount(true);
+                void Native.openSecondAccount(true, loginKey());
             }
             return setStatus({ phase: "login", account: null, viewer: null });
         }
@@ -148,13 +163,23 @@ async function tick() {
         }
         const configured = await Native.secondAccountEval(setUp(me, role === "streamer"));
         if (stale()) return;
-        if (configured !== true) return setStatus({ phase: "starting", account: r.account, viewer: null });
+        if (configured !== true) return void await stuck(r.account);
+        stuckReads = 0;
         setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null });
     } catch (e) {
         logger.warn("Second account check failed", e);
     } finally {
         if (run === generation) busy = false;
     }
+}
+
+async function stuck(account: SecondAccountInfo | null = null) {
+    const run = generation;
+    stuckReads++;
+    if (stuckReads === STUCK_READS_LIMIT) await Native?.closeSecondAccount();
+    if (run !== generation) return;
+    const phase = stuckReads >= 2 * STUCK_READS_LIMIT ? "broken" : "starting";
+    setStatus({ phase, account: account ?? status.account ?? profile().account, viewer: null });
 }
 
 // The window runs during a call and while logging in; otherwise it stays closed and the saved account is shown.
@@ -174,7 +199,7 @@ export function startSecondAccount() {
 export function stopSecondAccount(close = true) {
     generation++;
     busy = false;
-    loggedOutReads = failedReads = 0;
+    loggedOutReads = failedReads = stuckReads = 0;
     clearInterval(timer);
     timer = undefined;
     if (close) {
@@ -188,9 +213,11 @@ export function stopSecondAccount(close = true) {
 export function linkSecondAccount() {
     if (!Native || !pluginActive()) return;
     loggingIn = true;
+    // A new link gets this account's own login, separate from any other account's.
+    if (!profile().account && !profile().ownLogin) updateProfile({ ownLogin: true });
     if (!profile().hostSecond) changeStreamProfile({ hostSecond: true });
     else startSecondAccount();
-    void Native.openSecondAccount(true);
+    void Native.openSecondAccount(true, loginKey());
 }
 
 // Stops logging in. During a call that also hangs up, since the call can't go on without the second account.
@@ -202,13 +229,14 @@ export function cancelLink() {
     else startSecondAccount();
 }
 
-export const showSecondAccount = () => Native?.openSecondAccount(true);
+export const showSecondAccount = () => Native?.openSecondAccount(true, loginKey());
 export const hideSecondAccount = () => Native?.hideSecondAccount();
 
 // Forgets the second account completely: ends any call, closes its window and clears its saved login.
 export async function signOutSecondAccount() {
+    const login = loginKey();
     stopSecondAccount();
-    await Native?.signOutSecondAccount();
+    await Native?.signOutSecondAccount(login);
     changeStreamProfile({ hostSecond: false, account: null, partner: "", role: "off" });
 }
 
