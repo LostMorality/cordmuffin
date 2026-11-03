@@ -7,13 +7,14 @@
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { classNameFactory } from "@utils/css";
+import { relaunch } from "@utils/native";
 import { createRoot, useEffect, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
 import { changeStreamProfile, pluginActive, settings } from ".";
 import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
-import { cancelLink, canHostSecond, linkSecondAccount, showSecondAccount, signOutSecondAccount, useSecondStatus } from "./secondAccount";
+import { cancelLink, canHostSecond, linkSecondAccount, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 
 const cl = classNameFactory("vc-stf-");
@@ -59,7 +60,9 @@ function useCallState(): { tone: Tone; text: string; account: SecondAccountInfo 
 
     switch (second.phase) {
         case "unavailable":
-            return { tone: "bad", text: "Equicord's web build is missing. Rebuild Equicord with the cordmuffin installer.", account, inCall };
+            return { tone: "bad", text: WEB_TEXT, account, inCall };
+        case "restart":
+            return { tone: "bad", text: RESTART_TEXT, account, inCall };
         case "login":
             return { tone: "busy", text: "Log in to your second account in the window that opened.", account: null, inCall };
         case "broken":
@@ -104,9 +107,30 @@ export function SecondAccountCard() {
     const { tone, text, account, inCall } = useCallState();
     const stream = useStreamStatus();
     const { hostSecond } = useProfile();
+    const problem = useSetupProblem();
+    // Whether the plugin runs isn't something React sees, so turning it on here redraws the card by hand.
+    const [, redraw] = useState(0);
 
     if (!canHostSecond()) return <div className={cl("stream-status", "stream-setup")}>The second account runs in the Discord desktop app.</div>;
-    if (!pluginActive()) return <div className={cl("stream-status", "stream-setup")}>Turn StreamTimeFarmer on to use the stream farm.</div>;
+    // Nothing to press until the check is done, so Log in or Turn on can't be clicked when they can't work.
+    if (problem === null) return null;
+    if (problem === "restart") {
+        return (
+            <div className={cl("call-card")}>
+                <div className={cl("call-text")}>{RESTART_TEXT}</div>
+                <Button size="small" onClick={relaunch}>Restart Discord</Button>
+            </div>
+        );
+    }
+    if (problem === "web") return <div className={cl("stream-status", "stream-setup")}>{WEB_TEXT}</div>;
+    if (hostSecond && !pluginActive()) {
+        return (
+            <div className={cl("call-card")}>
+                <div className={cl("call-text")}>StreamTimeFarmer is off, so your second account isn't running.</div>
+                <Button size="small" onClick={() => turnOn() && redraw(n => n + 1)}>Turn on</Button>
+            </div>
+        );
+    }
 
     if (!hostSecond) {
         return (
@@ -114,6 +138,7 @@ export function SecondAccountCard() {
                 <div className={cl("call-text")}>
                     Log in to your other account here. It runs in a hidden window inside this Discord, so you don't need a
                     second Discord, and calls only ever go to the account logged in here.
+                    {!pluginActive() && " Logging in turns StreamTimeFarmer on."}
                 </div>
                 <Button size="small" onClick={linkSecondAccount}>Log in to second account</Button>
             </div>
@@ -144,7 +169,7 @@ export function SecondAccountCard() {
             <div className={cl("stream-row")}>
                 {inCall
                     ? <Button size="small" variant="dangerPrimary" onClick={hangUp}>Hang up</Button>
-                    : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable"}>Call</Button>}
+                    : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable" || second.phase === "restart"}>Call</Button>}
                 {inCall && <Button size="small" variant="secondary" onClick={() => showSecondAccount()}>Open its window</Button>}
                 {inCall && <Button size="small" variant="secondary" onClick={enterAfk}>AFK mode</Button>}
                 <Button size="small" variant="dangerSecondary" onClick={() => signOutSecondAccount()}>Sign out</Button>
@@ -185,7 +210,7 @@ function Widget() {
                     ? <Button size="small" onClick={() => showSecondAccount()}>Log in</Button>
                     : inCall
                         ? <Button size="small" variant="dangerPrimary" onClick={hangUp}>Hang up</Button>
-                        : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable"}>Call</Button>}
+                        : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable" || second.phase === "restart"}>Call</Button>}
                 {inCall && second.phase === "login" && <Button size="small" variant="dangerPrimary" onClick={hangUpLogin}>Hang up</Button>}
                 {inCall && second.phase !== "login" && <Button size="small" variant="secondary" onClick={() => showSecondAccount()}>Open</Button>}
                 {inCall && second.phase !== "login" && <Button size="small" variant="secondary" onClick={enterAfk} title="Hide Discord behind a black screen so it uses almost nothing. Esc twice brings it back.">AFK</Button>}
