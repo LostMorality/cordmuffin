@@ -6,15 +6,16 @@
 
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
+import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { relaunch } from "@utils/native";
-import { createRoot, useEffect, useState } from "@webpack/common";
+import { Alerts, createRoot, useEffect, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
 import { changeStreamProfile, pluginActive, settings } from ".";
 import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
-import { cancelLink, canHostSecond, linkSecondAccount, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
+import { cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 
 const cl = classNameFactory("vc-stf-");
@@ -48,10 +49,8 @@ export const callSecond = once(() => changeStreamProfile({ role: "streamer" }));
 export const hangUp = once(() => changeStreamProfile({ role: "off" }));
 const hangUpLogin = once(cancelLink);
 
-type Tone = "idle" | "busy" | "live" | "bad";
-
 // One line about where the call stands, shared by the settings card and the widget.
-function useCallState(): { tone: Tone; text: string; account: SecondAccountInfo | null; inCall: boolean; } {
+function useCallState(): { text: string; account: SecondAccountInfo | null; inCall: boolean; } {
     const second = useSecondStatus();
     const stream = useStreamStatus();
     const { role, account: saved } = useProfile();
@@ -60,51 +59,84 @@ function useCallState(): { tone: Tone; text: string; account: SecondAccountInfo 
 
     switch (second.phase) {
         case "unavailable":
-            return { tone: "bad", text: WEB_TEXT, account, inCall };
+            return { text: WEB_TEXT, account, inCall };
         case "restart":
-            return { tone: "bad", text: RESTART_TEXT, account, inCall };
+            return { text: RESTART_TEXT, account, inCall };
         case "login":
-            return { tone: "busy", text: "Log in to your second account in the window that opened.", account: null, inCall };
+            return { text: "Log in to your second account in the window that opened.", account: null, inCall };
         case "broken":
-            return { tone: "bad", text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it.", account, inCall };
+            return { text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it.", account, inCall };
         case "same":
-            return { tone: "bad", text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
+            return { text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
         case "starting":
-            return { tone: "busy", text: "Starting your second account...", account, inCall };
+            return { text: "Starting your second account...", account, inCall };
         case "ready": {
-            if (!inCall) return { tone: "idle", text: "Not in a call.", account, inCall };
-            const tone = stream.phase === "counting" ? "live" : stream.phase === "setup" ? "bad" : "busy";
-            return { tone, text: stream.detail || "Starting the call...", account, inCall };
+            if (!inCall) return { text: "Not in a call.", account, inCall };
+            return { text: stream.detail || "Starting the call...", account, inCall };
         }
         default:
-            return { tone: "idle", text: inCall ? "Starting the call..." : "Not in a call.", account, inCall };
+            return { text: inCall ? "Starting the call..." : "Not in a call.", account, inCall };
     }
 }
 
-function Avatar({ account, tone, size }: { account: SecondAccountInfo | null; tone: Tone; size: number; }) {
+// The second account's online status while it runs; it's offline here while its window is closed.
+function usePresence() {
+    const second = useSecondStatus();
+    return second.phase === "ready" ? second.presence || "unknown" : "offline";
+}
+
+// The dot on the picture is the account's online status, like everywhere else in Discord.
+function Avatar({ account, size }: { account: SecondAccountInfo | null; size: number; }) {
+    const presence = usePresence();
     return (
         <div className={cl("call-avatar")} style={{ width: size, height: size }} aria-hidden="true">
             {account?.avatar
                 ? <img src={account.avatar} alt="" width={size} height={size} />
                 : <div className={cl("call-avatar-blank")}>{(account?.globalName || account?.username || "?").slice(0, 1).toUpperCase()}</div>}
-            <span className={cl("call-dot", `call-${tone}`)} />
+            <span className={cl("call-dot", `presence-${presence}`)} />
         </div>
     );
 }
 
 function Who({ account }: { account: SecondAccountInfo; }) {
+    const presence = usePresence();
     return (
         <div className={cl("call-who")}>
             <div className={cl("call-name")}>{account.globalName || account.username}</div>
             <div className={cl("call-tag")}>{account.tag}</div>
+            {PRESENCE_LABELS[presence] && <div className={cl("call-presence")}>Online status: {PRESENCE_LABELS[presence]}</div>}
         </div>
     );
+}
+
+// Logging in starts a lot at once, so it's spelled out before anything happens.
+function confirmLogin() {
+    Alerts.show({
+        title: "Log in a second account?",
+        body: (
+            <div className={cl("login-warning")}>
+                <Paragraph>This opens a second Discord, hidden inside this one, and you log your other account into it.</Paragraph>
+                <Paragraph>
+                    {!pluginActive() && "It turns StreamTimeFarmer on. "}
+                    Whenever the farm calls, that hidden Discord joins the call, watches your stream and stays connected in the
+                    background, so it uses some CPU, memory and internet while it runs.
+                </Paragraph>
+                <Paragraph>
+                    The other account stays logged in on this PC until you press Sign out. Only log in an account you own.
+                    Discord doesn't allow automating accounts, so use this at your own risk.
+                </Paragraph>
+            </div>
+        ),
+        confirmText: "Log in",
+        cancelText: "Cancel",
+        onConfirm: () => void linkSecondAccount(),
+    });
 }
 
 // The second account in the plugin's settings: log it in, see who it is, call it, hang up, sign it out.
 export function SecondAccountCard() {
     const second = useSecondStatus();
-    const { tone, text, account, inCall } = useCallState();
+    const { text, account, inCall } = useCallState();
     const stream = useStreamStatus();
     const { hostSecond } = useProfile();
     const problem = useSetupProblem();
@@ -140,7 +172,7 @@ export function SecondAccountCard() {
                     second Discord, and calls only ever go to the account logged in here.
                     {!pluginActive() && " Logging in turns StreamTimeFarmer on."}
                 </div>
-                <Button size="small" onClick={linkSecondAccount}>Log in to second account</Button>
+                <Button size="small" onClick={confirmLogin}>Log in to second account</Button>
             </div>
         );
     }
@@ -160,7 +192,7 @@ export function SecondAccountCard() {
     return (
         <div className={cl("call-card")}>
             <div className={cl("stream-row")}>
-                <Avatar account={account} tone={tone} size={48} />
+                <Avatar account={account} size={48} />
                 {account ? <Who account={account} /> : <div className={cl("call-who")}>Second account</div>}
             </div>
             {account && <div className={cl("call-id")}>ID {account.id}</div>}
@@ -184,14 +216,14 @@ function Widget() {
     const { callWidget } = settings.use(["callWidget"]);
     const second = useSecondStatus();
     const stream = useStreamStatus();
-    const { tone, text, account, inCall } = useCallState();
+    const { text, account, inCall } = useCallState();
 
     if (!callWidget || !hostSecond || !canHostSecond() || second.phase === "off") return null;
 
     if (!open) {
         return (
             <button className={cl("call-widget", "call-pill")} onClick={() => setOpen(true)} title={text} aria-label={`Open the call widget. ${text}`}>
-                <Avatar account={account} tone={tone} size={40} />
+                <Avatar account={account} size={40} />
             </button>
         );
     }
@@ -199,7 +231,7 @@ function Widget() {
     return (
         <div className={cl("call-widget")}>
             <div className={cl("stream-row")}>
-                <Avatar account={account} tone={tone} size={40} />
+                <Avatar account={account} size={40} />
                 {account ? <Who account={account} /> : <div className={cl("call-who")}>Second account</div>}
                 <button className={cl("call-icon")} onClick={() => setOpen(false)} title="Minimize" aria-label="Minimize">–</button>
             </div>
