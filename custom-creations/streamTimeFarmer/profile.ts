@@ -32,7 +32,11 @@ export interface StreamProfile {
     account: SecondAccountInfo | null;
     // The second account's login is kept apart for each main account. Ones linked before that use the old shared login.
     ownLogin: boolean;
+    // The online status the second account is set to when it starts; "" leaves whatever it has.
+    secondPresence: SecondPresence;
 }
+
+export type SecondPresence = "" | "online" | "idle" | "dnd" | "invisible";
 
 export const DEFAULT_PROFILE: StreamProfile = {
     role: "off",
@@ -47,7 +51,8 @@ export const DEFAULT_PROFILE: StreamProfile = {
     muted: false,
     savedGoLive: null,
     account: null,
-    ownLogin: false
+    ownLogin: false,
+    secondPresence: ""
 };
 
 const LEGACY: Record<string, keyof StreamProfile> = {
