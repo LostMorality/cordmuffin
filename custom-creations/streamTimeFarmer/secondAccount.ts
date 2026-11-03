@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { plugins, startPlugin } from "@api/PluginManager";
+import { Settings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
 import type { PluginNative } from "@utils/types";
-import { useEffect, UserStore, useState } from "@webpack/common";
+import { showToast, useEffect, UserStore, useState } from "@webpack/common";
 
 import { changeStreamProfile, pluginActive } from ".";
 import { currentUserId, profile, type SecondAccountInfo, updateProfile } from "./profile";
@@ -26,7 +28,7 @@ const loginKey = () => profile().ownLogin ? currentUserId() : "";
 
 // off: no second account linked. idle: linked, window closed until the next call. same: logged into this account.
 // broken: its page keeps loading without Equicord (or with an Equicord too old to run the farm).
-export type SecondPhase = "unavailable" | "off" | "idle" | "starting" | "login" | "same" | "broken" | "ready";
+export type SecondPhase = "unavailable" | "restart" | "off" | "idle" | "starting" | "login" | "same" | "broken" | "ready";
 
 export interface SecondStatus {
     phase: SecondPhase;
@@ -55,7 +57,32 @@ let status: SecondStatus = { phase: "off", account: null, viewer: null };
 const listeners = new Set<() => void>();
 
 export const secondStatus = () => status;
-export const canHostSecond = () => Native != null;
+export const canHostSecond = () => IS_DISCORD_DESKTOP;
+
+// Why the second account can't run in this Discord, or "" when it can. "restart": the plugin's desktop half isn't
+// loaded, which happens when it was added or updated while Discord kept running (closing to the tray or reloading
+// doesn't load it). "web": the installer couldn't build the web version the second account's window runs.
+export type SetupProblem = "" | "restart" | "web";
+
+async function setupProblem(): Promise<SetupProblem> {
+    if (!Native) return "restart";
+    try {
+        return await Native.hasWebBuild() ? "" : "web";
+    } catch {
+        // The desktop half is from an older start of Discord and doesn't have this plugin's handlers.
+        return "restart";
+    }
+}
+
+export function useSetupProblem() {
+    const [problem, setProblem] = useState<SetupProblem | null>(null);
+    useEffect(() => {
+        let live = true;
+        void setupProblem().then(p => live && setProblem(p));
+        return () => void (live = false);
+    }, []);
+    return problem;
+}
 
 export function onSecondStatus(listener: () => void) {
     listeners.add(listener);
@@ -206,19 +233,41 @@ export function stopSecondAccount(close = true) {
         loggingIn = false;
         void Native?.closeSecondAccount();
     }
-    setStatus({ phase: Native ? "off" : "unavailable", account: null, viewer: null });
+    setStatus({ phase: Native ? "off" : "restart", account: null, viewer: null });
 }
 
 // Links a second account: opens its window to log in (or goes straight in, if it's still logged in from before).
-export function linkSecondAccount() {
-    if (!Native || !pluginActive()) return;
+// Turns the plugin on from its own settings, like its switch in the plugin list. It has no patches, so it starts
+// right away without a restart.
+export function turnOn() {
+    if (pluginActive()) return true;
+    const plugin = plugins.StreamTimeFarmer;
+    if (!plugin || !startPlugin(plugin)) {
+        showToast({ text: "StreamTimeFarmer couldn't start. Turn it on in the plugin list instead.", variant: "critical" });
+        return false;
+    }
+    Settings.plugins.StreamTimeFarmer.enabled = true;
+    return true;
+}
+
+// Works with the plugin off too: logging in turns it on, since the second account only runs while it's on.
+export async function linkSecondAccount() {
+    const problem = await setupProblem();
+    if (problem) {
+        showToast({ text: problem === "restart" ? RESTART_TEXT : WEB_TEXT, variant: "critical" });
+        return;
+    }
+    if (!turnOn()) return;
     loggingIn = true;
     // A new link gets this account's own login, separate from any other account's.
     if (!profile().account && !profile().ownLogin) updateProfile({ ownLogin: true });
     if (!profile().hostSecond) changeStreamProfile({ hostSecond: true });
     else startSecondAccount();
-    void Native.openSecondAccount(true, loginKey());
+    void Native!.openSecondAccount(true, loginKey()).catch(e => logger.error("Couldn't open the second account's window", e));
 }
+
+export const RESTART_TEXT = "StreamTimeFarmer was added or updated while Discord was running. Quit Discord fully (right-click its tray icon, then Quit Discord) and open it again to finish setting it up.";
+export const WEB_TEXT = "The part of Equicord that runs the second account didn't install. Run the Cordmuffin installer again to add it.";
 
 // Stops logging in. During a call that also hangs up, since the call can't go on without the second account.
 export function cancelLink() {
@@ -239,5 +288,3 @@ export async function signOutSecondAccount() {
     await Native?.signOutSecondAccount(login);
     changeStreamProfile({ hostSecond: false, account: null, partner: "", role: "off" });
 }
-
-export const hasWebBuild = async () => !!await Native?.hasWebBuild();
