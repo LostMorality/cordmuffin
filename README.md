@@ -111,7 +111,11 @@ It talks to nothing else, and it never downloads or runs code from the internet:
 
 Earns Streaming badge time with a second account of yours. Stream time can't be faked: Discord only counts it while someone else in the call is watching. So StreamTimeFarmer uses your second account as the watcher, and runs it hidden inside the same Discord. No second Discord needed.
 
-- In StreamTimeFarmer's settings, press **Log in to second account** and log your other account in once (QR code or email and password) in the window that opens. The settings then show its picture, name, tag and ID. Calls only ever go to the account logged in there.
+- In StreamTimeFarmer's settings, press **Log in to second account**. A warning first explains what it does (it turns the plugin on and runs a hidden second Discord); press **Log in**, then log your other account in once (QR code or email and password) in the window that opens. The settings then show its picture, name, tag and ID. Calls only ever go to the account logged in there.
+
+![The Log in to second account button in StreamTimeFarmer's settings](docs/stream-farm-login.png)
+
+![The warning shown before logging in a second account](docs/stream-farm-login-warning.png)
 
 ![StreamTimeFarmer's settings with a second account logged in (placeholder account shown)](docs/stream-farm-settings.png)
 
@@ -120,8 +124,11 @@ Earns Streaming badge time with a second account of yours. Stream time can't be 
 ![The call widget in the bottom-right corner](docs/stream-farm-widget.png)
 
 - **Hang up** in the widget or settings, or just leave the call in Discord, ends the stream and fully closes the second account's window. Its login stays saved, so the next Call starts straight away. **Open** shows its window as a small panel if you want to see or control it. **Sign out** forgets it.
+- **Second account's online status** sets it to Online, Idle, Do Not Disturb or Invisible each time it starts (or leave it as it is). It's that account's own Discord setting, so it changes everywhere it's logged in. The dot on its picture in the widget and settings shows its real online status, with the name next to it; it shows Offline while it isn't running.
 - Time only counts while the second account is really watching; the widget and settings show what's happening and the time counted. Prefer a server? Pick **A server voice channel** instead of the DM call.
 - **AFK mode** (the **AFK** button during a call), for leaving it running for hours or days: Discord is hidden behind a black screen that shows your total streaming time, how long the current call has run and whether it's counting. Discord then uses about half the CPU and next to no graphics card. The call and stream keep going. Press **Esc twice** to come back. While it's on, your keyboard doesn't reach Discord, so nothing gets typed into a chat by accident. If Discord restarts, it comes back in AFK mode.
+
+![AFK mode's screen with the streaming time counted](docs/stream-farm-afk.png)
 - Settings and totals are saved per account, so two accounts on one PC don't overwrite each other. Your own Go Live quality is put back after each call.
 - The badge itself updates on Discord's daily schedule, like the play-time badges.
 
