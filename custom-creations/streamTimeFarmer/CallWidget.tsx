@@ -15,7 +15,7 @@ import { type SecondAccountInfo, useProfile } from "./profile";
 import { cancelLink, canHostSecond, linkSecondAccount, showSecondAccount, signOutSecondAccount, useSecondStatus } from "./secondAccount";
 import { onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 
-const cl = classNameFactory("vc-gts-");
+const cl = classNameFactory("vc-stf-");
 
 export function formatTime(ms: number) {
     const h = Math.floor(ms / 3_600_000);
@@ -93,7 +93,7 @@ export function SecondAccountCard() {
     const { hostSecond } = useProfile();
 
     if (!canHostSecond()) return <div className={cl("stream-status", "stream-setup")}>The second account runs in the Discord desktop app.</div>;
-    if (!pluginActive()) return <div className={cl("stream-status", "stream-setup")}>Turn GameTimeSpoof on to use the stream farm.</div>;
+    if (!pluginActive()) return <div className={cl("stream-status", "stream-setup")}>Turn StreamTimeFarmer on to use the stream farm.</div>;
 
     if (!hostSecond) {
         return (
@@ -142,12 +142,12 @@ export function SecondAccountCard() {
 function Widget() {
     const [open, setOpen] = useState(true);
     const { hostSecond } = useProfile();
-    const { streamWidget } = settings.use(["streamWidget"]);
+    const { callWidget } = settings.use(["callWidget"]);
     const second = useSecondStatus();
     const stream = useStreamStatus();
     const { tone, text, account, inCall } = useCallState();
 
-    if (!streamWidget || !hostSecond || !canHostSecond() || second.phase === "off") return null;
+    if (!callWidget || !hostSecond || !canHostSecond() || second.phase === "off") return null;
 
     if (!open) {
         return (
