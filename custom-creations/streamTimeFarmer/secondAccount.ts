@@ -12,14 +12,14 @@ import { changeStreamProfile, pluginActive } from ".";
 import { profile, type SecondAccountInfo, updateProfile } from "./profile";
 import type { StreamStatus } from "./stream";
 
-const logger = new Logger("GameTimeSpoof");
+const logger = new Logger("StreamTimeFarmer");
 
 // The second account runs inside this Discord instead of a second Discord: a hidden window with its own login
 // (see native.ts). This side starts it, sets it up as the viewer and reads back who it is and how it's doing. The
 // stream farm only ever calls the account logged in here, so it can't be pointed at someone else's account.
 // The window only runs during a call (or while logging in); hanging up closes it but keeps its login.
 
-const Native = IS_DISCORD_DESKTOP ? VencordNative.pluginHelpers.GameTimeSpoof as PluginNative<typeof import("./native")> : null;
+const Native = IS_DISCORD_DESKTOP ? VencordNative.pluginHelpers.StreamTimeFarmer as PluginNative<typeof import("./native")> : null;
 
 // off: no second account linked. idle: linked, window closed until the next call. same: logged into this account.
 export type SecondPhase = "unavailable" | "off" | "idle" | "starting" | "login" | "same" | "ready";
@@ -70,13 +70,13 @@ function setStatus(next: SecondStatus) {
     for (const listener of listeners) listener();
 }
 
-// Everything below runs inside the second account's page, where its own Equicord and GameTimeSpoof are loaded.
+// Everything below runs inside the second account's page, where its own Equicord and StreamTimeFarmer are loaded.
 // "Logged out" only counts once the login page is really showing; before that Discord is just still starting.
 const READ = `(() => {
     const V = window.Vencord;
     const me = V?.Webpack?.Common?.UserStore?.getCurrentUser?.();
     if (!me) return { ready: !!V && /^\\/(login|register)/.test(location.pathname), loggedIn: false };
-    const P = V.Plugins.plugins.GameTimeSpoof;
+    const P = V.Plugins.plugins.StreamTimeFarmer;
     let avatar = "";
     try { avatar = me.getAvatarURL?.(undefined, 80, false) ?? ""; } catch { }
     return {
@@ -94,7 +94,7 @@ const READ = `(() => {
 })()`;
 
 const setUp = (streamerId: string, watch: boolean) => `(() => {
-    const V = window.Vencord, s = V?.Settings?.plugins?.GameTimeSpoof, P = V?.Plugins?.plugins?.GameTimeSpoof;
+    const V = window.Vencord, s = V?.Settings?.plugins?.StreamTimeFarmer, P = V?.Plugins?.plugins?.StreamTimeFarmer;
     if (!s || !P?.configureStreamFarm) return false;
     if (!s.enabled) { s.enabled = true; V.Plugins.startPlugin(P); }
     P.configureStreamFarm(${JSON.stringify({ role: watch ? "viewer" : "off", partner: streamerId })});
