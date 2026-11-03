@@ -283,3 +283,29 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
     flex-direction: column;
     gap: 10px;
 }
+
+.vc-stf-stream-note {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.vc-stf-stream-games {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    color: var(--text-muted);
+}
+
+.vc-stf-stream-game {
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    background: var(--background-secondary, var(--background-base-lower));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-stream-game:hover {
+    background: var(--background-modifier-hover);
+}
