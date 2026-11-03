@@ -26,8 +26,12 @@ export interface StreamProfile {
     countedMs: number;
     joinedCall: string;
     deafened: boolean;
+    // Whether the farm muted this account itself, so it unmutes it again when it stops.
+    muted: boolean;
     savedGoLive: GoLiveSettings | null;
     account: SecondAccountInfo | null;
+    // The second account's login is kept apart for each main account. Ones linked before that use the old shared login.
+    ownLogin: boolean;
 }
 
 export const DEFAULT_PROFILE: StreamProfile = {
@@ -40,8 +44,10 @@ export const DEFAULT_PROFILE: StreamProfile = {
     countedMs: 0,
     joinedCall: "",
     deafened: false,
+    muted: false,
     savedGoLive: null,
-    account: null
+    account: null,
+    ownLogin: false
 };
 
 const LEGACY: Record<string, keyof StreamProfile> = {
