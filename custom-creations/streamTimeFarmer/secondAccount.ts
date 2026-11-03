@@ -11,7 +11,7 @@ import type { PluginNative } from "@utils/types";
 import { showToast, useEffect, UserStore, useState } from "@webpack/common";
 
 import { changeStreamProfile, pluginActive } from ".";
-import { currentUserId, profile, type SecondAccountInfo, updateProfile } from "./profile";
+import { currentUserId, profile, type SecondAccountInfo, type SecondPresence, updateProfile } from "./profile";
 import type { StreamStatus } from "./stream";
 
 const logger = new Logger("StreamTimeFarmer");
@@ -34,7 +34,12 @@ export interface SecondStatus {
     phase: SecondPhase;
     account: SecondAccountInfo | null;
     viewer: StreamStatus | null;
+    // Its online status as its own Discord has it, while it's running ("" when not known).
+    presence?: string;
 }
+
+// Discord's names for its online statuses.
+export const PRESENCE_LABELS: Record<string, string> = { online: "Online", idle: "Idle", dnd: "Do Not Disturb", invisible: "Invisible", offline: "Offline" };
 
 const TICK_MS = 5_000;
 // The login page can flash past while Discord is still deciding, so it has to be seen twice before the window opens.
@@ -53,6 +58,9 @@ const FAILED_READS_LIMIT = 3;
 // once (which reads the web build again); if that doesn't help either, the user is told.
 let stuckReads = 0;
 const STUCK_READS_LIMIT = 12;
+// The online status already put on the second account since its window opened. It's set once per start (or when the
+// setting changes), so changing it somewhere else during a call isn't undone every few seconds.
+let appliedPresence: SecondPresence | null = null;
 let status: SecondStatus = { phase: "off", account: null, viewer: null };
 const listeners = new Set<() => void>();
 
@@ -112,8 +120,9 @@ const READ = `(() => {
     const me = V?.Webpack?.Common?.UserStore?.getCurrentUser?.();
     if (!me) return { ready: !!V && /^\\/(login|register)/.test(location.pathname), loggedIn: false, noVencord: !V?.Plugins?.plugins };
     const P = V.Plugins.plugins.StreamTimeFarmer;
-    let avatar = "";
+    let avatar = "", presence = "";
     try { avatar = me.getAvatarURL?.(undefined, 80, false) ?? ""; } catch { }
+    try { presence = V.Api?.UserSettings?.getUserSettingLazy?.("status", "status")?.getSetting?.() || V.Webpack.findStore?.("PresenceStore")?.getStatus?.(me.id) || ""; } catch { }
     return {
         ready: true,
         loggedIn: true,
@@ -124,16 +133,27 @@ const READ = `(() => {
             tag: me.discriminator && me.discriminator !== "0" ? me.username + "#" + me.discriminator : "@" + me.username,
             avatar
         },
-        viewer: P?.started ? P.streamFarmStatus?.() ?? null : null
+        viewer: P?.started ? P.streamFarmStatus?.() ?? null : null,
+        presence
     };
 })()`;
 
-const setUp = (streamerId: string, watch: boolean) => `(() => {
+// The online status is the second account's own Discord setting, so it changes wherever that account is logged in.
+// It answers with the status the account has afterwards, so what's shown is always what it really has.
+const setUp = (streamerId: string, watch: boolean, presence: SecondPresence) => `(() => {
     const V = window.Vencord, s = V?.Settings?.plugins?.StreamTimeFarmer, P = V?.Plugins?.plugins?.StreamTimeFarmer;
     if (!s || !P?.configureStreamFarm) return false;
     if (!s.enabled) { s.enabled = true; V.Plugins.startPlugin(P); }
     P.configureStreamFarm(${JSON.stringify({ role: watch ? "viewer" : "off", partner: streamerId })});
-    return true;
+    const want = ${JSON.stringify(presence)};
+    let now = "", applied = false;
+    try {
+        const setting = V.Api.UserSettings.getUserSettingLazy("status", "status");
+        if (want && setting.getSetting() !== want) setting.updateSetting(want);
+        now = setting.getSetting() ?? "";
+        applied = !want || now === want;
+    } catch { }
+    return { ok: true, presence: now, applied };
 })()`;
 
 const idle = (): SecondStatus => ({ phase: "idle", account: profile().account, viewer: null });
@@ -149,7 +169,7 @@ async function tick() {
         if (!opened) return setStatus({ phase: "unavailable", account: null, viewer: null });
         // Rebuilt while the user was logging in: its window has to be shown again.
         if (opened === "created" && loggingIn) void Native.openSecondAccount(true, loginKey());
-        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; } | null;
+        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; presence?: string; } | null;
         if (stale()) return;
         if (r == null) {
             if (++failedReads >= FAILED_READS_LIMIT) {
@@ -178,7 +198,7 @@ async function tick() {
         const me = UserStore.getCurrentUser().id;
         if (r.account.id === me) return setStatus({ phase: "same", account: r.account, viewer: null });
 
-        const { role, partner, account } = profile();
+        const { role, partner, account, secondPresence } = profile();
         // A different account logged in there: the call moves to it (changing the partner restarts the farm).
         if (partner !== r.account.id) changeStreamProfile({ partner: r.account.id, account: r.account });
         else if (JSON.stringify(account) !== JSON.stringify(r.account)) updateProfile({ account: r.account });
@@ -188,11 +208,12 @@ async function tick() {
             void Native.hideSecondAccount();
             if (role !== "streamer") return startSecondAccount();
         }
-        const configured = await Native.secondAccountEval(setUp(me, role === "streamer"));
+        const configured = await Native.secondAccountEval(setUp(me, role === "streamer", appliedPresence === secondPresence ? "" : secondPresence)) as { ok: boolean; presence: string; applied: boolean; } | false | null;
         if (stale()) return;
-        if (configured !== true) return void await stuck(r.account);
+        if (!configured || !configured.ok) return void await stuck(r.account);
+        if (configured.applied) appliedPresence = secondPresence;
         stuckReads = 0;
-        setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null });
+        setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null, presence: configured.presence || r.presence || "" });
     } catch (e) {
         logger.warn("Second account check failed", e);
     } finally {
@@ -222,11 +243,18 @@ export function startSecondAccount() {
     void tick();
 }
 
+// A new choice of online status goes on at the next check, if the second account is running.
+export function applySecondPresence() {
+    appliedPresence = null;
+    if (timer) void tick();
+}
+
 // Closing the window takes the second account out of the call. Its login stays saved for next time.
 export function stopSecondAccount(close = true) {
     generation++;
     busy = false;
     loggedOutReads = failedReads = stuckReads = 0;
+    appliedPresence = null;
     clearInterval(timer);
     timer = undefined;
     if (close) {
