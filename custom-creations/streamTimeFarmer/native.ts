@@ -9,10 +9,12 @@ import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 // The stream farm's second account runs here: Discord's web app in a hidden window with its own separate login, with
-// Equicord's web build loaded into it so the same GameTimeSpoof runs there as the viewer.
+// Equicord's web build loaded into it so the same StreamTimeFarmer runs there as the viewer.
 
+// The stream farm started out inside GameTimeSpoof; its login storage keeps that name so a logged-in second account
+// stays logged in.
 const PARTITION = "persist:gametimespoof-second-account";
-const CODE_CHANNEL = "GameTimeSpoof_secondAccountCode";
+const CODE_CHANNEL = "StreamTimeFarmer_secondAccountCode";
 const PRELOAD = `"use strict";
 const { ipcRenderer, webFrame } = require("electron");
 const code = ipcRenderer.sendSync(${JSON.stringify(CODE_CHANNEL)});
@@ -68,14 +70,14 @@ function create() {
     ses.setPermissionRequestHandler((_, permission, callback) => callback(permission === "media"));
     ses.setPermissionCheckHandler((_, permission) => permission === "media");
 
-    const preload = join(app.getPath("userData"), "gametimespoof-second-account-preload.js");
+    const preload = join(app.getPath("userData"), "streamtimefarmer-second-account-preload.js");
     writeFileSync(preload, PRELOAD);
 
     win = new BrowserWindow({
         show: false,
         width: 480,
         height: 720,
-        title: "Second account (GameTimeSpoof stream farm)",
+        title: "Second account (StreamTimeFarmer)",
         minWidth: 360,
         minHeight: 480,
         autoHideMenuBar: true,
@@ -162,7 +164,7 @@ export async function secondAccountEval(_: IpcMainInvokeEvent, code: string): Pr
     try {
         return await Promise.race([contents.executeJavaScript(code, true), gaveUp]);
     } catch (e) {
-        console.warn("[GameTimeSpoof] Second account check failed:", e);
+        console.warn("[StreamTimeFarmer] Second account check failed:", e);
         return null;
     } finally {
         clearTimeout(timeout);
