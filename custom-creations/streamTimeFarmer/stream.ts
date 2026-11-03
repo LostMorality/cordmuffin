@@ -12,7 +12,7 @@ import { ChannelStore, FluxDispatcher, GuildStore, PermissionStore, SelectedChan
 import { changeStreamProfile, settings } from ".";
 import { currentUserId, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
 
-const logger = new Logger("GameTimeSpoof");
+const logger = new Logger("StreamTimeFarmer");
 
 // Discord only counts Streaming badge time while someone else in the call is watching the stream. One account
 // streams, the other (a second Discord, or the hidden window in secondAccount.ts) watches, and both sides keep
@@ -196,8 +196,8 @@ function join(where: Target, now: number, startCall: boolean) {
 function muteOnJoin(channelId: string, deafen: boolean) {
     if (mutedFor === channelId) return;
     mutedFor = channelId;
-    if (settings.store.streamMute && !MediaEngineStore.isSelfMute()) MuteActions.setSelfMute("default", true);
-    if (deafen && settings.store.streamDeafen && !MediaEngineStore.isSelfDeaf()) {
+    if (settings.store.muteMic && !MediaEngineStore.isSelfMute()) MuteActions.setSelfMute("default", true);
+    if (deafen && settings.store.deafenViewer && !MediaEngineStore.isSelfDeaf()) {
         MuteActions.toggleSelfDeaf();
         setProf({ deafened: true });
     }
