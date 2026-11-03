@@ -13,9 +13,9 @@ import { FluxDispatcher } from "@webpack/common";
 
 import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
-import { currentUserId, migrateLegacy, profile, type StreamProfile, updateProfile } from "./profile";
+import { currentUserId, migrateLegacy, migrateRandomSource, profile, type StreamProfile, updateProfile } from "./profile";
 import { applySecondPresence, startSecondAccount, stopSecondAccount } from "./secondAccount";
-import { noteConnect, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
+import { noteConnect, refreshGoLive, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
 
 const logger = new Logger("StreamTimeFarmer");
@@ -115,13 +115,14 @@ export function changeStreamProfile(patch: Partial<StreamProfile>) {
     if (!active) return;
     const after = profile();
     if (hungUp || before.role !== after.role || before.where !== after.where || before.channel !== after.channel || before.partner !== after.partner) startStreamFarm();
+    else if (before.source !== after.source || JSON.stringify(before.farmGame) !== JSON.stringify(after.farmGame)) refreshGoLive();
     if (hungUp || before.role !== after.role || before.hostSecond !== after.hostSecond) startSecondAccount();
     else if (before.secondPresence !== after.secondPresence) applySecondPresence();
 }
 
 export default definePlugin({
     name: "StreamTimeFarmer",
-    description: "Streams to a second account of yours, logged in right inside Discord, so your Streaming badge time keeps counting.",
+    description: "Streams its own window (optionally shown as a game) to a second account of yours, logged in right inside Discord, so your Streaming badge time keeps counting.",
     tags: ["Voice", "Fun"],
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
@@ -134,6 +135,11 @@ export default definePlugin({
         active = true;
         streamUser = currentUserId();
         migrateLegacy(streamUser);
+        try {
+            migrateRandomSource();
+        } catch (e) {
+            logger.error("Couldn't move profiles off the random window source", e);
+        }
         FluxDispatcher.subscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.subscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.subscribe("LOGOUT", followAccount);
