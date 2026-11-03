@@ -11,10 +11,11 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
 import { FluxDispatcher } from "@webpack/common";
 
+import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
 import { currentUserId, migrateLegacy, profile, type StreamProfile, updateProfile } from "./profile";
 import { startSecondAccount, stopSecondAccount } from "./secondAccount";
-import { startStreamFarm, stopStreamFarm, streamStatus } from "./stream";
+import { noteConnect, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
 
 const logger = new Logger("StreamTimeFarmer");
@@ -22,7 +23,7 @@ const logger = new Logger("StreamTimeFarmer");
 export const settings = definePluginSettings({
     muteMic: {
         type: OptionType.BOOLEAN,
-        description: "Mute your mic when the farm joins the call.",
+        description: "Mute your mic when the farm joins the call. It's unmuted again when the farm stops.",
         default: true
     },
     deafenViewer: {
@@ -34,6 +35,12 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Show a small call widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.",
         default: true
+    },
+    afkMode: {
+        type: OptionType.BOOLEAN,
+        description: "AFK mode is on (it comes back after Discord restarts).",
+        default: false,
+        hidden: true
     },
     streamFarm: {
         type: OptionType.COMPONENT,
@@ -99,13 +106,16 @@ function followAccount() {
 }
 
 // Stream farm settings belong to the account that's logged in. Changes that alter what the farm does restart it.
+// Right after the user left the call in Discord, pressing Call starts a new one; any other change keeps it ended.
 export function changeStreamProfile(patch: Partial<StreamProfile>) {
+    const hungUp = takePendingHangUp();
+    if (hungUp && patch.role !== "streamer") patch = { ...patch, role: "off" };
     const before = profile();
     updateProfile(patch);
     if (!active) return;
     const after = profile();
-    if (before.role !== after.role || before.where !== after.where || before.channel !== after.channel || before.partner !== after.partner) startStreamFarm();
-    if (before.role !== after.role || before.hostSecond !== after.hostSecond) startSecondAccount();
+    if (hungUp || before.role !== after.role || before.where !== after.where || before.channel !== after.channel || before.partner !== after.partner) startStreamFarm();
+    if (hungUp || before.role !== after.role || before.hostSecond !== after.hostSecond) startSecondAccount();
 }
 
 export default definePlugin({
@@ -123,19 +133,23 @@ export default definePlugin({
         active = true;
         streamUser = currentUserId();
         migrateLegacy(streamUser);
+        FluxDispatcher.subscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.subscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.subscribe("LOGOUT", followAccount);
         startStreamFarm();
         startSecondAccount();
         mountCallWidget();
+        if (settings.store.afkMode) enterAfk();
     },
 
     stop() {
         active = false;
+        FluxDispatcher.unsubscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.unsubscribe("LOGOUT", followAccount);
         stopStreamFarm();
         stopSecondAccount();
         unmountCallWidget();
+        exitAfk(false);
     }
 });
