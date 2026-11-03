@@ -191,12 +191,15 @@ function join(where: Target, now: number, startCall: boolean) {
 }
 
 // Mute once per joined channel, so someone who unmutes on purpose isn't fought every few seconds. The viewer also
-// deafens: both accounts usually sit on one PC, so hearing the call would only risk feedback. Deafen sticks after a
-// call in Discord, so the farm remembers it did it and undoes it when it stops.
+// deafens: both accounts usually sit on one PC, so hearing the call would only risk feedback. Mute and deafen stick
+// after a call in Discord, so the farm remembers what it did and undoes it when it stops.
 function muteOnJoin(channelId: string, deafen: boolean) {
     if (mutedFor === channelId) return;
     mutedFor = channelId;
-    if (settings.store.muteMic && !MediaEngineStore.isSelfMute()) MuteActions.setSelfMute("default", true);
+    if (settings.store.muteMic && !MediaEngineStore.isSelfMute()) {
+        MuteActions.setSelfMute("default", true);
+        setProf({ muted: true });
+    }
     if (deafen && settings.store.deafenViewer && !MediaEngineStore.isSelfDeaf()) {
         MuteActions.toggleSelfDeaf();
         setProf({ deafened: true });
@@ -204,9 +207,15 @@ function muteOnJoin(channelId: string, deafen: boolean) {
 }
 
 function undeafen() {
-    if (!prof().deafened) return;
-    setProf({ deafened: false });
-    if (MediaEngineStore.isSelfDeaf()) MuteActions.toggleSelfDeaf();
+    if (prof().deafened) {
+        setProf({ deafened: false });
+        if (MediaEngineStore.isSelfDeaf()) MuteActions.toggleSelfDeaf();
+    }
+    // After undeafening, since Discord can bring a mute back along with it.
+    if (prof().muted) {
+        setProf({ muted: false });
+        if (MediaEngineStore.isSelfMute()) MuteActions.setSelfMute("default", false);
+    }
 }
 
 export async function captureSources(): Promise<CaptureSource[]> {
@@ -304,7 +313,11 @@ function streamerTick(now: number, elapsed: number) {
     if (typeof where === "string") return setStatus("setup", where);
     const me = UserStore.getCurrentUser().id;
     if (!joinedHere(where.id)) return join(where, now, true);
-    if (!inCall) joinedAt = now;
+    if (!inCall) {
+        joinedAt = now;
+        // Discord only rejoins calls by itself right after it connects; any other call it was already in is the user's.
+        if (now - lastConnect >= SETTLE_MS) farmJoined = true;
+    }
     inCall = true;
     farmCall = where.id;
     muteOnJoin(where.id, false);
@@ -312,7 +325,13 @@ function streamerTick(now: number, elapsed: number) {
     const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
     if (!isLive(stream, where.id)) {
         startedKey = "";
-        void goLive(now, where).catch(e => logger.error("Couldn't go live", e));
+        const myRun = run;
+        void goLive(now, where).catch(e => {
+            logger.error("Couldn't go live", e);
+            if (myRun !== run) return;
+            liveError = `Go Live didn't start (${e?.message ?? e}). Trying again soon.`;
+            kick();
+        });
         return setStatus("starting", liveError || "Going live...");
     }
     liveError = "";
@@ -387,6 +406,12 @@ function viewerTick(now: number, elapsed: number) {
     setStatus("watching", `Watching ${name}'s stream in ${where.name}. Their time is counting.`);
 }
 
+// Once the user unmutes or undeafens themselves, a later mute or deafen is theirs, and stopping leaves it alone.
+function forgetUndone() {
+    if (prof().muted && !MediaEngineStore.isSelfMute()) setProf({ muted: false });
+    if (prof().deafened && !MediaEngineStore.isSelfDeaf()) setProf({ deafened: false });
+}
+
 function tick() {
     const now = Date.now();
     // A sleeping PC or a stalled tick shouldn't count as streamed time.
@@ -394,10 +419,12 @@ function tick() {
     lastTick = now;
     try {
         const { role } = prof();
+        forgetUndone();
         if (role === "streamer") streamerTick(now, elapsed);
         else if (role === "viewer") viewerTick(now, elapsed);
     } catch (e) {
         logger.error("Stream farm tick failed", e);
+        setStatus("setup", `Something went wrong (${(e as Error)?.message ?? e}). Trying again.`);
     }
 }
 
@@ -419,10 +446,7 @@ function onVoiceSelect(action: { channelId?: string | null; }) {
     // rejoins then, but not straight away if the user went into another call.
     const now = Date.now();
     const settled = now - lastConnect >= SETTLE_MS && (farmJoined || now - joinedAt >= SETTLE_MS);
-    if (!settled) {
-        if (action.channelId) lastJoin = now;
-        return;
-    }
+    if (!settled && !action.channelId) return;
     inCall = false;
     const leftBy = owner;
     pendingOff = leftBy;
@@ -445,7 +469,8 @@ const onLogout = () => {
     loggingOut = true;
 };
 
-const onConnect = () => {
+// Subscribed by the plugin for as long as it runs, since the first connect usually comes before a run starts.
+export const noteConnect = () => {
     lastConnect = Date.now();
 };
 
@@ -466,12 +491,23 @@ function teardown() {
     undeafen();
 }
 
+// A hang-up from leaving the call in Discord, not saved yet: the UI already shows the call as ended, and anything
+// that restarts the farm in the meantime must not bring the call back unless the user presses Call.
+export const hangingUp = () => pendingOff !== "" && pendingOff === currentUserId();
+
+export function takePendingHangUp() {
+    if (!hangingUp()) return false;
+    clearTimeout(hangUpTimer);
+    pendingOff = "";
+    return true;
+}
+
 export function startStreamFarm() {
     stopStreamFarm();
     clearTimeout(hangUpTimer);
-    // A hang-up still waiting to be saved belongs to the account that left; a new call from that same account
-    // replaces it, but switching accounts mustn't lose it.
-    if (pendingOff && pendingOff !== currentUserId()) updateProfileFor(pendingOff, { role: "off" });
+    // A hang-up still waiting to be saved is saved now (Call takes it back through changeStreamProfile first), so
+    // neither a restart nor switching accounts brings that call back.
+    if (pendingOff) updateProfileFor(pendingOff, { role: "off" });
     pendingOff = "";
     owner = currentUserId();
     if (!owner || prof().role === "off") return;
@@ -489,7 +525,6 @@ export function startStreamFarm() {
     for (const e of EVENTS) FluxDispatcher.subscribe(e, kick);
     FluxDispatcher.subscribe("VOICE_CHANNEL_SELECT", onVoiceSelect);
     FluxDispatcher.subscribe("LOGOUT", onLogout);
-    FluxDispatcher.subscribe("CONNECTION_OPEN", onConnect);
     window.addEventListener("beforeunload", onUnload);
     timer = setInterval(tick, TICK_MS);
     tick();
@@ -504,7 +539,6 @@ export function stopStreamFarm() {
         for (const e of EVENTS) FluxDispatcher.unsubscribe(e, kick);
         FluxDispatcher.unsubscribe("VOICE_CHANNEL_SELECT", onVoiceSelect);
         FluxDispatcher.unsubscribe("LOGOUT", onLogout);
-        FluxDispatcher.unsubscribe("CONNECTION_OPEN", onConnect);
         window.removeEventListener("beforeunload", onUnload);
         try {
             teardown();
