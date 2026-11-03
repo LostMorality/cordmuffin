@@ -11,9 +11,10 @@ import { join } from "path";
 // The stream farm's second account runs here: Discord's web app in a hidden window with its own separate login, with
 // Equicord's web build loaded into it so the same StreamTimeFarmer runs there as the viewer.
 
-// The stream farm started out inside GameTimeSpoof; its login storage keeps that name so a logged-in second account
-// stays logged in.
-const PARTITION = "persist:gametimespoof-second-account";
+// Each main account keeps its own second-account login. Logins made before that (when the stream farm was part of
+// GameTimeSpoof) live in the old shared storage, and the accounts that made them keep using it.
+const LEGACY_PARTITION = "persist:gametimespoof-second-account";
+const partitionFor = (login: string) => /^\d{17,20}$/.test(login) ? `persist:streamtimefarmer-second-${login}` : LEGACY_PARTITION;
 const CODE_CHANNEL = "StreamTimeFarmer_secondAccountCode";
 const PRELOAD = `"use strict";
 const { ipcRenderer, webFrame } = require("electron");
@@ -47,8 +48,11 @@ function GM_xmlhttpRequest(o) {
 `;
 // How long a check in the second account's page may take before it counts as failed (a hung page never answers).
 const EVAL_TIMEOUT_MS = 10_000;
+const MIN_WIDTH = 360;
+const MIN_HEIGHT = 480;
 
 let win: BrowserWindow | null = null;
+let winPartition = "";
 let quitting = false;
 let placed = false;
 
@@ -64,8 +68,8 @@ ipcMain.on(CODE_CHANNEL, e => {
     e.returnValue = win && !win.isDestroyed() && e.sender === win.webContents && path ? `(function () {\n${USERSCRIPT_SHIM}\n${readFileSync(path, "utf8")}\n})();` : "";
 });
 
-function create() {
-    const ses = session.fromPartition(PARTITION);
+function create(partition: string) {
+    const ses = session.fromPartition(partition);
     // The web app needs the microphone to join a call (it stays muted); nothing else is granted.
     ses.setPermissionRequestHandler((_, permission, callback) => callback(permission === "media"));
     ses.setPermissionCheckHandler((_, permission) => permission === "media");
@@ -78,11 +82,11 @@ function create() {
         width: 480,
         height: 720,
         title: "Second account (StreamTimeFarmer)",
-        minWidth: 360,
-        minHeight: 480,
+        minWidth: MIN_WIDTH,
+        minHeight: MIN_HEIGHT,
         autoHideMenuBar: true,
         webPreferences: {
-            partition: PARTITION,
+            partition,
             preload,
             contextIsolation: true,
             sandbox: true,
@@ -93,6 +97,12 @@ function create() {
     // Look like a normal browser, not the desktop app, so Discord serves its regular web app.
     win.webContents.setUserAgent(win.webContents.getUserAgent().replace(/\s(discord|Electron)\/\S+/gi, ""));
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+    // It only ever shows Discord, so the second account's login and the injected code never reach another site.
+    win.webContents.on("will-navigate", (e, url) => {
+        if (!/^https:\/\/([a-z0-9-]+\.)?discord\.com(\/|$)/i.test(url)) e.preventDefault();
+    });
+    // Discord's page title would make it look like a second Discord in the taskbar.
+    win.on("page-title-updated", e => e.preventDefault());
     win.webContents.setAudioMuted(true);
     // Closing it only hides it; it keeps watching in the background until the farm stops.
     win.on("close", e => {
@@ -108,6 +118,7 @@ function create() {
         win = null;
         placed = false;
     });
+    winPartition = partition;
     win.loadURL("https://discord.com/app");
 }
 
@@ -115,22 +126,34 @@ export function hasWebBuild(_: IpcMainInvokeEvent) {
     return webBuild() != null;
 }
 
-export function openSecondAccount(_: IpcMainInvokeEvent, show: boolean) {
+// "created" when a new window was built (its page starts from scratch), true when it was already there.
+export function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = ""): boolean | "created" {
     if (!webBuild()) return false;
-    if (win && !win.isDestroyed() && win.webContents.isCrashed()) win.destroy();
-    if (!win || win.isDestroyed()) create();
+    const partition = partitionFor(login);
+    if (win && !win.isDestroyed() && (win.webContents.isCrashed() || winPartition !== partition)) win.destroy();
+    let created = false;
+    if (!win || win.isDestroyed()) {
+        create(partition);
+        created = true;
+    }
     if (show) {
-        // A small panel in the bottom-right corner, next to the call widget, the first time it's shown.
+        // A small panel in the bottom-right corner, next to the call widget, the first time it's shown. It's made
+        // smaller if the screen is too short for it.
         if (!win!.isVisible() && !placed) {
             placed = true;
             const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
             const [w, h] = win!.getSize();
-            win!.setPosition(area.x + area.width - w - 24, area.y + area.height - h - 24);
+            // On a screen smaller than the usual minimum size, the minimum shrinks too, so the window still fits.
+            const minWidth = Math.min(MIN_WIDTH, area.width), minHeight = Math.min(MIN_HEIGHT, area.height);
+            win!.setMinimumSize(minWidth, minHeight);
+            const width = Math.max(minWidth, Math.min(w, area.width - 48)), height = Math.max(minHeight, Math.min(h, area.height - 48));
+            if (width !== w || height !== h) win!.setSize(width, height);
+            win!.setPosition(Math.max(area.x, area.x + area.width - width - 24), Math.max(area.y, area.y + area.height - height - 24));
         }
         win!.show();
         win!.focus();
     }
-    return true;
+    return created ? "created" : true;
 }
 
 export function hideSecondAccount(_: IpcMainInvokeEvent) {
@@ -142,9 +165,13 @@ export function closeSecondAccount(_: IpcMainInvokeEvent) {
     win = null;
 }
 
-export async function signOutSecondAccount(_: IpcMainInvokeEvent) {
+export async function signOutSecondAccount(_: IpcMainInvokeEvent, login = "") {
     closeSecondAccount(_);
-    await session.fromPartition(PARTITION).clearStorageData();
+    try {
+        await session.fromPartition(partitionFor(login)).clearStorageData();
+    } catch (e) {
+        console.warn("[StreamTimeFarmer] Couldn't clear the second account's login:", e);
+    }
 }
 
 // Runs a snippet in the second account's page (only ever code from this plugin) and returns the result. The snippets
