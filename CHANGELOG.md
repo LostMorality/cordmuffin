@@ -9,7 +9,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   hidden inside the same Discord), then press Call: your account calls it, goes live with a random window at the lowest
   quality, and the second account joins, mutes, deafens and watches. Time only counts while it watches, which is how
   Discord counts it. A small call widget in the corner has Call, Hang up and Open; hanging up closes the second
-  account's window but keeps it logged in.
+  account's window but keeps it logged in. AFK mode hides Discord behind a black screen with your streaming time,
+  which cuts Discord's CPU use about in half while it runs for hours; press Esc twice to come back.
 - GameTimeSpoof: the stream farm added to it earlier today is its own plugin now, StreamTimeFarmer. If you used it, the
   update adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
 - GameTimeSpoof: new "Report real games" setting, so reporting games you really play while analytics are blocked can be
