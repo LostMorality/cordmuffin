@@ -12,6 +12,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   plugin on and runs a hidden second Discord with your other account.
 - StreamTimeFarmer: new setting for your second account's online status (Online, Idle, Do Not Disturb or Invisible).
   The dot on its picture now shows its real online status, with the name next to it, instead of always looking online.
+- Installer: when it closes Discord to install or remove Equicord, it now closes only Discord itself. Before, it also
+  force-closed Discord System Helper (Discord's keybinds helper), which could leave the helper stuck and make Discord's
+  own "Uninstall" button for it fail with an "Overlapped I/O" error.
 
 ## 2026-11-02
 
