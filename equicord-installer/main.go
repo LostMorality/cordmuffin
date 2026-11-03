@@ -144,6 +144,18 @@ type installState struct {
 	SkippedRelease string `json:"skippedRelease,omitempty"`
 }
 
+func givenPath() string { return filepath.Join(workDir(), "given.json") }
+
+// Split-off plugins this install already got once (see splitPlugins). They're kept apart from state.json, which
+// older installers rewrite without the fields they don't know.
+func loadGiven() []string {
+	var given []string
+	if data, err := os.ReadFile(givenPath()); err == nil {
+		json.Unmarshal(bytes.TrimPrefix(data, []byte{0xEF, 0xBB, 0xBF}), &given)
+	}
+	return given
+}
+
 func loadState() *installState {
 	data, err := os.ReadFile(statePath())
 	if err != nil {
@@ -901,13 +913,52 @@ func backupOrder(name string) string {
 	return name[:i] + fmt.Sprintf("%6s", strings.TrimPrefix(name[i:], "-"))
 }
 
+// Plugins that started out as part of another one, keyed by the lower-case folder of the plugin they came from.
+// Whoever has that plugin gets the split-off one added once, so an update doesn't take the feature away. Removing it
+// afterwards sticks, since it's recorded as given.
+var splitPlugins = map[string]string{
+	"gametimespoof": "streamTimeFarmer",
+}
+
 // Swaps cordmuffin's own plugins for their newest published version and adds the CordmuffinUpdater plugin.
 // Plugins are matched by folder name; anything that isn't one of cordmuffin's plugins is never touched.
 // The copy in the kit's plugins folder is refreshed too, so running an old kit again doesn't undo an update.
-func syncCordmuffin(src, repoDir, kitPlugins string, added []string, fromMirror bool) (tracked, updated, extra []string) {
+func syncCordmuffin(src, repoDir, kitPlugins string, added []string, fromMirror bool, given []string) (tracked, updated, extra, givenNow []string) {
 	dest := filepath.Join(src, "src", "userplugins")
 	published := repoPlugins(repoDir)
 	names := append([]string{}, added...)
+	givenNow = append([]string{}, given...)
+	for _, name := range added {
+		split, ok := splitPlugins[strings.ToLower(name)]
+		if !ok || containsFold(givenNow, split) {
+			continue
+		}
+		from := published[strings.ToLower(split)]
+		if from == "" {
+			continue
+		}
+		if containsFold(names, split) {
+			givenNow = append(givenNow, split)
+			continue
+		}
+		// A failed copy isn't recorded as given, so the next build tries again.
+		target := filepath.Join(dest, split)
+		if copyTree(from, target) != nil {
+			removeAll(target)
+			say("  Couldn't add %s, which is its own plugin now. The next update tries again.", split)
+			continue
+		}
+		say("  Adding plugin: %s (it used to be part of %s)", split, name)
+		givenNow = append(givenNow, split)
+		names = append(names, split)
+		extra = append(extra, split)
+		if kitPlugins != "" {
+			kitCopy := filepath.Join(kitPlugins, split)
+			if !exists(kitCopy) && copyTree(from, kitCopy) != nil {
+				removeAll(kitCopy)
+			}
+		}
+	}
 	if !containsFold(names, updaterPlugin) {
 		from := filepath.Join(mirrorDir(), updaterPlugin)
 		if !isDir(from) {
@@ -974,13 +1025,25 @@ func keepUpdater(src string, added []string) (extra []string) {
 	return nil
 }
 
-// Whether any of cordmuffin's plugins in the last build differ from the newest published ones.
-func mirrorOutdated(repoDir string) bool {
+// Whether any of cordmuffin's plugins in the last build differ from the newest published ones, or a plugin split
+// off one of them is still owed (an older installer may have updated the original without adding it).
+func mirrorOutdated(repoDir string, given []string) bool {
 	published := repoPlugins(repoDir)
 	if _, ok := published[strings.ToLower(updaterPlugin)]; ok && !isDir(filepath.Join(mirrorDir(), updaterPlugin)) {
 		return true
 	}
 	entries, _ := os.ReadDir(mirrorDir())
+	have := map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() {
+			have[strings.ToLower(e.Name())] = true
+		}
+	}
+	for from, split := range splitPlugins {
+		if _, ok := published[strings.ToLower(split)]; ok && have[from] && !have[strings.ToLower(split)] && !containsFold(given, split) {
+			return true
+		}
+	}
 	for _, e := range entries {
 		if repo, ok := published[strings.ToLower(e.Name())]; ok && e.IsDir() && !sameTree(filepath.Join(mirrorDir(), e.Name()), repo) {
 			return true
@@ -1321,11 +1384,13 @@ type buildOptions struct {
 	equicordSha   string // already checked by the caller; looked up when empty
 	cordmuffinSha string
 	muffinshelf   []muffinshelfUpdate // new versions of Muffinshelf plugins to build with
+	given         []string            // split-off plugins this install already got once
 }
 
 type buildResult struct {
 	added, kept, skipped    []string
 	tracked, updated, extra []string
+	given                   []string
 	staged                  string
 	equicordSha             string
 	cordmuffinSha           string
@@ -1378,12 +1443,13 @@ func build(opts buildOptions) (buildResult, error) {
 	if cmErr != nil {
 		say("Couldn't get cordmuffin's newest plugins, so they aren't updated this time (%v).", cmErr)
 		res.extra = keepUpdater(src, res.added)
+		res.given = opts.given
 		if len(res.extra) == 0 && !containsFold(res.added, updaterPlugin) {
 			say("No copy of the CordmuffinUpdater plugin was found, so automatic updates aren't set up. Run this installer again later.")
 		}
 	} else {
 		res.cordmuffinSha = cm
-		res.tracked, res.updated, res.extra = syncCordmuffin(src, cordmuffinSrc(), opts.kitPlugins, res.added, opts.fromMirror)
+		res.tracked, res.updated, res.extra, res.given = syncCordmuffin(src, cordmuffinSrc(), opts.kitPlugins, res.added, opts.fromMirror, opts.given)
 		for _, p := range res.updated {
 			say("  Updating plugin to its newest version: %s", p)
 		}
@@ -1402,11 +1468,11 @@ func build(opts buildOptions) (buildResult, error) {
 		return res, fmt.Errorf("%w: %w", errBuildFailed, err)
 	}
 	fmt.Println()
-	// The web version runs GameTimeSpoof's second account inside Discord. Without it everything else still works.
-	say("Building the web version (for GameTimeSpoof's second account)...")
+	// The web version runs StreamTimeFarmer's second account inside Discord. Without it everything else still works.
+	say("Building the web version (for StreamTimeFarmer's second account)...")
 	webBuilt := runStep(src, nodeDir, sha, "pnpm", "buildWeb", "--skip-extension") == nil
 	if !webBuilt {
-		say("  The web version didn't build. Everything else works; only GameTimeSpoof's second account won't.")
+		say("  The web version didn't build. Everything else works; only StreamTimeFarmer's second account won't.")
 	}
 	fmt.Println()
 
@@ -1698,7 +1764,7 @@ func install() {
 	prev := loadState()
 	kitPlugins := filepath.Join(kitDir(), pluginsFolder)
 	carried := carryOverPlugins(prev, kitPlugins)
-	res, err := build(buildOptions{inbox: kitPlugins, kitPlugins: kitPlugins})
+	res, err := build(buildOptions{inbox: kitPlugins, kitPlugins: kitPlugins, given: loadGiven()})
 	if err != nil {
 		say("Failed: %v", err)
 		if res.staged != "" {
@@ -1934,6 +2000,11 @@ func saveBuild(res buildResult, kit string, prev *installState) {
 	if err := writeJSON(statePath(), st); err != nil {
 		say("Couldn't save %s: %v", statePath(), err)
 	}
+	if len(res.given) > 0 {
+		if err := writeJSON(givenPath(), res.given); err != nil {
+			say("Couldn't save %s: %v", givenPath(), err)
+		}
+	}
 }
 
 type updateResult struct {
@@ -2005,12 +2076,13 @@ func update() int {
 	if err == nil {
 		err = downloadRepo(cordmuffinRepo, cm, cordmuffinSrc())
 	}
+	given := loadGiven()
 	pluginsChanged := false
 	if err != nil {
 		say("Couldn't check cordmuffin's plugins (%v).", err)
 		cm = ""
 	} else {
-		pluginsChanged = mirrorOutdated(cordmuffinSrc())
+		pluginsChanged = mirrorOutdated(cordmuffinSrc(), given)
 	}
 	var ms []muffinshelfUpdate
 	if !hasArg("/no-muffinshelf") {
@@ -2039,7 +2111,7 @@ func update() int {
 	if prev.KitDir != "" && isDir(filepath.Join(prev.KitDir, pluginsFolder)) {
 		kitPlugins = filepath.Join(prev.KitDir, pluginsFolder)
 	}
-	opts := buildOptions{inbox: mirrorDir(), kitPlugins: kitPlugins, fromMirror: true, equicordSha: eq, cordmuffinSha: cm, muffinshelf: ms}
+	opts := buildOptions{inbox: mirrorDir(), kitPlugins: kitPlugins, fromMirror: true, equicordSha: eq, cordmuffinSha: cm, muffinshelf: ms, given: given}
 	res, err := build(opts)
 	var skipped []string
 	if errors.Is(err, errBuildFailed) && len(ms) > 0 {
