@@ -14,7 +14,7 @@ import { FluxDispatcher } from "@webpack/common";
 import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
 import { currentUserId, migrateLegacy, profile, type StreamProfile, updateProfile } from "./profile";
-import { startSecondAccount, stopSecondAccount } from "./secondAccount";
+import { applySecondPresence, startSecondAccount, stopSecondAccount } from "./secondAccount";
 import { noteConnect, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
 
@@ -116,6 +116,7 @@ export function changeStreamProfile(patch: Partial<StreamProfile>) {
     const after = profile();
     if (hungUp || before.role !== after.role || before.where !== after.where || before.channel !== after.channel || before.partner !== after.partner) startStreamFarm();
     if (hungUp || before.role !== after.role || before.hostSecond !== after.hostSecond) startSecondAccount();
+    else if (before.secondPresence !== after.secondPresence) applySecondPresence();
 }
 
 export default definePlugin({
