@@ -18,11 +18,16 @@ import { RunningGame } from "@vencord/discord-types";
 import { FluxDispatcher, RestAPI, RunningGameStore } from "@webpack/common";
 
 import { loadBadges, type PendingCredit, savedPending, type SeenBadges, type UpdateClock } from "./badges";
+import { mountCallWidget, unmountCallWidget } from "./CallWidget";
 import { analyticsBlocked } from "./conflicts";
 import { openGameBrowser } from "./GameBrowser";
 import { cancelCredit } from "./job";
 import { notify } from "./notify";
+import { currentUserId, migrateLegacy, profile, type StreamProfile, updateProfile } from "./profile";
 import { ReportedGame, reportPlaytime } from "./science";
+import { startSecondAccount, stopSecondAccount } from "./secondAccount";
+import { startStreamFarm, stopStreamFarm, streamStatus } from "./stream";
+import { StreamFarm } from "./StreamFarm";
 
 const logger = new Logger("GameTimeSpoof");
 
@@ -86,6 +91,36 @@ export const settings = definePluginSettings({
     lastSeen: {
         type: OptionType.CUSTOM,
         default: null as SeenBadges | null,
+        description: ""
+    },
+    reportRealGames: {
+        type: OptionType.BOOLEAN,
+        description: "While Discord's analytics are blocked (by NoTrack or similar), Discord stops counting the games you really play. This reports them itself so their time still counts. Turn it off to send nothing for real games.",
+        default: true,
+        onChange: () => updateRealTracking()
+    },
+    streamMute: {
+        type: OptionType.BOOLEAN,
+        description: "Stream farm: mute your mic when it joins the call.",
+        default: true
+    },
+    streamDeafen: {
+        type: OptionType.BOOLEAN,
+        description: "Stream farm: the viewer also deafens itself, so the two accounts can't feed sound back into each other. It's undone when the farm stops.",
+        default: true
+    },
+    streamWidget: {
+        type: OptionType.BOOLEAN,
+        description: "Stream farm: show a small call widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.",
+        default: true
+    },
+    streamFarm: {
+        type: OptionType.COMPONENT,
+        component: StreamFarm
+    },
+    streamProfiles: {
+        type: OptionType.CUSTOM,
+        default: {} as Record<string, StreamProfile>,
         description: ""
     }
 });
@@ -362,6 +397,44 @@ function restart() {
     apply();
 }
 
+// Real games are only reported while Discord's own analytics are blocked, and only if the user wants it.
+function updateRealTracking() {
+    const on = active && analyticsBlocked && settings.store.reportRealGames;
+    if (on === trackRealPlay) return;
+    trackRealPlay = on;
+    if (on) trackRealGames(RunningGameStore.getRunningGames());
+    else realGames.clear();
+}
+
+export const pluginActive = () => active;
+
+// Switching accounts doesn't reload Discord, so the stream farm and second account restart for whoever is logged in
+// now. Both run outside Discord's dispatch, since stopping leaves the call, which dispatches too.
+let streamUser = "";
+function followAccount() {
+    setTimeout(() => {
+        const id = currentUserId();
+        if (!active || id === streamUser) return;
+        streamUser = id;
+        stopStreamFarm();
+        stopSecondAccount();
+        if (!id) return;
+        migrateLegacy(id);
+        startStreamFarm();
+        startSecondAccount();
+    });
+}
+
+// Stream farm settings belong to the account that's logged in. Changes that alter what the farm does restart it.
+export function changeStreamProfile(patch: Partial<StreamProfile>) {
+    const before = profile();
+    updateProfile(patch);
+    if (!active) return;
+    const after = profile();
+    if (before.role !== after.role || before.where !== after.where || before.channel !== after.channel || before.partner !== after.partner) startStreamFarm();
+    if (before.role !== after.role || before.hostSecond !== after.hostSecond) startSecondAccount();
+}
+
 export default definePlugin({
     name: "GameTimeSpoof",
     description: "Makes Discord think detectable PC games are running so your Game Time badge hours keep counting.",
@@ -378,6 +451,10 @@ export default definePlugin({
         </>
     ),
 
+    // Read by the streaming Discord when this one runs as its second account.
+    streamFarmStatus: () => streamStatus(),
+    configureStreamFarm: (patch: Partial<StreamProfile>) => changeStreamProfile(patch),
+
     headerBarButton: {
         icon: GameControllerIcon,
         render: () => <HeaderBarButton icon={GameControllerIcon} tooltip="Game Browser" position="bottom" onClick={openGameBrowser} />
@@ -386,21 +463,32 @@ export default definePlugin({
     start() {
         active = true;
         if (settings.store.pending.length) settings.store.pending = savedPending();
-        trackRealPlay = analyticsBlocked;
         lastTick = Date.now();
         appliedKey = parseGames(settings.store.games).join(",").toLowerCase();
         FluxDispatcher.addInterceptor(interceptor);
-        trackRealGames(RunningGameStore.getRunningGames());
+        updateRealTracking();
         apply();
         updateRotation(false);
         reportTimer = setInterval(tick, REPORT_INTERVAL);
         badgeTimer = setInterval(checkBadges, BADGE_CHECK_INTERVAL);
         checkBadges();
+        streamUser = currentUserId();
+        migrateLegacy(streamUser);
+        FluxDispatcher.subscribe("CONNECTION_OPEN", followAccount);
+        FluxDispatcher.subscribe("LOGOUT", followAccount);
+        startStreamFarm();
+        startSecondAccount();
+        mountCallWidget();
     },
 
     stop() {
         active = false;
         cancelCredit();
+        FluxDispatcher.unsubscribe("CONNECTION_OPEN", followAccount);
+        FluxDispatcher.unsubscribe("LOGOUT", followAccount);
+        stopStreamFarm();
+        stopSecondAccount();
+        unmountCallWidget();
         clearInterval(rotationTimer);
         clearInterval(reportTimer);
         clearInterval(badgeTimer);
@@ -409,6 +497,7 @@ export default definePlugin({
         if (index !== -1) FluxDispatcher._interceptors.splice(index, 1);
         reportElapsed([...realGames.values()]);
         realGames.clear();
+        trackRealPlay = false;
         clear();
         appliedKey = "";
     }
