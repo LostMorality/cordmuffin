@@ -5,6 +5,14 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-02
 
+- GameTimeSpoof: new stream farm for the Streaming badge. Log a second account of yours in from the plugin's settings
+  (it runs hidden inside the same Discord), then press Call: your account calls it, goes live with a random window at
+  the lowest quality, and the second account joins, mutes, deafens and watches. Time only counts while it watches,
+  which is how Discord counts it. A small call widget in the corner has Call, Hang up and Open; hanging up closes the
+  second account's window but keeps it logged in.
+- GameTimeSpoof: new "Report real games" setting, so reporting games you really play while analytics are blocked can be
+  turned off.
+- Installer: also builds Equicord's web version, which GameTimeSpoof's second account runs on.
 - New plugin: GreetStickerPicker+. A bigger GreetStickerPicker: works on DM wave buttons too, right-click opens Discord's
   real sticker picker, left-click sends your default sticker, and any server sticker can be a greet.
 - QuestRunner: activity quests like How To Rob A Bank finish now. Some activities refused the Complete button with
