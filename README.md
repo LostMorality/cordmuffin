@@ -125,7 +125,7 @@ Earns Streaming badge time with a second account of yours. Stream time can't be 
 - Settings and totals are saved per account, so two accounts on one PC don't overwrite each other. Your own Go Live quality is put back after each call.
 - The badge itself updates on Discord's daily schedule, like the play-time badges.
 
-It starts turned off. Turn on **StreamTimeFarmer** in Discord (User Settings, then Plugins). It used to be part of GameTimeSpoof: if you used the stream farm there, updating adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
+It starts turned off. Turn on **StreamTimeFarmer** in Discord (User Settings, then Plugins), or just press **Log in to second account** in its settings, which turns it on for you. If its settings say to quit Discord fully, do that once (right-click Discord's tray icon, then Quit Discord) and open it again. It used to be part of GameTimeSpoof: if you used the stream farm there, updating adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
 
 It needs the desktop app, and the web version of Equicord that the Cordmuffin installer builds next to it (installers from before November 2026 don't build it; run the newest one once).
 
