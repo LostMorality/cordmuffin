@@ -15,7 +15,7 @@ import { formatTime, SecondAccountCard, useStreamStatus } from "./CallWidget";
 import { type StreamProfile, useProfile } from "./profile";
 import { captureSources, resetStreamCount, streamFarmRunning } from "./stream";
 
-const cl = classNameFactory("vc-gts-");
+const cl = classNameFactory("vc-stf-");
 
 function Choice({ label, options, value, onChange }: { label: string; options: { label: string; value: string; }[]; value: string; onChange(v: string): void; }) {
     return (
