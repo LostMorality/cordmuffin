@@ -1572,18 +1572,20 @@ func processPath(pid uint32) string {
 	return syscall.UTF16ToString(buf[:size])
 }
 
-func discordProcesses(root string) []uint32 {
+// Only Discord's own app counts. Discord ships other programs in the same folder, like DiscordSystemHelper.exe (the
+// keybinds helper, which runs as admin), and force-closing those mid-job can leave them stuck.
+func discordProcesses(d discordInstall) []uint32 {
 	snap, err := syscall.CreateToolhelp32Snapshot(syscall.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
 		return nil
 	}
 	defer syscall.CloseHandle(snap)
-	prefix := strings.ToLower(root + `\`)
+	prefix := strings.ToLower(d.root + `\`)
 	var pids []uint32
 	var entry syscall.ProcessEntry32
 	entry.Size = uint32(unsafe.Sizeof(entry))
 	for err = syscall.Process32First(snap, &entry); err == nil; err = syscall.Process32Next(snap, &entry) {
-		if !strings.HasPrefix(strings.ToLower(syscall.UTF16ToString(entry.ExeFile[:])), "discord") {
+		if !strings.EqualFold(syscall.UTF16ToString(entry.ExeFile[:]), d.exe) {
 			continue
 		}
 		if path := processPath(entry.ProcessID); path != "" && strings.HasPrefix(strings.ToLower(path), prefix) {
@@ -1593,11 +1595,11 @@ func discordProcesses(root string) []uint32 {
 	return pids
 }
 
-func discordRunning(root string) bool { return len(discordProcesses(root)) > 0 }
+func discordRunning(d discordInstall) bool { return len(discordProcesses(d)) > 0 }
 
-func closeDiscord(root string) error {
+func closeDiscord(d discordInstall) error {
 	for attempt := 0; attempt < 40; attempt++ {
-		pids := discordProcesses(root)
+		pids := discordProcesses(d)
 		if len(pids) == 0 {
 			if attempt > 0 {
 				time.Sleep(500 * time.Millisecond)
@@ -1780,8 +1782,8 @@ func install() {
 	var closed []discordInstall
 	var failed []string
 	for _, d := range installs {
-		running[d.root] = discordRunning(d.root)
-		if err := closeDiscord(d.root); err != nil {
+		running[d.root] = discordRunning(d)
+		if err := closeDiscord(d); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v.", d.name, err))
 			continue
 		}
@@ -2375,8 +2377,8 @@ func exeVersion(exe string) string {
 func uninstall() {
 	var done, failed []string
 	for _, d := range findInstalls() {
-		wasRunning := discordRunning(d.root)
-		if err := closeDiscord(d.root); err != nil {
+		wasRunning := discordRunning(d)
+		if err := closeDiscord(d); err != nil {
 			failed = append(failed, fmt.Sprintf("%s: %v.", d.name, err))
 			continue
 		}
