@@ -8,6 +8,10 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - StreamTimeFarmer: Log in to second account works with the plugin off too and turns it on. When the button can't work
   yet, the settings now say why: Discord needs a full quit and reopen after the update, or the installer needs to run
   again.
+- StreamTimeFarmer: Log in to second account now asks first, with a warning that explains what it does: it turns the
+  plugin on and runs a hidden second Discord with your other account.
+- StreamTimeFarmer: new setting for your second account's online status (Online, Idle, Do Not Disturb or Invisible).
+  The dot on its picture now shows its real online status, with the name next to it, instead of always looking online.
 
 ## 2026-11-02
 
