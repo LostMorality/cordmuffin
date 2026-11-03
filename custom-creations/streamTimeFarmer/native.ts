@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { ChildProcess, spawn } from "child_process";
 import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, screen, session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -200,4 +201,210 @@ export async function secondAccountEval(_: IpcMainInvokeEvent, code: string): Pr
             contents.removeListener("render-process-gone", onGone);
         }
     }
+}
+
+// The farm's own window to stream: a small borderless window in a corner of the main screen, behind every other window,
+// almost fully see-through (1/255) and letting clicks pass through, with no taskbar button and kept out of Alt+Tab, so
+// it can't be seen or bumped into. Windows only redraws the parts of a window that are on a screen, so parking it
+// off-screen froze the stream on its first picture; see-through, it's on screen and Go Live still captures it at full
+// brightness. Go Live can't capture minimized windows either, so it puts itself back when minimized. Its clock and a
+// sweeping bar keep changing, which keeps frames reaching the viewer, and nothing private is ever in it. It closes by
+// itself when Discord goes away.
+const FARM_WINDOW_SCRIPT = String.raw`
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+namespace StfFarm {
+    [ComImport, Guid("56FDF342-FD6D-11d0-958A-006097C9A090"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ITaskbarList { void HrInit(); void AddTab(IntPtr hwnd); void DeleteTab(IntPtr hwnd); void ActivateTab(IntPtr hwnd); void SetActiveAlt(IntPtr hwnd); }
+    [ComImport, Guid("56FDF344-FD6D-11d0-958A-006097C9A090")] class TaskbarList { }
+    public static class Win {
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int index);
+        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int index, int value);
+        [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint key, byte alpha, uint flags);
+        // Layered (see-through), clicks pass through, and never activated (which also keeps it out of Alt+Tab).
+        const int GHOST = 0x80000 | 0x20 | 0x08000000;
+        public static void Ghost(IntPtr hwnd) {
+            int style = GetWindowLong(hwnd, -20);
+            if ((style & GHOST) != GHOST) SetWindowLong(hwnd, -20, style | GHOST);
+            SetLayeredWindowAttributes(hwnd, 0, 1, 2);
+        }
+        static ITaskbarList list;
+        public static void HideButton(IntPtr hwnd) {
+            try {
+                if (list == null) { list = (ITaskbarList)new TaskbarList(); list.HrInit(); }
+                list.DeleteTab(hwnd);
+            } catch { list = null; }
+        }
+    }
+}
+"@
+# Real pixels, so the window fits its corner exactly at any display scaling.
+[StfFarm.Win]::SetProcessDPIAware() | Out-Null
+$parent = [int]$env:STF_PARENT
+# Compared on every check too, so a new program that gets Discord's old process id doesn't keep the window open.
+$parentStart = [Diagnostics.Process]::GetProcessById($parent).StartTime
+$started = [DateTimeOffset]::FromUnixTimeMilliseconds([long]$env:STF_STARTED).LocalDateTime
+$form = New-Object Windows.Forms.Form
+$form.Text = $env:STF_TITLE
+$form.BackColor = [Drawing.Color]::Black
+$form.ClientSize = New-Object Drawing.Size 640, 360
+$form.FormBorderStyle = "None"
+$form.ShowInTaskbar = $true
+$form.StartPosition = "Manual"
+# The bottom-right corner of the main screen's free area, worked out again on every check since screens and the
+# taskbar can move. Kept fully on screen, or Windows stops redrawing it.
+function Get-Park { $area = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; New-Object Drawing.Point ($area.Right - $form.Width), ($area.Bottom - $form.Height) }
+# Behind every other window, without taking focus or changing size.
+function Set-Park { $park = Get-Park; [StfFarm.Win]::SetWindowPos($form.Handle, [IntPtr]1, $park.X, $park.Y, 0, 0, 0x0011) | Out-Null }
+$form.Location = Get-Park
+# A bar sweeping across, a "keeping it going" line, and the clock with a blinking live dot.
+$track = New-Object Windows.Forms.Panel
+$track.Dock = "Bottom"
+$track.Height = 6
+$track.BackColor = [Drawing.Color]::FromArgb(32, 34, 37)
+$bar = New-Object Windows.Forms.Panel
+$bar.Width = 120
+$bar.Height = 6
+$bar.BackColor = [Drawing.Color]::FromArgb(88, 101, 242)
+$track.Controls.Add($bar)
+$note = New-Object Windows.Forms.Label
+$note.Dock = "Bottom"
+$note.Height = 26
+$note.TextAlign = "MiddleCenter"
+$note.ForeColor = [Drawing.Color]::FromArgb(148, 155, 164)
+$note.Font = New-Object Drawing.Font "Segoe UI", 10
+$note.Text = "StreamTimeFarmer is keeping your stream going"
+$clock = New-Object Windows.Forms.Label
+$clock.Dock = "Bottom"
+$clock.Height = 64
+$clock.TextAlign = "MiddleCenter"
+$clock.ForeColor = [Drawing.Color]::White
+$clock.Font = New-Object Drawing.Font "Segoe UI", 20
+$name = New-Object Windows.Forms.Label
+$name.Dock = "Fill"
+$name.TextAlign = "MiddleCenter"
+$name.ForeColor = [Drawing.Color]::White
+$name.Font = New-Object Drawing.Font "Segoe UI", 24
+$name.Text = $env:STF_TITLE
+# Docked controls stack outward from the last one added: the bar sits at the very bottom, the line above it, then
+# the clock, and the name (or cover) fills the rest.
+$form.Controls.Add($clock)
+$form.Controls.Add($note)
+$form.Controls.Add($track)
+$form.Controls.Add($name)
+$name.BringToFront()
+$ticks = 0
+# The cover is fetched after the window is up, with a short time limit, so a slow download never holds up Go Live.
+function Add-Cover {
+    if (-not $env:STF_IMAGE) { return }
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        $request = [Net.WebRequest]::Create($env:STF_IMAGE)
+        $request.Timeout = 5000
+        $response = $request.GetResponse()
+        $data = New-Object IO.MemoryStream
+        $response.GetResponseStream().CopyTo($data)
+        $response.Close()
+        $data.Position = 0
+        $image = [Drawing.Image]::FromStream($data)
+        $cover = New-Object Windows.Forms.PictureBox
+        $cover.Dock = "Fill"
+        $cover.SizeMode = "Zoom"
+        $cover.Image = $image
+        $form.Controls.Remove($name)
+        $form.Controls.Add($cover)
+        $cover.BringToFront()
+        $form.Icon = [Drawing.Icon]::FromHandle((New-Object Drawing.Bitmap $image, 64, 64).GetHicon())
+    } catch { }
+}
+# Runs 4 times a second so the picture always moves; the slower checks run once a second.
+$tick = {
+    $script:ticks++
+    $left = (Get-Date) - $started
+    $bar.Left = [int](($left.TotalMilliseconds % 4000) / 4000 * ($track.Width + $bar.Width)) - $bar.Width
+    $dot = if ($left.Milliseconds -lt 500) { [char]0x25CF } else { [char]0x25CB }
+    $clock.Text = "{0} LIVE   Streaming for {1}:{2:mm}:{2:ss}" -f $dot, [int][Math]::Floor($left.TotalHours), $left
+    if ($script:ticks % 4 -ne 1) { return }
+    $gone = $true
+    try { $gone = [Diagnostics.Process]::GetProcessById($parent).StartTime -ne $parentStart } catch { }
+    if ($gone) { [Windows.Forms.Application]::Exit(); return }
+    # Go Live only lists ordinary app windows, so the window stays one and just its taskbar button is taken off.
+    # Explorer puts buttons back when it restarts, so this runs every check, and so does making it see-through.
+    [StfFarm.Win]::HideButton($form.Handle)
+    [StfFarm.Win]::Ghost($form.Handle)
+    if ($form.WindowState -eq "Minimized") { [StfFarm.Win]::ShowWindow($form.Handle, 4) | Out-Null }
+    Set-Park
+}
+$timer = New-Object Windows.Forms.Timer
+$timer.Interval = 250
+$timer.add_Tick($tick)
+# Started hidden, Windows swallows the first show, so it's shown again once the window exists, without taking focus.
+$form.add_Shown({ [StfFarm.Win]::Ghost($form.Handle); [StfFarm.Win]::ShowWindow($form.Handle, 4) | Out-Null; Set-Park; & $tick; $timer.Start(); Add-Cover })
+$form.add_FormClosing({ param($s, $e) if ($e.CloseReason -eq "UserClosing") { $e.Cancel = $true } })
+[Windows.Forms.Application]::Run($form)
+`;
+
+let farmProcess: ChildProcess | null = null;
+
+function stopFarmProcess() {
+    farmProcess?.kill();
+    farmProcess = null;
+}
+
+process.once("exit", stopFarmProcess);
+
+// Resolves with the window's process id once it's running. A new window replaces the old one.
+export function startFarmWindow(_: IpcMainInvokeEvent, title: string, imageUrl = "", startedAt = Date.now()): Promise<number> {
+    stopFarmProcess();
+    if (process.platform !== "win32") return Promise.reject(new Error("The farm window only works on Windows."));
+    // The full path, so a powershell.exe in Discord's working folder can never be picked up instead.
+    const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const child = spawn(
+        powershell,
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(FARM_WINDOW_SCRIPT, "utf16le").toString("base64")],
+        {
+            windowsHide: true,
+            stdio: "ignore",
+            env: {
+                ...process.env,
+                STF_TITLE: String(title).slice(0, 120) || "StreamTimeFarmer",
+                STF_IMAGE: /^https:\/\/cdn\.discordapp\.com\//.test(imageUrl) ? imageUrl : "",
+                STF_STARTED: String(Number.isFinite(startedAt) ? Math.floor(startedAt) : Date.now()),
+                STF_PARENT: String(process.pid)
+            }
+        }
+    );
+    farmProcess = child;
+    return new Promise((resolve, reject) => {
+        child.once("spawn", () => {
+            if (farmProcess !== child || child.pid == null) {
+                child.kill();
+                return reject(new Error("The farm window was replaced before it started."));
+            }
+            resolve(child.pid);
+        });
+        child.once("error", e => {
+            if (farmProcess === child) farmProcess = null;
+            reject(e);
+        });
+        child.once("exit", () => {
+            if (farmProcess === child) farmProcess = null;
+            reject(new Error("The farm window closed before it started."));
+        });
+    });
+}
+
+// With a process id, only that window is closed, so a late stop can't close a newer window.
+export function stopFarmWindow(_: IpcMainInvokeEvent, pid = 0) {
+    if (!pid || farmProcess?.pid === pid) stopFarmProcess();
+}
+
+// The running window's process id, or 0 when it's gone (closed from Task Manager, or it crashed).
+export function farmWindowPid(_: IpcMainInvokeEvent) {
+    return farmProcess && farmProcess.exitCode == null && farmProcess.signalCode == null ? farmProcess.pid ?? 0 : 0;
 }
