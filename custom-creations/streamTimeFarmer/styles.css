@@ -1,0 +1,191 @@
+.vc-stf-stream {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.vc-stf-stream-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+}
+
+.vc-stf-stream-grow {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-stream-label {
+    font-weight: 600;
+    color: var(--header-primary, var(--text-strong));
+}
+
+.vc-stf-stream-status {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border-left: 4px solid var(--status-warning);
+    background: var(--background-secondary, var(--background-base-lower));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-stream-counting,
+.vc-stf-stream-watching {
+    border-left-color: var(--status-positive);
+}
+
+.vc-stf-stream-setup {
+    border-left-color: var(--status-danger);
+}
+
+.vc-stf-stream-time {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.vc-stf-stream-actions {
+    margin-top: 6px;
+}
+
+.vc-stf-stream-actions:empty {
+    display: none;
+}
+
+.vc-stf-call-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--background-secondary, var(--background-base-lower));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-call-avatar {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.vc-stf-call-avatar img,
+.vc-stf-call-avatar-blank {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.vc-stf-call-avatar-blank {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--white, #fff);
+    background: var(--brand-500, #5865f2);
+}
+
+.vc-stf-call-dot {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 3px solid var(--background-floating, var(--background-base-low));
+    background: var(--status-offline, #80848e);
+}
+
+.vc-stf-call-busy {
+    background: var(--status-warning);
+}
+
+.vc-stf-call-live {
+    background: var(--status-positive);
+}
+
+.vc-stf-call-bad {
+    background: var(--status-danger);
+}
+
+.vc-stf-call-who {
+    flex: 1;
+    min-width: 0;
+}
+
+.vc-stf-call-name {
+    overflow: hidden;
+    font-weight: 600;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--header-primary, var(--text-strong));
+}
+
+.vc-stf-call-tag,
+.vc-stf-call-id {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.vc-stf-call-text {
+    font-size: 14px;
+    line-height: 18px;
+}
+
+.vc-stf-call-widget {
+    position: fixed;
+    right: 20px;
+    /* Above the message box, so its buttons stay clickable. */
+    bottom: 84px;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 280px;
+    box-sizing: border-box;
+    padding: 12px;
+    border: 1px solid var(--border-subtle, transparent);
+    border-radius: 12px;
+    background: var(--background-floating, var(--background-base-low));
+    box-shadow: var(--elevation-high, 0 8px 16px rgb(0 0 0 / 24%));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-call-pill {
+    width: auto;
+    padding: 6px;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.vc-stf-call-icon {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    font-size: 18px;
+    line-height: 20px;
+    color: var(--interactive-normal, var(--text-muted));
+    background: none;
+    cursor: pointer;
+}
+
+.vc-stf-call-icon:hover {
+    color: var(--interactive-hover, var(--text-default));
+    background: var(--background-modifier-hover);
+}
+
+.vc-stf-call-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.vc-stf-call-buttons > * {
+    flex: 1;
+}
