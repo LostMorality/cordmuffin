@@ -57,7 +57,7 @@ function SourcePicker({ streamSource }: { streamSource: string; }) {
 
 function StreamFarmPanel() {
     const status = useStreamStatus();
-    const { role, channel: channelId, where, countedMs, hostSecond, source } = useProfile();
+    const { role, channel: channelId, where, countedMs, hostSecond, source, secondPresence } = useProfile();
     const channel = useStateFromStores([ChannelStore], () => channelId.trim() ? ChannelStore.getChannel(channelId.trim()) : null, [channelId]);
     // Only a server voice channel can be the meeting place; not a DM call, and not a stage (its audience can't go live).
     const serverVoiceId = useStateFromStores([SelectedChannelStore, ChannelStore], () => {
@@ -103,6 +103,19 @@ function StreamFarmPanel() {
                         options={[
                             { label: "A DM call", value: "dm" },
                             { label: "A server voice channel", value: "server" }
+                        ]}
+                    />
+
+                    <Choice
+                        label="Second account's online status"
+                        value={secondPresence}
+                        onChange={v => changeStreamProfile({ secondPresence: v as StreamProfile["secondPresence"] })}
+                        options={[
+                            { label: "Leave it as it is", value: "" },
+                            { label: "Online", value: "online" },
+                            { label: "Idle", value: "idle" },
+                            { label: "Do Not Disturb", value: "dnd" },
+                            { label: "Invisible", value: "invisible" }
                         ]}
                     />
 
