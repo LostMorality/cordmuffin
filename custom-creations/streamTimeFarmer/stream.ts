@@ -4,13 +4,17 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { Settings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
+import { sleep } from "@utils/misc";
+import type { PluginNative } from "@utils/types";
 import type { Channel } from "@vencord/discord-types";
 import { findByCodeLazy, findByPropsLazy, findStoreLazy } from "@webpack";
 import { ChannelStore, FluxDispatcher, GuildStore, PermissionStore, SelectedChannelStore, UserStore, VoiceStateStore } from "@webpack/common";
 
 import { changeStreamProfile, settings } from ".";
-import { currentUserId, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
+import { currentUserId, FARM_SOURCE, type FarmGame, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
+import { secondStatus } from "./secondAccount";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -21,6 +25,7 @@ const logger = new Logger("StreamTimeFarmer");
 interface AppStream { streamType: string; guildId: string | null; channelId: string; ownerId: string; state?: string; }
 interface CaptureSource { id: string; name: string; }
 interface Target { id: string; name: string; guildId: string | null; dm: boolean; }
+interface AVError { type?: string; mediaContext?: string; userId?: string; }
 
 const ApplicationStreamingStore: {
     getCurrentUserActiveStream(): AppStream | null;
@@ -39,6 +44,9 @@ const watchStream: (stream: AppStream, options?: { noFocus?: boolean; forceMulti
 const stopStream: (streamKey: string, canShowFeedback?: boolean) => void = findByCodeLazy('type:"STREAM_STOP",streamKey');
 const closeStream: (streamKey: string, canShowFeedback?: boolean) => void = findByCodeLazy('type:"STREAM_CLOSE",streamKey');
 // Discord's own "is this voice channel full for me" check, the one that decides whether joining opens the full window.
+const DesktopSources: { getDesktopSourceFromPid(pid: number): string | null; } = findByPropsLazy("getDesktopSourceFromPid", "getPidFromDesktopSource");
+const AVErrorStore: { getActiveErrors(): Map<string, AVError> | null; } = findStoreLazy("AVErrorStore");
+const Native = IS_DISCORD_DESKTOP ? VencordNative.pluginHelpers.StreamTimeFarmer as PluginNative<typeof import("./native")> : null;
 const isChannelFull: (channel: Channel, voiceStates: typeof VoiceStateStore, guilds: typeof GuildStore) => boolean = findByCodeLazy("maxStageVideoChannelUsers", "userLimit");
 
 export type StreamPhase = "off" | "setup" | "joining" | "starting" | "waiting" | "counting" | "watching";
@@ -66,11 +74,21 @@ const PRESET_CUSTOM = 3;
 const HANG_UP_SAVE_MS = 5_000;
 // Right after Discord connects (startup, or a reconnect) it rejoins the old call and then drops it again by itself.
 const SETTLE_MS = 30_000;
+// A watched stream that stays paused this long is stuck, not just catching up, and gets reopened.
+const STUCK_MS = 20_000;
+// A broken Go Live is restarted at most this often, so a stream that keeps failing doesn't flap.
+const RESTART_EVERY_MS = 60_000;
+const FARM_TITLE = "Stream farm (StreamTimeFarmer)";
+// The farm window is a Windows program started by Discord's desktop app; anywhere else the farm streams a random
+// open window, like it did before it had its own.
+export const canUseFarmWindow = () => Native != null && navigator.userAgent.includes("Windows");
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastTick = 0;
 let lastJoin = 0;
 let lastStart = 0;
+// Counts Go Live starts, so a start that finishes late can tell whether a newer one has begun since.
+let starts = 0;
 let lastWatch = 0;
 let lastDmOpen = 0;
 let partnerGoneSince = 0;
@@ -100,6 +118,19 @@ let joinedAt = 0;
 // The account whose hang-up is waiting to be saved.
 let pendingOff = "";
 let hangUpTimer: ReturnType<typeof setTimeout> | undefined;
+// The farm's own window (see native.ts) and the game it's shown as, if any.
+let farmPid = 0;
+let farmSince = 0;
+let farmGameSet = false;
+// The game the open farm window was made for ("" for none), so a different game gets a new window.
+let farmWindowFor = "";
+// The farm window's handle in Go Live's list, once it showed up there.
+let farmHandle = "";
+let lastRestart = 0;
+let stuckSince = 0;
+let farmCheck: Promise<void> | null = null;
+// Discord keeps a stream error listed until it's dismissed, so each one (by its id) is only acted on once.
+const handledErrors = new Set<string>();
 let status: StreamStatus = { phase: "off", detail: "", countedMs: 0, sessionMs: 0 };
 const listeners = new Set<() => void>();
 
@@ -225,15 +256,128 @@ export async function captureSources(): Promise<CaptureSource[]> {
     return (Array.isArray(list) ? list : []).map((s: any) => ({ id: String(s.id), name: String(s.name ?? s.id) }));
 }
 
-// The saved choice is a window title, "screen" or "random"; window ids change every time the window opens.
-async function pickSource(): Promise<CaptureSource | null> {
-    const sources = await captureSources();
-    const wanted = prof().source.trim().toLowerCase();
-    const screen = sources.find(s => s.id.startsWith("screen:"));
-    if (wanted === "random") {
-        const windows = sources.filter(s => s.id.startsWith("window:"));
-        return windows.length ? windows[Math.floor(Math.random() * windows.length)] : screen ?? null;
+// gameSessionSpoofer shows its game through the same one-game slot in Discord, so game mode steps aside while it runs one.
+export const gameSlotTaken = () => {
+    const gss = Settings.plugins.GameSessionSpoofer;
+    return !!gss?.enabled && gss.session != null;
+};
+
+// Discord's own game detection is told the farm window's process is the picked game, the same way it sees a real
+// game, so Go Live shows "Streaming <game>". Nothing else about the game is faked; the picture is the farm window.
+function setFarmGame(game: FarmGame | null, pid = 0, handle: string | null = null) {
+    if (!game) {
+        if (!farmGameSet) return;
+        farmGameSet = false;
+        if (!gameSlotTaken()) FluxDispatcher.dispatch({ type: "RUNNING_GAME_SET_DEBUG_GAME", game: null });
+        return;
     }
+    if (gameSlotTaken()) return;
+    const now = Date.now();
+    const folder = game.name.replace(/[<>:"/\\|?*]/g, "").toLowerCase();
+    const running = {
+        id: game.id,
+        name: game.name,
+        exeName: game.exeName,
+        exePath: `c:/program files/${folder}/${game.exeName}`,
+        cmdLine: `c:/program files/${folder}/${game.exeName}`,
+        processName: game.name,
+        pid,
+        pidPath: [pid],
+        start: farmSince || now,
+        lastFocused: Math.floor(now / 1000),
+        lastLaunched: farmSince || now,
+        nativeProcessObserverId: -1,
+        hidden: false,
+        isLauncher: false,
+        elevated: false,
+        sandboxed: false,
+        windowHandle: handle
+    };
+    // Discord resets the start time of a game it's told about again, so it's set twice to keep the original one.
+    const { start } = running;
+    FluxDispatcher.dispatch({ type: "RUNNING_GAME_SET_DEBUG_GAME", game: running });
+    running.start = start;
+    FluxDispatcher.dispatch({ type: "RUNNING_GAME_SET_DEBUG_GAME", game: running });
+    farmGameSet = true;
+}
+
+const farmGameNow = () => gameSlotTaken() ? null : prof().farmGame;
+
+async function farmAlive() {
+    return farmPid !== 0 && await Native?.farmWindowPid().catch(() => 0) === farmPid;
+}
+
+// Opens the farm window if it isn't open, waits for Go Live to list it, and returns it as the source.
+async function farmSource(): Promise<CaptureSource | null> {
+    if (!Native) throw new Error("Discord needs a full quit and reopen first");
+    const myRun = run;
+    const game = farmGameNow();
+    const alive = await farmAlive();
+    if (myRun !== run) return null;
+    // Made for another game (or before gameSessionSpoofer stepped in or out): it shows the wrong name and cover.
+    if (alive && farmWindowFor !== (game?.id ?? "")) {
+        setFarmGame(null);
+        void Native.stopFarmWindow(farmPid).catch(() => { });
+        farmPid = 0;
+        farmHandle = "";
+    }
+    if (!alive || !farmPid) {
+        farmSince ||= Date.now();
+        const pid = await Native.startFarmWindow(game?.name || FARM_TITLE, game?.cover ?? "", farmSince);
+        // Stopped or restarted while it was starting: this window belongs to nobody now.
+        if (myRun !== run) {
+            void Native.stopFarmWindow(pid).catch(() => { });
+            return null;
+        }
+        farmPid = pid;
+        farmWindowFor = game?.id ?? "";
+    }
+    const pid = farmPid;
+    for (let i = 0; i < 60; i++) {
+        if (myRun !== run) return null;
+        let handle: string | undefined;
+        try {
+            handle = String(await DesktopSources.getDesktopSourceFromPid(pid) ?? "").split(":")[1];
+        } catch { }
+        const windows = (await captureSources()).filter(s => s.id.startsWith("window:"));
+        if (myRun !== run) return null;
+        // Going by the title is only safe for the farm's own name; a game's name could match the real game's window.
+        const found = handle ? windows.find(s => s.id.split(":")[1] === handle)
+            : !game && i >= 12 ? windows.find(s => s.name === FARM_TITLE) : undefined;
+        if (found) {
+            farmHandle = found.id.split(":")[1] ?? "";
+            if (game) setFarmGame(game, pid, farmHandle || null);
+            return found;
+        }
+        await sleep(250);
+    }
+    return null;
+}
+
+// Also closes a window that's still starting, which farmPid doesn't know about yet.
+function closeFarmWindow() {
+    setFarmGame(null);
+    void Native?.stopFarmWindow().catch(() => { });
+    farmPid = farmSince = 0;
+    farmWindowFor = farmHandle = "";
+}
+
+// The farm window only works as the "farm" choice: picked by its title, it would be closed and then never found.
+export const isFarmWindow = (source: CaptureSource) => source.name === FARM_TITLE || farmHandle !== "" && source.id.split(":")[1] === farmHandle;
+
+// The old default, still used where the farm window can't run.
+async function randomWindow(): Promise<CaptureSource | null> {
+    const sources = await captureSources();
+    const windows = sources.filter(s => s.id.startsWith("window:"));
+    return windows.length ? windows[Math.floor(Math.random() * windows.length)] : sources.find(s => s.id.startsWith("screen:")) ?? null;
+}
+
+// The saved choice is the farm window ("farm"), a window title or "screen"; window ids change every time a window opens.
+async function pickSource(): Promise<CaptureSource | null> {
+    const wanted = prof().source.trim().toLowerCase();
+    if (wanted === FARM_SOURCE || wanted === "random") return canUseFarmWindow() ? farmSource() : randomWindow();
+    const sources = await captureSources();
+    const screen = sources.find(s => s.id.startsWith("screen:"));
     if (!wanted || wanted === "screen") return screen ?? null;
     return sources.find(s => s.id.startsWith("window:") && s.name.toLowerCase() === wanted)
         ?? sources.find(s => s.id.startsWith("window:") && s.name.toLowerCase().includes(wanted))
@@ -267,10 +411,13 @@ async function goLive(now: number, where: Target) {
     if (now - lastStart < START_RETRY_MS) return;
     lastStart = now;
     const myRun = run;
+    const myStart = ++starts;
     const source = await pickSource();
     if (myRun !== run) return;
     if (!source) {
-        liveError = `Couldn't find "${prof().source}" to stream. Pick another source.`;
+        liveError = isFarmSource()
+            ? "The farm's own window didn't show up in Go Live. Trying again soon."
+            : `Couldn't find "${prof().source}" to stream. Pick another source.`;
         return;
     }
     // Stopped, or moved to another call while looking for the source.
@@ -284,12 +431,16 @@ async function goLive(now: number, where: Target) {
     const [ok, why] = await startStreamWithSource(source, { ...FARM_GO_LIVE, previewDisabled: true });
     if (myRun !== run) {
         // The farm stopped while Go Live was starting, so its teardown couldn't end this stream yet, and starting it
-        // set the farm's quality after the user's was already put back.
-        if (ok) stopStream(key, false);
+        // set the farm's quality after the user's was already put back. The stream key is the same for every stream in
+        // the call, so once a newer start (after a source change) has begun, the stream is that one's and stays.
+        if (ok && myStart === starts) stopStream(key, false);
         if (!isFarmGoLive(before)) applyGoLive(before);
         return;
     }
-    if (ok) startedKey = key;
+    if (ok) {
+        startedKey = key;
+        forgetStreamErrors("sender", me);
+    }
     liveError = ok ? "" : `Go Live didn't start${why ? ` (${why})` : ""}. Trying again soon.`;
     if (!ok) logger.warn("Go Live didn't start:", why);
 }
@@ -297,6 +448,44 @@ async function goLive(now: number, where: Target) {
 const streamKey = (stream: AppStream) => stream.guildId
     ? `${stream.streamType}:${stream.guildId}:${stream.channelId}:${stream.ownerId}`
     : `${stream.streamType}:${stream.channelId}:${stream.ownerId}`;
+
+const isFarmSource = () => canUseFarmWindow() && [FARM_SOURCE, "random"].includes(prof().source.trim().toLowerCase());
+
+// Stream errors Discord shows for this account's own stream (sending) or for the partner's (receiving).
+function streamErrors(kind: "sender" | "receiver", userId: string): string[] {
+    try {
+        const active = AVErrorStore.getActiveErrors();
+        if (!(active instanceof Map)) return [];
+        return [...active.entries()].filter(([, e]) => e && e.mediaContext === "stream" && (e.userId == null || e.userId === userId)
+            && (e.type?.startsWith(`video-stream-${kind}-ready-timeout`) || kind === "sender" && e.type === "stream-failed-to-start"))
+            .map(([id]) => id);
+    } catch {
+        return [];
+    }
+}
+
+// Whether one of those errors is new. Each is only acted on once, and only when something is done about it.
+const freshStreamError = (kind: "sender" | "receiver", userId: string) => streamErrors(kind, userId).some(id => !handledErrors.has(id));
+
+// Errors from before a restart or a new stream were about the old one.
+function forgetStreamErrors(kind: "sender" | "receiver", userId: string) {
+    for (const id of streamErrors(kind, userId)) handledErrors.add(id);
+}
+
+// Ends a broken Go Live so the next tick starts a fresh one (and reopens the farm window if it closed).
+const canRestart = (now: number) => now - lastRestart >= RESTART_EVERY_MS;
+
+function restartLive(stream: AppStream, now: number, why: string) {
+    if (!canRestart(now)) return false;
+    lastRestart = now;
+    forgetStreamErrors("sender", stream.ownerId);
+    logger.info("Restarting Go Live:", why);
+    stopStream(streamKey(stream), false);
+    startedKey = "";
+    lastStart = 0;
+    liveError = `${why} Restarting Go Live...`;
+    return true;
+}
 
 // A stream that failed (for example its window closed) stays listed until it's started again.
 const isLive = (stream: AppStream | null, channelId: string): stream is AppStream =>
@@ -323,8 +512,14 @@ function streamerTick(now: number, elapsed: number) {
     muteOnJoin(where.id, false);
 
     const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
+    // Only a stream the farm started is ever restarted; one the user started themselves is theirs.
+    const ours = stream != null && startedKey !== "" && streamKey(stream) === startedKey;
+    const failed = ours && stream.state === "FAILED";
+    // A failed Go Live stays listed and blocks a new one, so it's ended first.
+    if (failed && stream.channelId === where.id) restartLive(stream, now, "The stream failed.");
     if (!isLive(stream, where.id)) {
-        startedKey = "";
+        // Kept while the farm's own stream is failed, so it can still be restarted once the wait between restarts is over.
+        if (!failed) startedKey = "";
         const myRun = run;
         void goLive(now, where).catch(e => {
             logger.error("Couldn't go live", e);
@@ -336,12 +531,30 @@ function streamerTick(now: number, elapsed: number) {
     }
     liveError = "";
 
+    if (ours && canRestart(now) && freshStreamError("sender", me) && restartLive(stream, now, "Discord said the stream wasn't sending.")) return setStatus("starting", liveError);
+    if (ours && isFarmSource() && !farmCheck) {
+        // The farm window was closed (Task Manager, a crash): the stream would only show a frozen picture.
+        const myRun = run, checked = farmPid;
+        farmCheck = farmAlive().then(alive => {
+            if (myRun !== run || alive || farmPid !== checked) return;
+            farmPid = 0;
+            const own = ApplicationStreamingStore.getCurrentUserActiveStream();
+            if (own && restartLive(own, Date.now(), "The farm window closed.")) kick();
+        }).finally(() => farmCheck = null);
+    }
+
     const partner = partnerId();
     const viewers = ApplicationStreamingStore.getViewerIds(stream).filter(id => id !== me);
     const watched = partner ? viewers.includes(partner) : viewers.length > 0;
     if (!watched) {
         const who = partner ? partnerName("your other account") : "someone";
         return setStatus("waiting", `Live, waiting for ${who} to watch. Time only counts while they do.`);
+    }
+    if (stream.state && stream.state !== "ACTIVE") return setStatus("waiting", "Live, but the stream is reconnecting. Time counts again once it's back.");
+    // The second account hosted here says when its picture is stuck, even though Discord still lists it as watching.
+    const second = secondStatus();
+    if (second.phase === "ready" && second.account?.id === partner && second.viewer && second.viewer.phase !== "watching") {
+        return setStatus("waiting", `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
     }
     count(elapsed);
     setStatus("counting", `Live and watched by ${viewers.length === 1 ? "1 viewer" : `${viewers.length} viewers`}. Time is counting.`);
@@ -390,9 +603,29 @@ function viewerTick(now: number, elapsed: number) {
     if (!joinedHere(where.id)) return join(where, now, false);
     muteOnJoin(where.id, true);
 
-    if (!live || !stream) return setStatus("waiting", `In ${where.name}, waiting for ${name} to go live.`);
-    const watching = ApplicationStreamingStore.getActiveStreamForApplicationStream(stream) != null
-        && ApplicationStreamingStore.getViewerIds(stream).includes(me);
+    if (!live || !stream) {
+        stuckSince = 0;
+        return setStatus("waiting", `In ${where.name}, waiting for ${name} to go live.`);
+    }
+    const active = ApplicationStreamingStore.getActiveStreamForApplicationStream(stream);
+    const watching = active != null && ApplicationStreamingStore.getViewerIds(stream).includes(me);
+    // Open but broken: failed (error 2012), paused for too long, or Discord said no picture is coming. It's closed and
+    // opened again, and nothing counts meanwhile.
+    if (active) {
+        if (active.state === "ACTIVE") stuckSince = 0;
+        else stuckSince ||= now;
+        const why = active.state === "FAILED" ? "failed"
+            : freshStreamError("receiver", partner) ? "stopped sending a picture"
+                : stuckSince && now - stuckSince >= STUCK_MS ? "got stuck" : "";
+        if (why) {
+            logger.info(`Reopening the stream, it ${why}`);
+            stuckSince = 0;
+            forgetStreamErrors("receiver", partner);
+            closeStream(streamKey(stream), false);
+            lastWatch = now;
+            return setStatus("joining", `${name}'s stream ${why}. Opening it again...`);
+        }
+    } else stuckSince = 0;
     if (!watching) {
         if (now - lastWatch >= WATCH_RETRY_MS) {
             lastWatch = now;
@@ -401,6 +634,7 @@ function viewerTick(now: number, elapsed: number) {
         }
         return setStatus("joining", `Opening ${name}'s stream...`);
     }
+    if (active.state && active.state !== "ACTIVE") return setStatus("joining", `${name}'s stream is connecting...`);
     // Watching earns the streaming account's time, not this one's, so it only shows in this call's time.
     sessionMs += elapsed;
     setStatus("watching", `Watching ${name}'s stream in ${where.name}. Their time is counting.`);
@@ -489,6 +723,7 @@ function teardown() {
     setProf({ joinedCall: "" });
     startedKey = watchedKey = "";
     undeafen();
+    closeFarmWindow();
 }
 
 // A hang-up from leaving the call in Discord, not saved yet: the UI already shows the call as ended, and anything
@@ -514,7 +749,7 @@ export function startStreamFarm() {
     // Left over from a Discord that closed mid-run: put the user's Go Live quality back before starting again.
     if (!ApplicationStreamingStore.getCurrentUserActiveStream()) restoreGoLive();
     lastTick = Date.now();
-    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = 0;
+    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = lastRestart = stuckSince = 0;
     sessionMs = 0;
     mutedFor = liveError = "";
     inCall = false;
@@ -559,4 +794,17 @@ export function resetStreamCount() {
     unsaved = 0;
     setProf({ countedMs: 0 });
     setStatus(status.phase, status.detail);
+}
+
+// The source or game changed mid-run: only the Go Live is restarted, the call stays.
+export function refreshGoLive() {
+    if (!timer) return;
+    // Any Go Live still starting belongs to the old choice.
+    run++;
+    const own = ApplicationStreamingStore.getCurrentUserActiveStream();
+    if (startedKey && own && streamKey(own) === startedKey) stopStream(startedKey, false);
+    startedKey = "";
+    closeFarmWindow();
+    lastStart = lastRestart = 0;
+    kick();
 }
