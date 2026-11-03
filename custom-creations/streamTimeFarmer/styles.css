@@ -189,3 +189,74 @@
 .vc-stf-call-buttons > * {
     flex: 1;
 }
+
+/* AFK mode: everything else on the page is hidden, so Discord draws nothing but this. */
+body.vc-stf-afk-on > :not(.vc-stf-afk) {
+    display: none !important;
+}
+
+.vc-stf-afk {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: #000;
+    color: #8a8a8a;
+    font-family: var(--font-primary, sans-serif);
+    text-align: center;
+    outline: none;
+    user-select: none;
+}
+
+.vc-stf-afk-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #5c5c5c;
+}
+
+.vc-stf-afk-label {
+    margin-top: 12px;
+    font-size: 14px;
+    color: #7a7a7a;
+}
+
+.vc-stf-afk-total {
+    font-size: 72px;
+    font-weight: 700;
+    line-height: 1.1;
+    color: #d0d0d0;
+    font-variant-numeric: tabular-nums;
+}
+
+.vc-stf-afk-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    color: #a0a0a0;
+}
+
+/* The status dot sits in the line here instead of on an avatar's corner. */
+.vc-stf-afk-dot {
+    position: static;
+    border-color: #000;
+}
+
+.vc-stf-afk-status {
+    max-width: 480px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #6e6e6e;
+}
+
+.vc-stf-afk-hint {
+    margin-top: 18px;
+    font-size: 12px;
+    color: #4a4a4a;
+}
