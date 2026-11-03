@@ -5,6 +5,16 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-03
 
+- StreamTimeFarmer: streams its own small window now instead of a random open one. It sits in a screen corner behind
+  everything, see-through and click-through, with no taskbar button, and shows only its name (or the game's cover), a
+  ticking clock and a moving bar, so nothing private can end up in the stream, the picture never freezes, and it can't
+  break by being minimized or closed. Everyone who was on "a random open window" moves to it; a window you picked
+  yourself stays.
+- StreamTimeFarmer: new "Show it as a game" option. Pick a game and the stream shows as "Streaming <game>", with the
+  farm window showing its cover art. It steps aside while gameSessionSpoofer shows a game.
+- StreamTimeFarmer: a broken stream fixes itself. When it fails (like "Stream failed, error 2012"), gets stuck paused,
+  or stops getting a picture through, the second account reopens it and your account restarts Go Live. Time doesn't
+  count while it's broken.
 - StreamTimeFarmer: Log in to second account works with the plugin off too and turns it on. When the button can't work
   yet, the settings now say why: Discord needs a full quit and reopen after the update, or the installer needs to run
   again.
@@ -15,6 +25,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - Installer: when it closes Discord to install or remove Equicord, it now closes only Discord itself. Before, it also
   force-closed Discord System Helper (Discord's keybinds helper), which could leave the helper stuck and make Discord's
   own "Uninstall" button for it fail with an "Overlapped I/O" error.
+- CordmuffinUpdater: when Windows or an antivirus won't let the updater start, it now says so and names the file to
+  allow, instead of "The updater stopped without saying why (code -1)".
 
 ## 2026-11-02
 
