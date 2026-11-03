@@ -382,6 +382,14 @@ func copyTree(src, dest string) error {
 	})
 }
 
+func copyFile(src, dest string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dest, data, 0o644)
+}
+
 func nodeReady(dir string) bool {
 	return isFile(filepath.Join(dir, "node.exe")) && isFile(filepath.Join(dir, "node_modules", "corepack", "dist", "corepack.js"))
 }
@@ -1394,12 +1402,24 @@ func build(opts buildOptions) (buildResult, error) {
 		return res, fmt.Errorf("%w: %w", errBuildFailed, err)
 	}
 	fmt.Println()
+	// The web version runs GameTimeSpoof's second account inside Discord. Without it everything else still works.
+	say("Building the web version (for GameTimeSpoof's second account)...")
+	webBuilt := runStep(src, nodeDir, sha, "pnpm", "buildWeb", "--skip-extension") == nil
+	if !webBuilt {
+		say("  The web version didn't build. Everything else works; only GameTimeSpoof's second account won't.")
+	}
+	fmt.Println()
 
 	res.staged = distDir() + ".new"
 	removeAll(res.staged)
 	if err := copyTree(filepath.Join(src, "dist", "desktop"), res.staged); err != nil {
 		removeAll(res.staged)
 		return res, err
+	}
+	if webBuilt {
+		if err := copyFile(filepath.Join(src, "dist", "Equicord.user.js"), filepath.Join(res.staged, "Equicord.user.js")); err != nil {
+			say("  Couldn't copy the web version: %v", err)
+		}
 	}
 	return res, nil
 }
@@ -2062,6 +2082,10 @@ func update() int {
 		writeJSON(statePath(), prev)
 		prev.Equicord = eqBefore
 		cerr := copyTree(res.staged, distDir())
+		// Copying over leaves files the new build doesn't have; an old web version must not run with new desktop files.
+		if !isFile(filepath.Join(res.staged, "Equicord.user.js")) {
+			os.Remove(filepath.Join(distDir(), "Equicord.user.js"))
+		}
 		removeAll(res.staged)
 		if cerr != nil {
 			// Part of the new version may be in place now, so the next update has to rebuild whatever happens.
