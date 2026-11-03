@@ -12,6 +12,10 @@ import { settings } from ".";
 // total apart. (Two Discords running at once on one shared settings file still each save their own copy of it.)
 
 export type StreamRole = "off" | "streamer" | "viewer";
+// The farm's own window (see native.ts), the default thing to stream.
+export const FARM_SOURCE = "farm";
+// A game from Discord's list of games it detects, which the farm window is shown as.
+export interface FarmGame { id: string; name: string; exeName: string; cover: string; }
 export interface GoLiveSettings { preset: number; resolution: number; fps: number; soundshareEnabled: boolean; }
 // Who the second account logged in here is, kept so the settings and the call widget can show it while its window is closed.
 export interface SecondAccountInfo { id: string; username: string; globalName: string; tag: string; avatar: string; }
@@ -22,6 +26,8 @@ export interface StreamProfile {
     where: "dm" | "server";
     channel: string;
     source: string;
+    // Game mode: the farm window is shown as this game; null streams it as itself.
+    farmGame: FarmGame | null;
     hostSecond: boolean;
     countedMs: number;
     joinedCall: string;
@@ -43,7 +49,8 @@ export const DEFAULT_PROFILE: StreamProfile = {
     partner: "",
     where: "dm",
     channel: "",
-    source: "random",
+    source: FARM_SOURCE,
+    farmGame: null,
     hostSecond: false,
     countedMs: 0,
     joinedCall: "",
@@ -106,4 +113,12 @@ export function migrateLegacy(userId: string) {
         updateProfileFor(userId, patch);
     }
     for (const k of found) delete raw[k];
+}
+
+// "A random open window" was the default before the farm had its own window, and could stream a window that was
+// minimized, closed or private. Everyone still on it moves to the farm window; a window someone picked stays.
+export function migrateRandomSource() {
+    const profiles = settings.store.profiles ?? {};
+    const old = Object.keys(profiles).filter(id => profiles[id]?.source === "random");
+    for (const id of old) updateProfileFor(id, { source: FARM_SOURCE });
 }
