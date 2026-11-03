@@ -3,6 +3,12 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-03
+
+- StreamTimeFarmer: Log in to second account works with the plugin off too and turns it on. When the button can't work
+  yet, the settings now say why: Discord needs a full quit and reopen after the update, or the installer needs to run
+  again.
+
 ## 2026-11-02
 
 - New plugin: StreamTimeFarmer, for the Streaming badge. Log a second account of yours in from its settings (it runs
