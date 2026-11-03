@@ -348,19 +348,34 @@ async function doUpdate(includeMuffinshelf: boolean, includeEquicord: boolean): 
         return { ok: false, error: "Cordmuffin's updater is missing. Run Cordmuffin Equicord Installer once to fix it." };
 
     rmSync(join(work, "update-result.json"), { force: true });
+    let startError: NodeJS.ErrnoException | undefined;
     const code = await new Promise<number>(done => {
         // Detached, so closing Discord in the middle doesn't cut the build off; it finishes and is used next start.
         const args = ["/update", ...(includeMuffinshelf ? [] : ["/no-muffinshelf"]), ...(includeEquicord ? [] : ["/no-equicord"])];
-        const child = spawn(exe, args, { cwd: work, windowsHide: true, detached: true, stdio: "ignore" });
+        let child: ReturnType<typeof spawn>;
+        // Most refusals come back as an "error" event, but some (like a blocked or broken file) throw right here.
+        try {
+            child = spawn(exe, args, { cwd: work, windowsHide: true, detached: true, stdio: "ignore" });
+        } catch (e) {
+            startError = e as NodeJS.ErrnoException;
+            return done(-1);
+        }
         // The installer runs node and pnpm (and maybe a newer copy of itself), so the whole tree is stopped.
         const timer = setTimeout(() => {
             if (child.pid) spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" }).on("error", () => child.kill());
             else child.kill();
         }, UPDATE_TIMEOUT_MS);
-        child.on("error", () => { clearTimeout(timer); done(-1); });
+        child.on("error", e => { clearTimeout(timer); startError = e; done(-1); });
         child.on("exit", c => { clearTimeout(timer); done(c ?? -1); });
     });
 
+    // Windows wouldn't start it at all, so it never got to write a log. An antivirus blocking it is the usual reason.
+    if (startError) {
+        const why = ["EACCES", "EPERM", "ENOENT", "UNKNOWN"].includes(startError.code ?? "")
+            ? `Windows or an antivirus blocked it, ${startError.code}`
+            : startError.message;
+        return { ok: false, error: `Windows wouldn't start Cordmuffin's updater (${why}). If your antivirus blocked it, allow "${exe}" and try again, or run Cordmuffin Equicord Installer once.` };
+    }
     if (code === EXIT_BUSY) return { ok: false, error: "The Cordmuffin installer or Muffinshelf is busy building right now. It tries again later." };
     const result = readResult();
     if (result) return result;
