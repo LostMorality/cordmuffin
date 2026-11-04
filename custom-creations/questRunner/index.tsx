@@ -731,10 +731,14 @@ function QuestCardButton({ quest, size }: { quest: Quest; size: string; }) {
     );
 }
 
+function hasCardButton(quest: Quest | undefined): boolean {
+    if (!started || !quest || questifyFinisherOn() || QuestStore.isQuestAccessSuspended) return false;
+    return !!quest.userStatus?.enrolledAt && !quest.userStatus.completedAt && isLive(quest) && !!pickTask(quest, true);
+}
+
 // Replaces Discord's button on accepted quests QuestRunner can do; anything else keeps Discord's own button.
 function questButton(quest: Quest | undefined, size: string, accepted: boolean) {
-    if (!accepted || !started || !quest || questifyFinisherOn() || QuestStore.isQuestAccessSuspended) return null;
-    if (!quest.userStatus?.enrolledAt || quest.userStatus.completedAt || !isLive(quest) || !pickTask(quest, true)) return null;
+    if (!accepted || !quest || !hasCardButton(quest)) return null;
     return (
         <ErrorBoundary noop>
             <QuestCardButton quest={quest} size={size} />
@@ -867,6 +871,7 @@ export default definePlugin({
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
     cleanStack,
+    hasCardButton,
     questButton,
     skipVideoPlayer,
 
@@ -895,6 +900,17 @@ export default definePlugin({
             replacement: {
                 match: /(?<=\i=)(?=function\(\)\{switch\((\i)\)\{case (\i\.\i)\.UNENROLLED:return\(0,\i\.jsx\)\(\i,\{quest:(\i),taskType:\i,size:(\i),)/,
                 replace: "$self.questButton($3,$4,$1===$2.ENROLLED||$1===$2.INCOMPLETE)??"
+            }
+        },
+        {
+            // Quest Home tiles show only the game's link once a play quest is accepted, with no quest button to replace.
+            // Skip that layout for quests QuestRunner can do, so the tile falls back to the one with the button.
+            // Goes in front of the condition: Questify inserts its own check right after the state check.
+            find: "QUEST_HOME_TILE_FOOTER,",
+            predicate: () => settings.store.cardButtons && !questifyFinisherOn(),
+            replacement: {
+                match: /(?=\(\i===\i\.\i\.ENROLLED\|\|\i===\i\.\i\.INCOMPLETE\)&&.{0,100}?\(0,\i\.\i\)\((\i)\)\?\(0,\i\.jsx\)\("div",\{className:\i\.\i,children:\(0,\i\.jsx\)\(\i,\{quest:\1,content:)/,
+                replace: "!$self.hasCardButton($1)&&"
             }
         },
         {
