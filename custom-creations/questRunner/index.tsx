@@ -880,10 +880,11 @@ export default definePlugin({
             }
         },
         {
-            // Opening a video quest: Discord enrolls it, then opens the player. Stop before the player.
+            // Opening a video quest: Discord enrolls it, then opens the player. Stop before the player
+            // (older builds set captions there, newer ones auto-unmute).
             find: ".QUEST_VIDEO_ENROLLMENT_RETRY_ATTEMPTED,",
             replacement: {
-                match: /(?=let\{setCaptionEnabled:)/,
+                match: /(?=let\{(?:setCaptionEnabled|muted):)/,
                 replace: "if($self.skipVideoPlayer(arguments[0]?.quest))return;"
             }
         },
