@@ -3,6 +3,14 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-04
+
+- QuestRunner: the Completing button is back on play quests in Quest Home. Discord's new quest tiles only showed the
+  game's "Play Now" link once you accepted a play quest, so it looked like nothing was happening even while the quest
+  ran. It works next to Questify too.
+- QuestRunner: starting a video quest no longer opens Discord's video player again. A Discord update had broken the
+  skip, so the player opened even with "Don't open Discord's video player" on.
+
 ## 2026-11-03
 
 - StreamTimeFarmer: streams its own small window now instead of a random open one. It sits in a screen corner behind
