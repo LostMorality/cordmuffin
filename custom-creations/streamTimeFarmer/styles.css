@@ -309,3 +309,66 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
 .vc-stf-stream-game:hover {
     background: var(--background-modifier-hover);
 }
+
+.vc-stf-tracking {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--status-danger);
+    border-left-width: 4px;
+    background: color-mix(in srgb, var(--status-danger) 10%, var(--background-secondary, var(--background-base-lower)));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-tracking-title {
+    font-weight: 700;
+    color: var(--header-primary, var(--text-strong));
+}
+
+.vc-stf-tracking-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.vc-stf-tracking-changes {
+    margin: 0;
+    padding-left: 18px;
+    list-style: disc;
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-tracking-ok {
+    color: var(--text-positive, var(--status-positive));
+}
+
+.vc-stf-tracking-bad {
+    color: var(--text-danger, var(--status-danger));
+    font-weight: 600;
+}
+
+.vc-stf-tracking-compact {
+    gap: 4px;
+    padding: 8px 10px;
+    font-size: 12px;
+}
+
+.vc-stf-tracking-compact .vc-stf-tracking-title {
+    font-size: 13px;
+}
+
+/* The minimized widget gets a red ring while the Streaming badge can't count. */
+.vc-stf-call-pill-warn {
+    box-shadow: 0 0 0 2px var(--status-danger);
+}
+
+.vc-stf-tracking-unknown {
+    color: var(--text-muted);
+}
