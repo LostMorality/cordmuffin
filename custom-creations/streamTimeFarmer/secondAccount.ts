@@ -72,13 +72,14 @@ export const canHostSecond = () => IS_DISCORD_DESKTOP;
 
 // Why the second account can't run in this Discord, or "" when it can. "restart": the plugin's desktop half isn't
 // loaded, which happens when it was added or updated while Discord kept running (closing to the tray or reloading
-// doesn't load it). "web": the installer couldn't build the web version the second account's window runs.
+// doesn't load it). "web": the Equicord build that window runs couldn't be downloaded.
 export type SetupProblem = "" | "restart" | "web";
 
 async function setupProblem(): Promise<SetupProblem> {
     if (!Native) return "restart";
     try {
-        return await Native.hasWebBuild() ? "" : "web";
+        // This downloads the build when it's missing, so a first run isn't turned away for not having it yet.
+        return await Native.webBuildProblem() ? "web" : "";
     } catch {
         // The desktop half is from an older start of Discord and doesn't have this plugin's handlers.
         return "restart";
@@ -122,7 +123,8 @@ const READ = `(() => {
     const V = window.Vencord;
     const me = V?.Webpack?.Common?.UserStore?.getCurrentUser?.();
     if (!me) return { ready: !!V && /^\\/(login|register)/.test(location.pathname), loggedIn: false, noVencord: !V?.Plugins?.plugins };
-    const P = V.Plugins.plugins.StreamTimeFarmer;
+    // Either the plugin itself, in a build that has it, or the agent injected into a released Equicord.
+    const P = V.Plugins?.plugins?.StreamTimeFarmer || window.__streamTimeFarmerAgent;
     let avatar = "", presence = "";
     try { avatar = me.getAvatarURL?.(undefined, 80, false) ?? ""; } catch { }
     try { presence = V.Api?.UserSettings?.getUserSettingLazy?.("status", "status")?.getSetting?.() || V.Webpack.findStore?.("PresenceStore")?.getStatus?.(me.id) || ""; } catch { }
@@ -145,10 +147,17 @@ const READ = `(() => {
 // The online status is the second account's own Discord setting, so it changes wherever that account is logged in.
 // It answers with the status the account has afterwards, so what's shown is always what it really has.
 const setUp = (streamerId: string, watch: boolean, presence: SecondPresence) => `(() => {
-    const V = window.Vencord, s = V?.Settings?.plugins?.StreamTimeFarmer, P = V?.Plugins?.plugins?.StreamTimeFarmer;
-    if (!s || !P?.configureStreamFarm) return false;
-    if (!s.enabled) { s.enabled = true; V.Plugins.startPlugin(P); }
-    P.configureStreamFarm(${JSON.stringify({ role: watch ? "viewer" : "off", partner: streamerId })});
+    const V = window.Vencord, P = V?.Plugins?.plugins?.StreamTimeFarmer || window.__streamTimeFarmerAgent;
+    if (!P?.configureStreamFarm) return false;
+    // The agent is already running; only a real plugin has to be switched on first.
+    const s = V?.Settings?.plugins?.StreamTimeFarmer;
+    if (!P.isAgent && s && !s.enabled) { s.enabled = true; V.Plugins.startPlugin(P); }
+    P.configureStreamFarm(${JSON.stringify({
+        role: watch ? "viewer" : "off",
+        partner: streamerId,
+        muteMic: Settings.plugins.StreamTimeFarmer.muteMic !== false,
+        deafenViewer: Settings.plugins.StreamTimeFarmer.deafenViewer !== false
+    })});
     const want = ${JSON.stringify(presence)};
     let now = "", applied = false;
     try {
@@ -299,7 +308,30 @@ export async function linkSecondAccount() {
 }
 
 export const RESTART_TEXT = "StreamTimeFarmer was added or updated while Discord was running. Quit Discord fully (right-click its tray icon, then Quit Discord) and open it again to finish setting it up.";
-export const WEB_TEXT = "The part of Equicord that runs the second account didn't install. Run the Cordmuffin installer again to add it (on a source build, run pnpm buildWeb).";
+export const WEB_TEXT = "The second account's window needs Equicord's web build, which this plugin downloads from Equicord on its own. That download hasn't worked yet, so there's nothing for the window to load.";
+
+// Whether the window has what it needs, and fetching it again. Both answer with "" when all is well, or a short reason.
+export const webProblem = async () => {
+    try {
+        return Native ? await Native.webBuildProblem() : "";
+    } catch (e: any) {
+        return `Couldn't check for Equicord's web build (${e?.message ?? e}).`;
+    }
+};
+
+export const refetchWeb = async () => {
+    try {
+        return await Native!.refetchWeb();
+    } catch (e: any) {
+        return `The download couldn't run (${e?.message ?? e}).`;
+    }
+};
+
+// Keeps the second account's notifications and taskbar badge quiet. Called when the setting changes and when the
+// plugin starts, so the native side matches the setting even after Discord restarts.
+export const syncQuietSecondAccount = (on = Settings.plugins.StreamTimeFarmer.quietSecondAccount !== false) => {
+    void Native?.setSecondAccountQuiet(on).catch(e => logger.error("Couldn't change the second account's notifications", e));
+};
 
 // Stops logging in. During a call that also hangs up, since the call can't go on without the second account.
 export function cancelLink() {
