@@ -10,6 +10,29 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   ran. It works next to Questify too.
 - QuestRunner: starting a video quest no longer opens Discord's video player again. A Discord update had broken the
   skip, so the player opened even with "Don't open Discord's video player" on.
+- StreamTimeFarmer: warns you when your Streaming badge can't count. Equicord's NoTrack plugin blocks the report
+  Discord counts streaming time from (its "Block Discord's tracking analytics" switch is on by default), and so does
+  Discord's "Use data to improve Discord" setting when it's off, and Discord's own article also asks for "Use data to
+  personalize my Discord experience". The settings and the corner call widget now check all of them,
+  for your account and your second account, in green and red, and "Fix these for me" changes them after a confirm box
+  that lists every change.
+- StreamTimeFarmer: new "Keep Computer Awake" setting, off by default. While the farm runs or AFK mode is on, your computer
+  won't go to sleep by itself, even when no call is live. Needs one full Discord restart after updating.
+- StreamTimeFarmer: new "Mute Call Sounds" setting, on by default. While the farm runs, Discord's call, ring, Go Live,
+  join, leave, mute and deafen sounds stay silent on your PC. Message sounds stay on.
+- StreamTimeFarmer: quitting or reloading Discord now sends the stream's time so far instead of losing it. Putting the PC
+  to sleep no longer counts as hanging up, so the farm carries on after it wakes.
+- StreamTimeFarmer: wording is more honest. "Farmed" is now "Streamed", the plugin's own total says it isn't Discord's
+  count, the confirm box says what Discord can see once tracking is allowed, and settings whose effect on the badge isn't
+  proven say so. It no longer claims the badge updates once a day.
+- StreamTimeFarmer: keeps the last 200 stream reports on your PC, says when an account has no Streaming badge yet, asks
+  before resetting the total, and suggests DisableCallIdle when it's off.
+- StreamTimeFarmer: the widget and settings now show when Discord last accepted a stream report, when the next one goes
+  out, and Discord's own count for the badge, and warn when a report never arrived or another plugin may be blocking it.
+- StreamTimeFarmer: sends Discord the streaming time every hour now instead of only when the call ends. Discord only
+  counts a stream's time when the stream ends, so a stream that ran for days counted nothing until hang-up, and a crash
+  lost all of it. The farm now ends and restarts its Go Live every hour (the call and your second account stay), so a
+  crash only loses the time since the last restart. Change it with the "Report Every" setting.
 
 ## 2026-11-03
 
