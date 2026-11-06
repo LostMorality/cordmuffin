@@ -86,7 +86,7 @@ export function enterAfk() {
     callRow.append(dot, callLine);
     statusLine = line("afk-status");
     hintLine = line("afk-hint", HINT);
-    screen.append(line("afk-title", "AFK mode"), line("afk-label", "Streaming time counted"), totalLine, callRow, statusLine, hintLine);
+    screen.append(line("afk-title", "AFK mode"), line("afk-label", "Time streamed while watched"), totalLine, callRow, statusLine, hintLine);
     document.body.appendChild(screen);
     document.body.classList.add(cl("afk-on"));
     screen.focus();
