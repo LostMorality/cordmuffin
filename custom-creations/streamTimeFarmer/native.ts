@@ -6,8 +6,10 @@
 
 import { ChildProcess, spawn } from "child_process";
 import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, powerSaveBlocker, screen, session } from "electron";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
+
+import { VIEWER_AGENT } from "./viewerAgent";
 
 // The stream farm's second account runs here: Discord's web app in a hidden window with its own separate login, with
 // Equicord's web build loaded into it so the same StreamTimeFarmer runs there as the viewer.
@@ -47,6 +49,46 @@ function GM_xmlhttpRequest(o) {
         .catch(e => o.onerror && o.onerror(e));
 }
 `;
+// Discord's web app raises desktop notifications and sets the app badge. The second account's window belongs to the
+// same Electron app as the user's own Discord, so its unread count lands on that same taskbar badge and its toasts
+// look like the user's own. This keeps both quiet inside that window: the account still receives everything, it just
+// doesn't announce it here. Injected ahead of the web build so it covers the login page too.
+const SILENCE = `(() => {
+    const quiet = () => Promise.resolve();
+    try {
+        navigator.setAppBadge = quiet;
+        navigator.clearAppBadge = quiet;
+    } catch (e) { }
+    try {
+        const Quiet = function () {
+            return { close() { }, addEventListener() { }, removeEventListener() { }, onclick: null, onclose: null };
+        };
+        Quiet.permission = "denied";
+        Quiet.requestPermission = () => Promise.resolve("denied");
+        Object.defineProperty(window, "Notification", { configurable: true, writable: true, value: Quiet });
+    } catch (e) { }
+})();
+`;
+
+// Whether that silencing is on. Defaults to on, so a freshly linked account is quiet from its first call.
+let quiet = true;
+
+export function setSecondAccountQuiet(_: IpcMainInvokeEvent, on: boolean) {
+    quiet = on;
+    if (!on) return; // Turning it back on takes effect the next time that window loads; nothing here undoes it.
+    clearBadge();
+    // Apply it to the window already open, so the setting works without interrupting a call in progress.
+    if (win && !win.isDestroyed()) void win.webContents.executeJavaScript(SILENCE).catch(() => { });
+}
+
+// A badge the second account already set stays until something clears it, so silencing clears it once.
+function clearBadge() {
+    try {
+        if (app.badgeCount) app.setBadgeCount(0);
+        win?.flashFrame(false);
+    } catch (e) { }
+}
+
 // How long a check in the second account's page may take before it counts as failed (a hung page never answers).
 const EVAL_TIMEOUT_MS = 10_000;
 const MIN_WIDTH = 360;
@@ -57,16 +99,106 @@ let winPartition = "";
 let quitting = false;
 let placed = false;
 
-// Next to the desktop build when the cordmuffin installer built it, one folder up in a plain Equicord build.
-const webBuild = () => [join(__dirname, "Equicord.user.js"), join(__dirname, "..", "Equicord.user.js"), join(__dirname, "..", "Vencord.user.js")].find(existsSync);
+// The second account's window runs Equicord's own released web build, fetched straight from Equicord and kept in this
+// plugin's own folder. Nobody has to build or install anything, and the window always has the current Equicord. A
+// released build knows nothing about this plugin, so the viewer's half comes from viewerAgent.ts instead.
+const WEB_URL = "https://github.com/Equicord/Equicord/releases/download/latest/Equicord.user.js";
+const WEB_MAX_AGE_MS = 6 * 60 * 60_000;
+const WEB_MIN_BYTES = 500_000;
+const DOWNLOAD_TIMEOUT_MS = 2 * 60_000;
+
+const webDir = () => join(app.getPath("userData"), "streamtimefarmer");
+const webCache = () => join(webDir(), "Equicord.user.js");
+
+// The downloaded build comes first, so the second account is on the current Equicord whatever this Discord was built
+// from, and everyone runs the same path. A build left next to the desktop build by the cordmuffin installer or a
+// source checkout is only the fallback, for when the download has never succeeded (no internet on first run).
+const localBuild = () => [join(__dirname, "Equicord.user.js"), join(__dirname, "..", "Equicord.user.js"), join(__dirname, "..", "Vencord.user.js")].find(existsSync);
+const webBuild = () => existsSync(webCache()) ? webCache() : localBuild();
+
+const fresh = (path: string) => {
+    try {
+        return Date.now() - statSync(path).mtimeMs < WEB_MAX_AGE_MS;
+    } catch {
+        return false;
+    }
+};
+
+let downloading: Promise<string> | null = null;
+
+// Downloads the released build to the cache. Resolves with "" when the window has something to load afterwards, or a
+// short reason when it doesn't. Only one download runs at a time, and a failure leaves any older copy in place.
+function downloadWeb(): Promise<string> {
+    if (downloading) return downloading;
+    downloading = (async () => {
+        const target = webCache();
+        try {
+            const res = await fetch(WEB_URL, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS), redirect: "follow" });
+            if (!res.ok) throw new Error(`Equicord's download answered ${res.status}`);
+            const text = await res.text();
+            // Guard against a proxy or error page being saved as if it were the build.
+            if (text.length < WEB_MIN_BYTES || !text.includes("==UserScript==")) throw new Error("what came back isn't Equicord's web build");
+            mkdirSync(webDir(), { recursive: true });
+            const tmp = `${target}.part`;
+            writeFileSync(tmp, text);
+            renameSync(tmp, target);
+            return "";
+        } catch (e: any) {
+            // An older copy still works, so a failed refresh isn't a failure.
+            if (existsSync(target)) return "";
+            return `Couldn't download Equicord for the second account's window (${e?.message ?? e}). Check your internet connection and try again.`;
+        }
+    })();
+    void downloading.finally(() => downloading = null);
+    return downloading;
+}
+
+// What the window needs before it loads. A cached copy is used straight away and refreshed in the background, so a
+// slow download never holds up a call.
+async function ensureWeb(): Promise<string> {
+    const cached = webCache();
+    if (existsSync(cached)) {
+        if (!fresh(cached)) void downloadWeb();
+        return "";
+    }
+    // Nothing cached yet: a local build lets the window open now while the download runs for next time.
+    if (localBuild()) {
+        void downloadWeb();
+        return "";
+    }
+    return await downloadWeb();
+}
+
+// Why the second account's window can't open, or "" when it can. The UI shows this instead of a bare failure.
+export async function webBuildProblem(_: IpcMainInvokeEvent): Promise<string> {
+    return await ensureWeb();
+}
+
+// Fetches the build again even when the cached one is still young, for the "Try again" button after a failure.
+export function refetchWeb(_: IpcMainInvokeEvent): Promise<string> {
+    return downloadWeb();
+}
 
 app.on("before-quit", () => quitting = true);
 
 // Only the second account's own window gets the code.
 ipcMain.on(CODE_CHANNEL, e => {
-    const path = webBuild();
-    // Wrapped in a function like a userscript manager does; the build's last line relies on that to set window.Vencord.
-    e.returnValue = win && !win.isDestroyed() && e.sender === win.webContents && path ? `(function () {\n${USERSCRIPT_SHIM}\n${readFileSync(path, "utf8")}\n})();` : "";
+    if (!win || win.isDestroyed() || e.sender !== win.webContents) {
+        e.returnValue = "";
+        return;
+    }
+    let build = "";
+    try {
+        const path = webBuild();
+        // Wrapped in a function like a userscript manager does; the build's last line relies on that to set window.Vencord.
+        if (path) build = `(function () {\n${USERSCRIPT_SHIM}\n${readFileSync(path, "utf8")}\n})();`;
+    } catch (e) {
+        // This answer has to arrive whatever happens: the page waits for it before it does anything.
+        console.warn("[StreamTimeFarmer] Couldn't read Equicord for the second account's window:", e);
+    }
+    // Silencing goes first, so it still applies while the window is only showing the login page. The agent goes last
+    // and waits for Equicord to boot; it bows out by itself if this build already contains the plugin.
+    e.returnValue = (quiet ? SILENCE : "") + build + (build ? `\n${VIEWER_AGENT}` : "");
 });
 
 function create(partition: string) {
@@ -134,12 +266,9 @@ export function setKeepAwake(_: IpcMainInvokeEvent, on: boolean) {
     return awakeBlocker !== undefined && powerSaveBlocker.isStarted(awakeBlocker);
 }
 
-export function hasWebBuild(_: IpcMainInvokeEvent) {
-    return webBuild() != null;
-}
-
 // "created" when a new window was built (its page starts from scratch), true when it was already there.
-export function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = ""): boolean | "created" {
+export async function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = ""): Promise<boolean | "created"> {
+    await ensureWeb();
     if (!webBuild()) return false;
     const partition = partitionFor(login);
     if (win && !win.isDestroyed() && (win.webContents.isCrashed() || winPartition !== partition)) win.destroy();
