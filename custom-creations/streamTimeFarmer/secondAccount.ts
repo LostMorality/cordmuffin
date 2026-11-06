@@ -13,6 +13,7 @@ import { showToast, useEffect, UserStore, useState } from "@webpack/common";
 import { changeStreamProfile, pluginActive } from ".";
 import { currentUserId, profile, type SecondAccountInfo, type SecondPresence, updateProfile } from "./profile";
 import type { StreamStatus } from "./stream";
+import type { TrackingState } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -36,6 +37,8 @@ export interface SecondStatus {
     viewer: StreamStatus | null;
     // Its online status as its own Discord has it, while it's running ("" when not known).
     presence?: string;
+    // Whether its Discord reports streams (see tracking.ts), while it's running; null when its Equicord can't say.
+    tracking?: TrackingState | null;
 }
 
 // Discord's names for its online statuses.
@@ -134,7 +137,8 @@ const READ = `(() => {
             avatar
         },
         viewer: P?.started ? P.streamFarmStatus?.() ?? null : null,
-        presence
+        presence,
+        tracking: P?.trackingState?.() ?? null
     };
 })()`;
 
@@ -169,7 +173,7 @@ async function tick() {
         if (!opened) return setStatus({ phase: "unavailable", account: null, viewer: null });
         // Rebuilt while the user was logging in: its window has to be shown again.
         if (opened === "created" && loggingIn) void Native.openSecondAccount(true, loginKey());
-        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; presence?: string; } | null;
+        const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; presence?: string; tracking?: TrackingState | null; } | null;
         if (stale()) return;
         if (r == null) {
             if (++failedReads >= FAILED_READS_LIMIT) {
@@ -213,7 +217,7 @@ async function tick() {
         if (!configured || !configured.ok) return void await stuck(r.account);
         if (configured.applied) appliedPresence = secondPresence;
         stuckReads = 0;
-        setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null, presence: configured.presence || r.presence || "" });
+        setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null, presence: configured.presence || r.presence || "", tracking: r.tracking ?? null });
     } catch (e) {
         logger.warn("Second account check failed", e);
     } finally {
@@ -295,7 +299,7 @@ export async function linkSecondAccount() {
 }
 
 export const RESTART_TEXT = "StreamTimeFarmer was added or updated while Discord was running. Quit Discord fully (right-click its tray icon, then Quit Discord) and open it again to finish setting it up.";
-export const WEB_TEXT = "The part of Equicord that runs the second account didn't install. Run the Cordmuffin installer again to add it.";
+export const WEB_TEXT = "The part of Equicord that runs the second account didn't install. Run the Cordmuffin installer again to add it (on a source build, run pnpm buildWeb).";
 
 // Stops logging in. During a call that also hangs up, since the call can't go on without the second account.
 export function cancelLink() {
@@ -315,4 +319,18 @@ export async function signOutSecondAccount() {
     stopSecondAccount();
     await Native?.signOutSecondAccount(login);
     changeStreamProfile({ hostSecond: false, account: null, partner: "", role: "off" });
+}
+
+// Turns stream reporting on inside the second account's Discord. Its page reloads afterwards when NoTrack was
+// blocking there, which ends its NoTrack block, and it rejoins the call by itself. False when it isn't running.
+export async function allowSecondTracking(): Promise<boolean> {
+    if (status.phase !== "ready" || !Native) return false;
+    const done = await Native.secondAccountEval(`(async () => {
+        const P = window.Vencord?.Plugins?.plugins?.StreamTimeFarmer;
+        if (!P?.allowTracking) return false;
+        const { restart } = await P.allowTracking();
+        if (restart) setTimeout(() => location.reload(), 500);
+        return true;
+    })()`);
+    return done === true;
 }
