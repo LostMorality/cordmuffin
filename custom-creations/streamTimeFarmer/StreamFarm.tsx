@@ -4,16 +4,18 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { Settings } from "@api/Settings";
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
-import { ChannelStore, RestAPI, Select, SelectedChannelStore, TextInput, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
+import { Alerts, ChannelStore, RestAPI, Select, SelectedChannelStore, TextInput, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
 
 import { changeStreamProfile } from ".";
 import { formatTime, SecondAccountCard, useStreamStatus } from "./CallWidget";
 import { FARM_SOURCE, type FarmGame, type StreamProfile, useProfile } from "./profile";
 import { canUseFarmWindow, captureSources, gameSlotTaken, isFarmWindow, resetStreamCount, streamFarmRunning } from "./stream";
+import { ReportStatus, TrackingWarning } from "./TrackingWarning";
 
 const cl = classNameFactory("vc-stf-");
 
@@ -167,12 +169,18 @@ function StreamFarmPanel() {
     return (
         <div className={cl("stream")}>
             <Paragraph>
-                The Streaming badge only counts time while someone else in the call watches your stream. Log your other
+                The Streaming badge only counts time with someone else in the call watching the stream. Log your other
                 account in below, then press Call: this account calls it, goes live at the lowest quality with its own small
                 window (see-through, behind everything and with no taskbar button, so you never notice it), and the other account joins,
                 watches, and stays muted and deafened. If the stream breaks, it's reopened by itself. Hanging up (here, in the
                 corner widget, or by leaving the call) ends it and closes the other account's window until the next call.
             </Paragraph>
+
+            <TrackingWarning />
+
+            {!Settings.plugins.DisableCallIdle?.enabled && (
+                <Paragraph>Turn on the DisableCallIdle plugin, or Discord can end the call after 3 minutes alone or after a long idle.</Paragraph>
+            )}
 
             <SecondAccountCard />
 
@@ -208,6 +216,7 @@ function StreamFarmPanel() {
                             Use the one I'm in
                         </Button>
                     </div>}
+                    {where === "server" && <Paragraph>Each report restart may notify members of a small server. A DM call avoids that.</Paragraph>}
 
                     <span className={cl("stream-label")}>What to stream (nobody sees it but your other account)</span>
                     <SourcePicker streamSource={source} />
@@ -216,10 +225,23 @@ function StreamFarmPanel() {
             )}
 
             {(hostSecond || total > 0) && (
-                <div className={cl("stream-time")}>Total counted for this account: {formatTime(total)}</div>
+                <div className={cl("stream-time")}>Time streamed while watched (not Discord's count): {formatTime(total)}</div>
             )}
+            {hostSecond && <ReportStatus />}
             {total > 0 && (
-                <Button size="small" variant="dangerSecondary" onClick={resetStreamCount}>Reset total</Button>
+                <Button
+                    size="small"
+                    variant="dangerSecondary"
+                    onClick={() => Alerts.show({
+                        title: "Reset this total?",
+                        body: "This only clears the plugin's own number. Discord's count doesn't change.",
+                        confirmText: "Reset",
+                        cancelText: "Cancel",
+                        onConfirm: resetStreamCount
+                    })}
+                >
+                    Reset total
+                </Button>
             )}
         </div>
     );
