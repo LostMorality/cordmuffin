@@ -1,6 +1,8 @@
 # cordmuffin
 
-Discord stuff in one place: an easy Equicord installer, and plugins I made, including a store for plugins Equicord doesn't ship.
+Mostly custom Equicord userplugins, including Muffinshelf, a store for plugins Equicord doesn't ship. See [Custom Creations](#custom-creations) for the list.
+
+There's also a side installer for custom patching, if you want it. It builds Equicord with whatever plugins and themes you drop in.
 
 > [!WARNING]
 > Client mods like Equicord break [Discord's Terms of Service](https://discord.com/terms). Nobody is known to have been banned just for using one, but if losing your account would be a disaster, don't use mods.
