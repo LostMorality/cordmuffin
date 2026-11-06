@@ -85,11 +85,11 @@ function useTracking() {
 
     // Problems the button can't change: these are only pointed out.
     const notes: string[] = [];
-    if (ready && !theirs) notes.push("Your second account's Equicord is too old to check. Update Equicord (or rebuild its web version) so it can be checked.");
+    if (ready && !theirs) notes.push("Your second account's window didn't answer the check. Hang up and call again so it loads afresh.");
     for (const name of mine.blockers) notes.push(`${name} may block the reports on your account. Turn it off in your plugins.`);
     for (const name of theirs?.blockers ?? []) notes.push(`${name} may block the reports on your second account. Turn it off in its plugins.`);
-    if (reportMissing(mine)) notes.push("Discord didn't get your last stream report. Something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
-    if (theirs && reportMissing(theirs, true)) notes.push("Discord didn't get your second account's last stream report. Something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
+    if (reportMissing(mine)) notes.push("No stream report was seen for your account. If Go Live just failed (Discord's error 2012, say), that's the reason and it isn't this plugin. If Go Live has been fine, something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
+    if (theirs && reportMissing(theirs, true)) notes.push("No stream report was seen for your second account. If Go Live just failed (Discord's error 2012, say), that's the reason and it isn't this plugin. If Go Live has been fine, something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
 
     // The second account's page starts fresh with each call, so its settings get their own time to load.
     const settled = (i: TrackingItem) => Date.now() - ((i.who === "this account" ? mine.loadedAt : theirs?.loadedAt) ?? startedAt) >= UNKNOWN_AFTER_MS;
