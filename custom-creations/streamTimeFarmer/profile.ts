@@ -7,6 +7,7 @@
 import { UserStore, useStateFromStores } from "@webpack/common";
 
 import { settings } from ".";
+import type { StreamReport } from "./tracking";
 
 // Stream farm settings are kept per account, so switching accounts in one Discord keeps each one's call, partner and
 // total apart. (Two Discords running at once on one shared settings file still each save their own copy of it.)
@@ -30,6 +31,10 @@ export interface StreamProfile {
     farmGame: FarmGame | null;
     hostSecond: boolean;
     countedMs: number;
+    // When Discord last accepted a stream report from this account.
+    lastReportAt: number;
+    // The latest stream reports Discord accepted, to compare with its count. Stays on this PC.
+    reportLog: StreamReport[];
     joinedCall: string;
     deafened: boolean;
     // Whether the farm muted this account itself, so it unmutes it again when it stops.
@@ -53,6 +58,8 @@ export const DEFAULT_PROFILE: StreamProfile = {
     farmGame: null,
     hostSecond: false,
     countedMs: 0,
+    lastReportAt: 0,
+    reportLog: [],
     joinedCall: "",
     deafened: false,
     muted: false,
