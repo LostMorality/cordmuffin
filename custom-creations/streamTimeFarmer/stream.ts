@@ -15,6 +15,7 @@ import { ChannelStore, FluxDispatcher, GuildStore, PermissionStore, SelectedChan
 import { changeStreamProfile, settings } from ".";
 import { currentUserId, FARM_SOURCE, type FarmGame, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
 import { secondStatus } from "./secondAccount";
+import { expectReports, onReport, trackingProblem, watchReportsFrom } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -39,6 +40,8 @@ const VoiceActions: { selectVoiceChannel(channelId: string): void; disconnect():
 const CallActions: { ring(channelId: string, recipients?: string[]): void; } = findByPropsLazy("ring", "stopRinging", "call");
 const PrivateChannelActions: { getOrEnsurePrivateChannel(userId: string): Promise<string>; } = findByPropsLazy("getOrEnsurePrivateChannel", "openPrivateChannel");
 const MuteActions: { setSelfMute(context: string, mute: boolean): void; toggleSelfDeaf(options?: { context?: string; syncRemote?: boolean; }): void; } = findByPropsLazy("setSelfMute", "toggleSelfDeaf");
+const IdleStore: { getSystemSuspended?(): boolean; } = findStoreLazy("IdleStore");
+const StreamRTCConnectionStore: { getRTCConnections(): Record<string, { isOwner: boolean; destroy(reason: string): void; }>; } = findStoreLazy("StreamRTCConnectionStore");
 const startStreamWithSource: (source: CaptureSource, options: Record<string, unknown>) => Promise<[boolean, string | undefined]> = findByCodeLazy('"no user or channel"');
 const watchStream: (stream: AppStream, options?: { noFocus?: boolean; forceMultiple?: boolean; }) => void = findByCodeLazy('type:"STREAM_WATCH",streamKey');
 const stopStream: (streamKey: string, canShowFeedback?: boolean) => void = findByCodeLazy('type:"STREAM_STOP",streamKey');
@@ -78,6 +81,7 @@ const SETTLE_MS = 30_000;
 const STUCK_MS = 20_000;
 // A broken Go Live is restarted at most this often, so a stream that keeps failing doesn't flap.
 const RESTART_EVERY_MS = 60_000;
+const LOST_STREAM_MS = 2 * 60_000;
 const FARM_TITLE = "Stream farm (StreamTimeFarmer)";
 // The farm window is a Windows program started by Discord's desktop app; anywhere else the farm streams a random
 // open window, like it did before it had its own.
@@ -101,6 +105,12 @@ let liveError = "";
 // What this run started itself, so stopping the farm ends only that and leaves the user's own calls alone. The
 // joined call is also kept in settings, because Discord rejoins it by itself after a reload.
 let startedKey = "";
+// Time watched since the last report went out, for sending Discord its time with a restart (settings.reportEvery).
+let watchedSinceReport = 0;
+let liveSince = 0;
+// The farm's last stream, so it isn't taken for the user's own after a short gap in Discord's list of streams.
+let lastStartedKey = "";
+let lostStreamAt = 0;
 let watchedKey = "";
 // The account this run belongs to, so its settings stay with it even if the user switches accounts mid-run.
 let owner = "";
@@ -373,12 +383,20 @@ async function randomWindow(): Promise<CaptureSource | null> {
 }
 
 // The saved choice is the farm window ("farm"), a window title or "screen"; window ids change every time a window opens.
+let lastWindow: { source: string; handle: string; } | null = null;
+
 async function pickSource(): Promise<CaptureSource | null> {
     const wanted = prof().source.trim().toLowerCase();
     if (wanted === FARM_SOURCE || wanted === "random") return canUseFarmWindow() ? farmSource() : randomWindow();
     const sources = await captureSources();
     const screen = sources.find(s => s.id.startsWith("screen:"));
     if (!wanted || wanted === "screen") return screen ?? null;
+    // A window's title can change while it streams (a browser tab, the next song), so the one already picked is found
+    // again by its handle. Otherwise a report restart would lose it and leave the farm with nothing to stream.
+    if (lastWindow?.source === wanted) {
+        const same = sources.find(s => s.id.startsWith("window:") && s.id.split(":")[1] === lastWindow?.handle);
+        if (same) return same;
+    }
     return sources.find(s => s.id.startsWith("window:") && s.name.toLowerCase() === wanted)
         ?? sources.find(s => s.id.startsWith("window:") && s.name.toLowerCase().includes(wanted))
         ?? null;
@@ -438,7 +456,10 @@ async function goLive(now: number, where: Target) {
         return;
     }
     if (ok) {
-        startedKey = key;
+        startedKey = lastStartedKey = key;
+        lastWindow = source.id.startsWith("window:") ? { source: prof().source.trim().toLowerCase(), handle: source.id.split(":")[1] } : null;
+        liveSince = Date.now();
+        watchedSinceReport = 0;
         forgetStreamErrors("sender", me);
     }
     liveError = ok ? "" : `Go Live didn't start${why ? ` (${why})` : ""}. Trying again soon.`;
@@ -478,6 +499,7 @@ const canRestart = (now: number) => now - lastRestart >= RESTART_EVERY_MS;
 function restartLive(stream: AppStream, now: number, why: string) {
     if (!canRestart(now)) return false;
     lastRestart = now;
+    watchedSinceReport = 0;
     forgetStreamErrors("sender", stream.ownerId);
     logger.info("Restarting Go Live:", why);
     stopStream(streamKey(stream), false);
@@ -497,6 +519,14 @@ function count(elapsed: number) {
     save();
 }
 
+const reportEveryMs = () => (settings.store.reportEvery ?? 60) * 60_000;
+
+// How long until the next report goes out, or null while there's none on a timer.
+export function nextReportMs() {
+    const every = reportEveryMs();
+    return every > 0 && startedKey ? Math.max(0, every - watchedSinceReport) : null;
+}
+
 function streamerTick(now: number, elapsed: number) {
     const where = target(now);
     if (typeof where === "string") return setStatus("setup", where);
@@ -512,6 +542,10 @@ function streamerTick(now: number, elapsed: number) {
     muteOnJoin(where.id, false);
 
     const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
+    if (!startedKey && stream && isLive(stream, where.id) && streamKey(stream) === lastStartedKey && now - lostStreamAt < LOST_STREAM_MS) {
+        startedKey = lastStartedKey;
+        liveSince ||= now;
+    }
     // Only a stream the farm started is ever restarted; one the user started themselves is theirs.
     const ours = stream != null && startedKey !== "" && streamKey(stream) === startedKey;
     const failed = ours && stream.state === "FAILED";
@@ -519,7 +553,10 @@ function streamerTick(now: number, elapsed: number) {
     if (failed && stream.channelId === where.id) restartLive(stream, now, "The stream failed.");
     if (!isLive(stream, where.id)) {
         // Kept while the farm's own stream is failed, so it can still be restarted once the wait between restarts is over.
-        if (!failed) startedKey = "";
+        if (!failed && startedKey) {
+            startedKey = "";
+            lostStreamAt = now;
+        }
         const myRun = run;
         void goLive(now, where).catch(e => {
             logger.error("Couldn't go live", e);
@@ -546,18 +583,37 @@ function streamerTick(now: number, elapsed: number) {
     const partner = partnerId();
     const viewers = ApplicationStreamingStore.getViewerIds(stream).filter(id => id !== me);
     const watched = partner ? viewers.includes(partner) : viewers.length > 0;
-    if (!watched) {
-        const who = partner ? partnerName("your other account") : "someone";
-        return setStatus("waiting", `Live, waiting for ${who} to watch. Time only counts while they do.`);
-    }
-    if (stream.state && stream.state !== "ACTIVE") return setStatus("waiting", "Live, but the stream is reconnecting. Time counts again once it's back.");
+    const reconnecting = !!stream.state && stream.state !== "ACTIVE";
     // The second account hosted here says when its picture is stuck, even though Discord still lists it as watching.
     const second = secondStatus();
-    if (second.phase === "ready" && second.account?.id === partner && second.viewer && second.viewer.phase !== "watching") {
-        return setStatus("waiting", `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
+    const pictureStuck = second.phase === "ready" && second.account?.id === partner && !!second.viewer && second.viewer.phase !== "watching";
+    const stalled = !watched || reconnecting || pictureStuck;
+
+    // Discord only adds a stream's time to the badge when the stream ends, so a long one is ended and started again
+    // now and then: each restart sends the time so far, and a crash can only lose what came after the last one. Time
+    // already watched is sent on schedule even while the stream is having trouble, or a stuck viewer would hold it back.
+    const reportMs = reportEveryMs();
+    if (ours && reportMs > 0 && (watchedSinceReport >= reportMs || watchedSinceReport > 0 && now - liveSince >= (stalled ? reportMs : 2 * reportMs))
+        && restartLive(stream, now, "Sending Discord this stream's time.")) {
+        // A stalled stream may have already sent its report when its connection dropped, so nothing is expected from it.
+        if (!stalled) expectReports(true);
+        kick();
+        return setStatus("starting", liveError);
     }
+
+    if (!watched) {
+        const who = partner ? partnerName("your other account") : "someone";
+        return setStatus("waiting", `Live, waiting for ${who} to watch. The farm only adds time while they do.`);
+    }
+    if (reconnecting) return setStatus("waiting", "Live, but the stream is reconnecting. Time counts again once it's back.");
+    if (pictureStuck) return setStatus("waiting", `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
     count(elapsed);
-    setStatus("counting", `Live and watched by ${viewers.length === 1 ? "1 viewer" : `${viewers.length} viewers`}. Time is counting.`);
+    if (ours) watchedSinceReport += elapsed;
+    const watchers = viewers.length === 1 ? "1 viewer" : `${viewers.length} viewers`;
+    // The counter only knows about the stream; whether Discord gets told is another matter, and that's the part that counts.
+    setStatus("counting", trackingProblem(second.phase === "ready" ? second.tracking : null)
+        ? `Live and watched by ${watchers}, but the red items may stop Discord counting it.`
+        : `Live and watched by ${watchers}. Time is counting.`);
 }
 
 // Where the streaming account is right now, if this account can be there too: a DM call with it, or a server voice
@@ -651,6 +707,7 @@ function tick() {
     // A sleeping PC or a stalled tick shouldn't count as streamed time.
     const elapsed = Math.max(0, Math.min(now - lastTick, 3 * TICK_MS));
     lastTick = now;
+    if (systemAsleep()) return;
     try {
         const { role } = prof();
         forgetUndone();
@@ -676,6 +733,8 @@ const EVENTS = ["STREAM_CREATE", "STREAM_UPDATE", "STREAM_DELETE", "STREAM_CLOSE
 // Leaving the farm's call in Discord (hanging up, or moving to another call) is the same as pressing Hang up.
 function onVoiceSelect(action: { channelId?: string | null; }) {
     if (loggingOut || !inCall || prof().role !== "streamer" || !farmCall || action.channelId === farmCall) return;
+    // Discord leaves the call itself when the PC goes to sleep. That isn't a hang up, so the farm carries on after it wakes.
+    if (!action.channelId && systemAsleep()) return;
     // Right after Discord connects, or in a call Discord rejoined by itself, leaving is Discord's doing. The farm
     // rejoins then, but not straight away if the user went into another call.
     const now = Date.now();
@@ -708,9 +767,28 @@ export const noteConnect = () => {
     lastConnect = Date.now();
 };
 
-const onUnload = () => {
+function systemAsleep() {
+    try {
+        return !!IdleStore.getSystemSuspended?.();
+    } catch {
+        return false;
+    }
+}
+
+// Discord doesn't end a stream when it closes, so its report would never go out and the time since the last one would
+// be lost. Ending the connection the way Discord does itself queues the report, and Discord sends its queue as the page
+// goes away. Discord also fires a fake beforeunload when opening some links, which must not end anything.
+const onUnload = (e: BeforeUnloadEvent) => {
     save(true);
+    if (!e.isTrusted) return;
     restoreGoLive();
+    try {
+        for (const connection of Object.values(StreamRTCConnectionStore.getRTCConnections())) {
+            connection.destroy(connection.isOwner ? "sender-disconnect" : "receiver-disconnect");
+        }
+    } catch (err) {
+        logger.warn("Couldn't end the stream before closing:", err);
+    }
 };
 
 // Ends the Go Live and leaves the call this run started; anything the user started themselves stays.
@@ -721,7 +799,8 @@ function teardown() {
     if (joined && joinedHere(joined)) VoiceActions.disconnect();
     else if (watchedKey) closeStream(watchedKey, false);
     setProf({ joinedCall: "" });
-    startedKey = watchedKey = "";
+    startedKey = watchedKey = lastStartedKey = "";
+    watchedSinceReport = liveSince = 0;
     undeafen();
     closeFarmWindow();
 }
@@ -766,6 +845,7 @@ export function startStreamFarm() {
 }
 
 export function stopStreamFarm() {
+    stoppedAt = Date.now();
     run++;
     if (timer) {
         clearInterval(timer);
@@ -788,7 +868,21 @@ export function stopStreamFarm() {
 }
 
 export const streamFarmRunning = () => timer != null;
+// Leaving the call and undoing mute and deafen make their sounds just after the farm stops.
+const SOUND_TAIL_MS = 5000;
+let stoppedAt = 0;
+export const farmJustRan = () => streamFarmRunning() || Date.now() - stoppedAt < SOUND_TAIL_MS;
 export const streamFarmOwner = () => owner;
+
+// Remembered per account, so it still shows after a restart.
+const REPORT_LOG_SIZE = 200;
+export function noteReports() {
+    watchReportsFrom(() => prof().partner);
+    return onReport((at, report) => {
+        logger.info("Stream report sent:", report);
+        setProf({ lastReportAt: at, reportLog: [...prof().reportLog, report].slice(-REPORT_LOG_SIZE) });
+    });
+}
 
 export function resetStreamCount() {
     unsaved = 0;
@@ -805,6 +899,8 @@ export function refreshGoLive() {
     if (startedKey && own && streamKey(own) === startedKey) stopStream(startedKey, false);
     startedKey = "";
     closeFarmWindow();
+    lastStartedKey = "";
+    watchedSinceReport = liveSince = 0;
     lastStart = lastRestart = 0;
     kick();
 }
