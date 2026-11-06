@@ -15,7 +15,7 @@ import type { Root } from "react-dom/client";
 import { changeStreamProfile, pluginActive, settings } from ".";
 import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
-import { cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
+import { cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, refetchWeb, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 import { ReportStatus, TrackingWarning, useTrackingProblem } from "./TrackingWarning";
 
@@ -66,7 +66,7 @@ function useCallState(): { text: string; account: SecondAccountInfo | null; inCa
         case "login":
             return { text: "Log in to your second account in the window that opened.", account: null, inCall };
         case "broken":
-            return { text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it (on a source build, run pnpm buildWeb).", account, inCall };
+            return { text: "Your second account's window loaded Equicord, but the farm's half of it didn't start there. Hanging up and calling again usually sorts it, since that builds the window from scratch.", account, inCall };
         case "same":
             return { text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
         case "starting":
@@ -134,7 +134,37 @@ function confirmLogin() {
     });
 }
 
-// The second account in the plugin's settings: log it in, see who it is, call it, hang up, sign it out.
+// Shown only when the second account's window has nothing to load. The plugin fetches Equicord's web build from
+// Equicord by itself, so there is nothing to install; this is for when that download hasn't got through, and all it
+// offers is another go.
+function WebSetup() {
+    const [fetching, setFetching] = useState(false);
+    const [done, setDone] = useState(false);
+    const [failed, setFailed] = useState("");
+
+    const retry = async () => {
+        setFailed("");
+        setFetching(true);
+        const why = await refetchWeb();
+        setFetching(false);
+        setFailed(why);
+        setDone(!why);
+    };
+
+    const text = done
+        ? "Got it. Your second account can start now."
+        : fetching
+            ? "Downloading Equicord for that window..."
+            : failed || WEB_TEXT;
+
+    return (
+        <div className={cl("call-card")}>
+            <div className={cl("call-text")}>{text}</div>
+            {!done && <Button size="small" disabled={fetching} onClick={retry}>{fetching ? "Downloading..." : "Try again"}</Button>}
+        </div>
+    );
+}
+
 export function SecondAccountCard() {
     const second = useSecondStatus();
     const { text, account, inCall } = useCallState();
@@ -145,8 +175,9 @@ export function SecondAccountCard() {
     const [, redraw] = useState(0);
 
     if (!canHostSecond()) return <div className={cl("stream-status", "stream-setup")}>The second account runs in the Discord desktop app.</div>;
-    // Nothing to press until the check is done, so Log in or Turn on can't be clicked when they can't work.
-    if (problem === null) return null;
+    // Nothing to press until the check is done, so Log in or Turn on can't be clicked when they can't work. On a
+    // first run that check downloads Equicord for the second account's window, which takes a moment.
+    if (problem === null) return <div className={cl("call-card")}><div className={cl("call-text")}>Getting your second account ready...</div></div>;
     if (problem === "restart") {
         return (
             <div className={cl("call-card")}>
@@ -155,7 +186,7 @@ export function SecondAccountCard() {
             </div>
         );
     }
-    if (problem === "web") return <div className={cl("stream-status", "stream-setup")}>{WEB_TEXT}</div>;
+    if (problem === "web") return <WebSetup />;
     if (hostSecond && !pluginActive()) {
         return (
             <div className={cl("call-card")}>
