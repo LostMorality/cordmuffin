@@ -16,6 +16,19 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   personalize my Discord experience". The settings and the corner call widget now check all of them,
   for your account and your second account, in green and red, and "Fix these for me" changes them after a confirm box
   that lists every change.
+- StreamTimeFarmer: a Go Live that Discord lists but never actually sends (its error 2012) is now restarted instead of
+  leaving the farm on "reconnecting" all night, a failed stream is no longer started again before its own wait is over,
+  and after a few failures in a row the status says Discord keeps refusing the stream rather than looking like a hiccup.
+- StreamTimeFarmer: the missing-report warning no longer blames an ad blocker outright. It says no report was seen and
+  names a failed Go Live as the likelier cause.
+- StreamTimeFarmer: the second account no longer needs anything built or copied. Its window now downloads Equicord's
+  own released build straight from Equicord the first time it opens, keeps it for six hours and fetches it again after
+  that, so it is always a current Equicord and the plugin doesn't need to be in it. The viewer half of the farm is sent
+  into the window by the plugin instead. If the download ever fails, the card says so and offers a "Try again" button.
+- StreamTimeFarmer: new "Quiet Second Account" setting, on by default. The second account's window shares one program
+  with your Discord, so its unread count used to add to your taskbar badge (a call it was invited to every hour, never
+  read, and the badge just climbed) and it could raise desktop notifications of its own. With this on it does neither.
+  The account still receives everything; open its window to read it.
 - StreamTimeFarmer: new "Keep Computer Awake" setting, off by default. While the farm runs or AFK mode is on, your computer
   won't go to sleep by itself, even when no call is live. Needs one full Discord restart after updating.
 - StreamTimeFarmer: new "Mute Call Sounds" setting, on by default. While the farm runs, Discord's call, ring, Go Live,
