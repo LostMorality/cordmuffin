@@ -13,10 +13,13 @@ import { FluxDispatcher } from "@webpack/common";
 
 import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
+import { startKeepAwake, stopKeepAwake, syncKeepAwake } from "./keepAwake";
 import { currentUserId, migrateLegacy, migrateRandomSource, profile, type StreamProfile, updateProfile } from "./profile";
 import { applySecondPresence, startSecondAccount, stopSecondAccount } from "./secondAccount";
-import { noteConnect, refreshGoLive, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
+import { startSoundMute, stopSoundMute } from "./sounds";
+import { noteConnect, noteReports, refreshGoLive, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
+import { allowTracking, loadConsents, startReportWatch, stopReportWatch, trackingState } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -25,6 +28,17 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Mute your mic when the farm joins the call. It's unmuted again when the farm stops.",
         default: true
+    },
+    muteCallSounds: {
+        type: OptionType.BOOLEAN,
+        description: "Silence Discord's call sounds while the farm runs: calling and ringing (including real incoming calls, though their popup still shows), Go Live starting and ending, joins and leaves, mute and deafen. Message sounds stay on. This can't change what other people in the call hear on their own Discord.",
+        default: true
+    },
+    keepComputerAwake: {
+        type: OptionType.BOOLEAN,
+        description: "Stop your computer going to sleep by itself while the farm is running or AFK mode is on, including moments when no call is live. During a call Discord already does this itself and keeps the screen on; otherwise the screen can still turn off. Your normal sleep settings come back when both stop. Choosing Sleep yourself or closing a laptop lid still puts it to sleep, and some laptops on battery can still sleep after a while.",
+        default: false,
+        onChange: () => syncKeepAwake()
     },
     deafenViewer: {
         type: OptionType.BOOLEAN,
@@ -35,6 +49,17 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "Show a small call widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.",
         default: true
+    },
+    reportEvery: {
+        type: OptionType.SELECT,
+        description: "Discord only counts a stream's time toward the Streaming badge when the stream ends. The farm ends and restarts its stream this often (the second account stays in the call), so Discord gets the time so far, and a crash or shutdown only loses the time since the last restart. The badge doesn't update right after a report: it can take many hours, and Discord doesn't publish a schedule. Each restart plays Discord's stream sounds.",
+        options: [
+            { label: "Every 30 minutes", value: 30 },
+            { label: "Every hour", value: 60, default: true },
+            { label: "Every 2 hours", value: 120 },
+            { label: "Every 4 hours", value: 240 },
+            { label: "Never (only when you hang up)", value: 0 }
+        ]
     },
     afkMode: {
         type: OptionType.BOOLEAN,
@@ -120,6 +145,16 @@ export function changeStreamProfile(patch: Partial<StreamProfile>) {
     else if (before.secondPresence !== after.secondPresence) applySecondPresence();
 }
 
+// A failed look at the privacy settings must never stop the farm from starting.
+const loadTracking = () => {
+    try {
+        void loadConsents();
+    } catch (e) {
+        logger.warn("Couldn't load the privacy settings", e);
+    }
+};
+let stopNotingReports: (() => void) | undefined;
+
 export default definePlugin({
     name: "StreamTimeFarmer",
     description: "Streams its own window (optionally shown as a game) to a second account of yours, logged in right inside Discord, so your Streaming badge time keeps counting.",
@@ -130,6 +165,8 @@ export default definePlugin({
     // Read by the streaming Discord when this one runs as its second account.
     streamFarmStatus: () => streamStatus(),
     configureStreamFarm: (patch: Partial<StreamProfile>) => changeStreamProfile(patch),
+    trackingState,
+    allowTracking,
 
     start() {
         active = true;
@@ -143,19 +180,30 @@ export default definePlugin({
         FluxDispatcher.subscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.subscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.subscribe("LOGOUT", followAccount);
+        FluxDispatcher.subscribe("CONNECTION_OPEN", loadTracking);
+        startReportWatch();
+        startSoundMute();
+        stopNotingReports = noteReports();
+        loadTracking();
         startStreamFarm();
         startSecondAccount();
         mountCallWidget();
         if (settings.store.afkMode) enterAfk();
+        startKeepAwake();
     },
 
     stop() {
         active = false;
+        stopKeepAwake();
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.unsubscribe("LOGOUT", followAccount);
+        FluxDispatcher.unsubscribe("CONNECTION_OPEN", loadTracking);
+        stopReportWatch();
+        stopNotingReports?.();
         stopStreamFarm();
         stopSecondAccount();
+        stopSoundMute();
         unmountCallWidget();
         exitAfk(false);
     }
