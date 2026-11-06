@@ -5,7 +5,7 @@
  */
 
 import { ChildProcess, spawn } from "child_process";
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, screen, session } from "electron";
+import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, powerSaveBlocker, screen, session } from "electron";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
@@ -121,6 +121,17 @@ function create(partition: string) {
     });
     winPartition = partition;
     win.loadURL("https://discord.com/app");
+}
+
+// Stops the computer sleeping by itself, while still letting the screen turn off. Windows drops it if Discord closes.
+let awakeBlocker: number | undefined;
+export function setKeepAwake(_: IpcMainInvokeEvent, on: boolean) {
+    if (on && (awakeBlocker === undefined || !powerSaveBlocker.isStarted(awakeBlocker))) awakeBlocker = powerSaveBlocker.start("prevent-app-suspension");
+    else if (!on && awakeBlocker !== undefined) {
+        powerSaveBlocker.stop(awakeBlocker);
+        awakeBlocker = undefined;
+    }
+    return awakeBlocker !== undefined && powerSaveBlocker.isStarted(awakeBlocker);
 }
 
 export function hasWebBuild(_: IpcMainInvokeEvent) {
