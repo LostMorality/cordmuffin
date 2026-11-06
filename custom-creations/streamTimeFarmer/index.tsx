@@ -15,7 +15,7 @@ import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
 import { startKeepAwake, stopKeepAwake, syncKeepAwake } from "./keepAwake";
 import { currentUserId, migrateLegacy, migrateRandomSource, profile, type StreamProfile, updateProfile } from "./profile";
-import { applySecondPresence, startSecondAccount, stopSecondAccount } from "./secondAccount";
+import { applySecondPresence, startSecondAccount, stopSecondAccount, syncQuietSecondAccount } from "./secondAccount";
 import { startSoundMute, stopSoundMute } from "./sounds";
 import { noteConnect, noteReports, refreshGoLive, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
@@ -44,6 +44,12 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "The viewer also deafens itself, so the two accounts can't feed sound back into each other. It's undone when the farm stops.",
         default: true
+    },
+    quietSecondAccount: {
+        type: OptionType.BOOLEAN,
+        description: "Keep the second account quiet: no desktop notifications from it, and its unread count stays off your taskbar badge. Its window shares one Electron app with your Discord, so without this its unreads add to yours and the badge creeps up every time a call starts. The account still receives everything; open its window to read it.",
+        default: true,
+        onChange: value => syncQuietSecondAccount(value)
     },
     callWidget: {
         type: OptionType.BOOLEAN,
@@ -186,6 +192,7 @@ export default definePlugin({
         stopNotingReports = noteReports();
         loadTracking();
         startStreamFarm();
+        syncQuietSecondAccount();
         startSecondAccount();
         mountCallWidget();
         if (settings.store.afkMode) enterAfk();
