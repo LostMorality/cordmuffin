@@ -81,6 +81,11 @@ const SETTLE_MS = 30_000;
 const STUCK_MS = 20_000;
 // A broken Go Live is restarted at most this often, so a stream that keeps failing doesn't flap.
 const RESTART_EVERY_MS = 60_000;
+// A Go Live that Discord lists but never actually sends (its error 2012 and friends) looks fine to the farm forever,
+// so it's restarted after this long. Longer than the viewer's wait, because a stream is briefly not ACTIVE anyway.
+const SENDER_STUCK_MS = 45_000;
+// After this many failed starts in a row the status stops sounding like a hiccup and names the likely cause.
+const FAILS_BEFORE_REASON = 3;
 const LOST_STREAM_MS = 2 * 60_000;
 const FARM_TITLE = "Stream farm (StreamTimeFarmer)";
 // The farm window is a Windows program started by Discord's desktop app; anywhere else the farm streams a random
@@ -102,6 +107,9 @@ let unsaved = 0;
 let mutedFor = "";
 let run = 0;
 let liveError = "";
+// When the farm's own stream stopped being ACTIVE, and how many starts have failed in a row.
+let senderStuckSince = 0;
+let liveFails = 0;
 // What this run started itself, so stopping the farm ends only that and leaves the user's own calls alone. The
 // joined call is also kept in settings, because Discord rejoins it by itself after a reload.
 let startedKey = "";
@@ -460,8 +468,9 @@ async function goLive(now: number, where: Target) {
         lastWindow = source.id.startsWith("window:") ? { source: prof().source.trim().toLowerCase(), handle: source.id.split(":")[1] } : null;
         liveSince = Date.now();
         watchedSinceReport = 0;
+        senderStuckSince = 0;
         forgetStreamErrors("sender", me);
-    }
+    } else liveFails++;
     liveError = ok ? "" : `Go Live didn't start${why ? ` (${why})` : ""}. Trying again soon.`;
     if (!ok) logger.warn("Go Live didn't start:", why);
 }
@@ -496,9 +505,17 @@ function forgetStreamErrors(kind: "sender" | "receiver", userId: string) {
 // Ends a broken Go Live so the next tick starts a fresh one (and reopens the farm window if it closed).
 const canRestart = (now: number) => now - lastRestart >= RESTART_EVERY_MS;
 
-function restartLive(stream: AppStream, now: number, why: string) {
+// Once a stream has failed a few times running, say so plainly instead of looking like it's about to work.
+const failNote = (text: string) => liveFails >= FAILS_BEFORE_REASON
+    ? `${text} Discord has refused this stream ${liveFails} times in a row, usually its own error 2012 rather than anything this plugin or your settings did.`
+    : text;
+
+// A failed restart is one the stream forced; a scheduled one isn't, so only failures count toward liveFails.
+function restartLive(stream: AppStream, now: number, why: string, failure = false) {
     if (!canRestart(now)) return false;
     lastRestart = now;
+    if (failure) liveFails++;
+    senderStuckSince = 0;
     watchedSinceReport = 0;
     forgetStreamErrors("sender", stream.ownerId);
     logger.info("Restarting Go Live:", why);
@@ -549,8 +566,11 @@ function streamerTick(now: number, elapsed: number) {
     // Only a stream the farm started is ever restarted; one the user started themselves is theirs.
     const ours = stream != null && startedKey !== "" && streamKey(stream) === startedKey;
     const failed = ours && stream.state === "FAILED";
-    // A failed Go Live stays listed and blocks a new one, so it's ended first.
-    if (failed && stream.channelId === where.id) restartLive(stream, now, "The stream failed.");
+    // A failed Go Live stays listed and blocks a new one, so it's ended first. While the wait between restarts is
+    // still running there's nothing to end it with, and starting another would only fail the same way.
+    if (failed && stream.channelId === where.id && !restartLive(stream, now, "The stream failed.", true)) {
+        return setStatus("starting", failNote("The stream failed. Restarting it shortly..."));
+    }
     if (!isLive(stream, where.id)) {
         // Kept while the farm's own stream is failed, so it can still be restarted once the wait between restarts is over.
         if (!failed && startedKey) {
@@ -568,7 +588,7 @@ function streamerTick(now: number, elapsed: number) {
     }
     liveError = "";
 
-    if (ours && canRestart(now) && freshStreamError("sender", me) && restartLive(stream, now, "Discord said the stream wasn't sending.")) return setStatus("starting", liveError);
+    if (ours && canRestart(now) && freshStreamError("sender", me) && restartLive(stream, now, "Discord said the stream wasn't sending.", true)) return setStatus("starting", failNote(liveError));
     if (ours && isFarmSource() && !farmCheck) {
         // The farm window was closed (Task Manager, a crash): the stream would only show a frozen picture.
         const myRun = run, checked = farmPid;
@@ -589,6 +609,15 @@ function streamerTick(now: number, elapsed: number) {
     const pictureStuck = second.phase === "ready" && second.account?.id === partner && !!second.viewer && second.viewer.phase !== "watching";
     const stalled = !watched || reconnecting || pictureStuck;
 
+    // Listed as live but never sending: Discord's error 2012 leaves a stream like this for good. The viewer side has
+    // the same timer; without one here the farm would sit on "reconnecting" all night and count nothing.
+    if (ours && reconnecting) senderStuckSince ||= now;
+    else senderStuckSince = 0;
+    if (senderStuckSince && now - senderStuckSince >= SENDER_STUCK_MS && restartLive(stream, now, "The stream never started sending.", true)) {
+        kick();
+        return setStatus("starting", failNote(liveError));
+    }
+
     // Discord only adds a stream's time to the badge when the stream ends, so a long one is ended and started again
     // now and then: each restart sends the time so far, and a crash can only lose what came after the last one. Time
     // already watched is sent on schedule even while the stream is having trouble, or a stuck viewer would hold it back.
@@ -608,7 +637,10 @@ function streamerTick(now: number, elapsed: number) {
     if (reconnecting) return setStatus("waiting", "Live, but the stream is reconnecting. Time counts again once it's back.");
     if (pictureStuck) return setStatus("waiting", `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
     count(elapsed);
-    if (ours) watchedSinceReport += elapsed;
+    if (ours) {
+        watchedSinceReport += elapsed;
+        liveFails = 0;
+    }
     const watchers = viewers.length === 1 ? "1 viewer" : `${viewers.length} viewers`;
     // The counter only knows about the stream; whether Discord gets told is another matter, and that's the part that counts.
     setStatus("counting", trackingProblem(second.phase === "ready" ? second.tracking : null)
@@ -828,7 +860,7 @@ export function startStreamFarm() {
     // Left over from a Discord that closed mid-run: put the user's Go Live quality back before starting again.
     if (!ApplicationStreamingStore.getCurrentUserActiveStream()) restoreGoLive();
     lastTick = Date.now();
-    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = lastRestart = stuckSince = 0;
+    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = lastRestart = stuckSince = senderStuckSince = liveFails = 0;
     sessionMs = 0;
     mutedFor = liveError = "";
     inCall = false;
