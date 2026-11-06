@@ -17,6 +17,7 @@ import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
 import { cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
+import { ReportStatus, TrackingWarning, useTrackingProblem } from "./TrackingWarning";
 
 const cl = classNameFactory("vc-stf-");
 
@@ -65,7 +66,7 @@ function useCallState(): { text: string; account: SecondAccountInfo | null; inCa
         case "login":
             return { text: "Log in to your second account in the window that opened.", account: null, inCall };
         case "broken":
-            return { text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it.", account, inCall };
+            return { text: "Equicord didn't load in your second account's window. Run the Cordmuffin installer again to rebuild it (on a source build, run pnpm buildWeb).", account, inCall };
         case "same":
             return { text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
         case "starting":
@@ -123,7 +124,7 @@ function confirmLogin() {
                 </Paragraph>
                 <Paragraph>
                     The other account stays logged in on this PC until you press Sign out. Only log in an account you own.
-                    Discord doesn't allow automating accounts, so use this at your own risk.
+                    Discord doesn't allow automating accounts, so both accounts are at risk. Don't use one you can't afford to lose.
                 </Paragraph>
             </div>
         ),
@@ -217,12 +218,13 @@ function Widget() {
     const second = useSecondStatus();
     const stream = useStreamStatus();
     const { text, account, inCall } = useCallState();
+    const trackingProblem = useTrackingProblem();
 
     if (!callWidget || !hostSecond || !canHostSecond() || second.phase === "off") return null;
 
     if (!open) {
         return (
-            <button className={cl("call-widget", "call-pill")} onClick={() => setOpen(true)} title={text} aria-label={`Open the call widget. ${text}`}>
+            <button className={cl("call-widget", "call-pill", trackingProblem && "call-pill-warn")} onClick={() => setOpen(true)} title={trackingProblem ? `${text} Your Streaming badge won't count: open this to fix it.` : text} aria-label={`Open the call widget. ${text}`}>
                 <Avatar account={account} size={40} />
             </button>
         );
@@ -236,7 +238,9 @@ function Widget() {
                 <button className={cl("call-icon")} onClick={() => setOpen(false)} title="Minimize" aria-label="Minimize">–</button>
             </div>
             <div className={cl("call-text")}>{text}</div>
-            {streamFarmRunning() && <div className={cl("stream-time")}>This call {formatTime(stream.sessionMs)} · Total {formatTime(stream.countedMs)}</div>}
+            <TrackingWarning compact />
+            {streamFarmRunning() && <div className={cl("stream-time")}>This call {formatTime(stream.sessionMs)} · Streamed {formatTime(stream.countedMs)}</div>}
+            {streamFarmRunning() && <ReportStatus />}
             <div className={cl("call-buttons")}>
                 {second.phase === "login"
                     ? <Button size="small" onClick={() => showSecondAccount()}>Log in</Button>
