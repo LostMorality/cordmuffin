@@ -16,6 +16,12 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - New plugin: PlatformSpoofer+. Pick what platform people see you on (Phone, Console, VR headset, Web or Desktop)
   from a button next to mute and deafen, and switch live. A revival of Equicord's removed PlatformSpoofer that keeps you
   logged in when Discord refuses a spoof. Settings from the old plugin carry over.
+- StreamTimeFarmer: the second account no longer shows "watching" while its picture is actually stuck. Discord reuses
+  the same error 2012 for the whole session, so the farm only noticed it the first time; it now notices it every time.
+- StreamTimeFarmer: if the second account keeps getting the stream but can't show a single frame, the farm reopens it,
+  and if that's because Discord lost your graphics card (it happens after a GPU driver update, until Discord restarts)
+  the status says so and tells you to fully quit Discord from the tray and open it again. Time stops counting until
+  then instead of being counted for a stream nobody could see.
 
 ## 2026-11-04
 
