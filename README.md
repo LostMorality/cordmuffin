@@ -438,6 +438,51 @@ The original's things all still work: Greet or Normal Message mode, and picking 
 
 **To install it:** copy the `custom-creations/greetStickerPickerPlus` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### PlatformSpoofer+ (`platformSpooferPlus`)
+
+Pick what platform other people see you on: **Phone**, **Console**, **VR headset**, **Web** or **Desktop**. A revival of the PlatformSpoofer that Equicord removed on 2026-11-03, rebuilt from scratch so it no longer logs people out.
+
+![The button next to mute and deafen](docs/platform-spoofer-button.png)
+
+**How to use it:**
+- **The button next to mute and deafen.** Click it to flip between your real platform and the last one you picked. Right-click it to pick any of them. Its icon shows what you look like right now. You can hide it in the settings.
+
+  ![The right-click menu](docs/platform-spoofer-menu.png)
+- **Right-click yourself → Show me as**, the **Platform** setting, or **`/platform`** (run it empty to see what Discord shows you as right now) do the same.
+- Switching happens live: Discord reconnects for a second, no restart. Only turning the plugin on the first time needs one restart, like any plugin that changes Discord's code.
+- After each switch a message says what Discord now shows you as. The settings page has a **What Discord sees right now** panel listing every session on your account and how Discord sees it.
+
+  ![The settings page with the check panel](docs/platform-spoofer-settings.png)
+
+**What's different from the old one:**
+- **No more random logouts.** The old plugin logged people out because Discord sometimes refuses a spoofed connection with an "authentication failed" code, and Discord's app treats that code as "log out now". PlatformSpoofer+ catches that one case: you stay logged in, get put back on your real platform, and the button says Discord refused it (click it to try again). If your login really did expire or got revoked, Discord still logs you out like normal.
+- **Spoofed from the very first connect.** Discord's desktop app opens its connection before plugins load. The plugin skips that early connection while a spoof is on, so you never flash up as desktop first.
+- **Sent the way the real apps send it.** Phone is sent like the Android app, Console like the Xbox app, and Web uses a real browser name instead of the made-up "Discord Web".
+- **Turning the plugin off puts your real platform back** right away, and its button, menu and command go away with it.
+- If you used the old PlatformSpoofer, your pick carries over by itself.
+
+**What people see:**
+
+| You pick | Others see |
+|---|---|
+| Phone | the phone icon next to your status |
+| VR headset | the VR icon |
+| Console | console (shown by plugins like PlatformIndicators) |
+| Web | web |
+| Desktop | desktop |
+
+The phone icon only shows while you're Online; that's how Discord works. Your other devices still show up as themselves.
+
+**Spoof web requests too (off by default):** normally only the live connection is changed, and Discord's normal web requests still say what you really are. This option makes them match the platform you picked, from the very first request after Discord starts. Turning it on shows a warning first, and nothing changes until you click **Turn it on**. It's riskier: Discord picks some features and tests by platform from those requests, so parts of Discord can change or break, and Discord sees more of the spoof. Turn it off if anything acts weird. The sign-in page always stays real.
+
+![The warning before spoofing web requests](docs/platform-spoofer-warning.png)
+
+> **Use at your own risk.** Changing what platform you report is against Discord's rules. Discord also turns some features on per platform, so things like Quests or Orbs may hide while you show as something else. Switch back if something you need disappears.
+
+**What it talks to:** nothing. It only changes what your Discord already sends to Discord.
+
+**To install it:** copy the `custom-creations/platformSpooferPlus` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
