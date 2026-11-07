@@ -1,0 +1,48 @@
+.vc-platform-spoofer-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--background-base-lower, var(--background-secondary));
+}
+
+.vc-platform-spoofer-ok {
+    color: var(--status-positive, var(--text-positive));
+}
+
+.vc-platform-spoofer-bad {
+    color: var(--status-danger, var(--text-danger));
+}
+
+.vc-platform-spoofer-sessions {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--text-normal, var(--text-default));
+}
+
+.vc-platform-spoofer-sessions li {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.vc-platform-spoofer-os {
+    color: var(--text-muted);
+}
+
+.vc-platform-spoofer-tag {
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    background: var(--brand-500, var(--brand-experiment));
+    color: var(--white-500, #fff);
+}
+
+.vc-platform-spoofer-panel button {
+    align-self: flex-start;
+}
