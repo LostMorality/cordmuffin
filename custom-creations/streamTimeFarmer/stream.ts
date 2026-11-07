@@ -147,8 +147,10 @@ let farmHandle = "";
 let lastRestart = 0;
 let stuckSince = 0;
 let farmCheck: Promise<void> | null = null;
-// Discord keeps a stream error listed until it's dismissed, so each one (by its id) is only acted on once.
-const handledErrors = new Set<string>();
+// Error id -> when it was acted on. Discord reuses one id per user, so an id is dropped once its error clears and a
+// later one counts as new; one that never clears counts again after ERROR_RECHECK_MS.
+const handledErrors = new Map<string, number>();
+const ERROR_RECHECK_MS = 60_000;
 let status: StreamStatus = { phase: "off", detail: "", countedMs: 0, sessionMs: 0 };
 const listeners = new Set<() => void>();
 
@@ -494,12 +496,18 @@ function streamErrors(kind: "sender" | "receiver", userId: string): string[] {
     }
 }
 
-// Whether one of those errors is new. Each is only acted on once, and only when something is done about it.
-const freshStreamError = (kind: "sender" | "receiver", userId: string) => streamErrors(kind, userId).some(id => !handledErrors.has(id));
+// Whether one of those errors is new, or still there a while after something was done about it.
+function freshStreamError(kind: "sender" | "receiver", userId: string) {
+    const now = Date.now();
+    const ids = streamErrors(kind, userId);
+    const mine = (id: string) => kind === "sender" ? !id.includes("-receiver-") : id.includes("-receiver-");
+    for (const id of [...handledErrors.keys()]) if (mine(id) && !ids.includes(id)) handledErrors.delete(id);
+    return ids.some(id => !handledErrors.has(id) || now - handledErrors.get(id)! >= ERROR_RECHECK_MS);
+}
 
 // Errors from before a restart or a new stream were about the old one.
 function forgetStreamErrors(kind: "sender" | "receiver", userId: string) {
-    for (const id of streamErrors(kind, userId)) handledErrors.add(id);
+    for (const id of streamErrors(kind, userId)) handledErrors.set(id, Date.now());
 }
 
 // Ends a broken Go Live so the next tick starts a fresh one (and reopens the farm window if it closed).
@@ -635,7 +643,9 @@ function streamerTick(now: number, elapsed: number) {
         return setStatus("waiting", `Live, waiting for ${who} to watch. The farm only adds time while they do.`);
     }
     if (reconnecting) return setStatus("waiting", "Live, but the stream is reconnecting. Time counts again once it's back.");
-    if (pictureStuck) return setStatus("waiting", `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
+    if (pictureStuck) return setStatus("waiting", second.viewer!.phase === "setup" && second.viewer!.detail
+        ? `Live, but nothing counts: ${second.viewer!.detail}`
+        : `Live, but ${partnerName("your other account")}'s picture is reconnecting. Time counts again once it's back.`);
     count(elapsed);
     if (ours) {
         watchedSinceReport += elapsed;
