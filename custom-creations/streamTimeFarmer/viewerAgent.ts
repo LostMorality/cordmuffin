@@ -27,6 +27,10 @@ function agent() {
     const WATCH_RETRY_MS = 10_000;
     const LEAVE_AFTER_MS = 30_000;
     const STUCK_MS = 20_000;
+    // An error Discord never clears still counts again after this long, so a reopen that didn't help is tried again.
+    const ERROR_RECHECK_MS = 60_000;
+    // Picture data arriving with not one frame decoded for this long means this window can't show the stream.
+    const NO_PICTURE_MS = 30_000;
     const CONNECT = 1n << 20n;
     const VIEW_CHANNEL = 1n << 10n;
 
@@ -48,7 +52,9 @@ function agent() {
     let mutedFor = "";
     let muted = false;
     let deafened = false;
-    const handledErrors = new Set<string>();
+    // Error id -> when it was acted on. Discord reuses one id per partner, so ids are dropped again once it clears.
+    const handledErrors = new Map<string, number>();
+    let decode = { since: 0, packets: 0, frames: 0, gpuLost: false, checking: false };
 
     const setStatus = (phase: string, detail: string) => {
         status = { phase, detail, countedMs: 0, sessionMs: status.sessionMs };
@@ -80,8 +86,72 @@ function agent() {
             return [];
         }
     }
-    const freshStreamError = (userId: string) => streamErrors(userId).some(id => !handledErrors.has(id));
-    const forgetStreamErrors = (userId: string) => streamErrors(userId).forEach(id => handledErrors.add(id));
+    function freshStreamError(userId: string) {
+        const now = Date.now();
+        const ids = streamErrors(userId);
+        for (const id of [...handledErrors.keys()]) if (!ids.includes(id)) handledErrors.delete(id);
+        return ids.some(id => !handledErrors.has(id) || now - handledErrors.get(id)! >= ERROR_RECHECK_MS);
+    }
+    const forgetStreamErrors = (userId: string) => streamErrors(userId).forEach(id => handledErrors.set(id, Date.now()));
+
+    // The browser connection behind the stream being watched. This window is a web build, so it's a real RTCPeerConnection.
+    function streamPeer(): RTCPeerConnection | null {
+        try {
+            const engine = store("MediaEngineStore")?.getMediaEngine?.();
+            const conn: any = [...(engine?.connections ?? [])].find((c: any) => c?.context === "stream" && !c.destroyed);
+            if (!conn) return null;
+            for (const value of Object.values(conn)) {
+                if (value instanceof RTCPeerConnection) return value;
+                if (value && typeof value === "object")
+                    for (const inner of Object.values(value as object)) if (inner instanceof RTCPeerConnection) return inner;
+            }
+        } catch { /* a build without the media engine just skips this check */ }
+        return null;
+    }
+
+    // After a graphics driver update or crash, Discord's GPU process comes back in software mode and stays there until
+    // Discord restarts. The stream's video can't be decoded then, however often it's reopened.
+    function gpuLost() {
+        try {
+            const canvas = document.createElement("canvas");
+            const gl: any = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+            if (!gl) return true;
+            const info = gl.getExtension("WEBGL_debug_renderer_info");
+            const name = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+            gl.getExtension("WEBGL_lose_context")?.loseContext();
+            return /basic render|swiftshader|llvmpipe|software/i.test(name);
+        } catch {
+            return false;
+        }
+    }
+
+    // Samples the incoming video in the background (stats are async, the tick isn't) and notes since when picture data
+    // has been arriving without a single frame coming out of the decoder.
+    function sampleDecode(now: number) {
+        if (decode.checking) return;
+        const pc = streamPeer();
+        if (!pc) {
+            decode = { since: 0, packets: 0, frames: 0, gpuLost: false, checking: false };
+            return;
+        }
+        decode.checking = true;
+        pc.getStats().then(stats => {
+            let packets = 0, frames = 0;
+            stats.forEach((r: any) => {
+                if (r.type === "inbound-rtp" && r.kind === "video") {
+                    packets += r.packetsReceived ?? 0;
+                    frames += r.framesDecoded ?? 0;
+                }
+            });
+            if (frames > decode.frames || packets <= decode.packets) {
+                decode.since = 0;
+                decode.gpuLost = false;
+            } else decode.since ||= now;
+            decode.packets = packets;
+            decode.frames = frames;
+        }).catch(() => { }).finally(() => { decode.checking = false; });
+    }
+    const noPicture = (now: number) => decode.since > 0 && now - decode.since >= NO_PICTURE_MS;
 
     // Where the streaming account is sitting, if this account may follow it there.
     function partnerSpot(partner: string) {
@@ -176,15 +246,24 @@ function agent() {
         }
         const active = streaming.getActiveStreamForApplicationStream(stream);
         const watching = active != null && streaming.getViewerIds(stream).includes(me.id);
+        if (watching && active.state === "ACTIVE") sampleDecode(now);
+        else decode.since = 0;
+        // Reopening can't fix a Discord that lost its graphics card, so say what will instead of looping. Checked here,
+        // in the same tick as the reopen below, or the reopen would always win and loop.
+        if (watching && noPicture(now) && (decode.gpuLost ||= gpuLost())) {
+            return setStatus("setup", `Discord lost its graphics card (usually after a GPU driver update), so this account can't show ${name}'s stream. Fully quit Discord from the tray and open it again to fix it.`);
+        }
         // Open but broken: failed (Discord's error 2012), no picture arriving, or stalled. Close it and open it again.
         if (active) {
             if (active.state === "ACTIVE") stuckSince = 0;
             else stuckSince ||= now;
             const why = active.state === "FAILED" ? "failed"
                 : freshStreamError(partner) ? "stopped sending a picture"
-                    : stuckSince && now - stuckSince >= STUCK_MS ? "got stuck" : "";
+                    : noPicture(now) ? "isn't showing a picture"
+                        : stuckSince && now - stuckSince >= STUCK_MS ? "got stuck" : "";
             if (why) {
                 stuckSince = 0;
+                decode.since = 0;
                 forgetStreamErrors(partner);
                 byCode('type:"STREAM_CLOSE",streamKey')?.(streamKey(stream), false);
                 lastWatch = now;
