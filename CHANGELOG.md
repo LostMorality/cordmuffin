@@ -3,6 +3,12 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-08
+
+- New plugin: ShrinkUploads. Files over your upload limit get shrunk on your own computer to just fit, instead of
+  Discord's "file too big" error. Works for videos, pictures, GIFs and audio, and reads your real limit from Discord
+  (Nitro, Basic, free and server boosts). A Shrink button on any waiting file lets you pick your own size.
+
 ## 2026-11-07
 
 - New plugin: PlatformSpoofer+. Pick what platform people see you on (Phone, Console, VR headset, Web or Desktop)
