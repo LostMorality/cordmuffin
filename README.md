@@ -483,6 +483,33 @@ The phone icon only shows while you're Online; that's how Discord works. Your ot
 
 **To install it:** copy the `custom-creations/platformSpooferPlus` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
 
+### ShrinkUploads (`shrinkUploads`)
+
+Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, right on your own computer. Nothing gets sent to any website.
+
+![The settings page, the Shrink button and the progress panel](docs/shrink-uploads.png)
+
+**How to use it:**
+- **Just send the file.** If it's over your limit, the plugin shrinks it to just under the limit and adds it back to your message. You can have it ask first or do nothing instead. Files that already fit in the same drop go through like normal.
+- **The Shrink button** on any file waiting to be sent lets you pick your own size, for example to save someone's data. The file keeps its spoiler, description and name.
+- A small panel shows each file's progress, with **Cancel**. Cancelling a Shrink button job puts the original file back.
+- The settings page shows your real limit, for DMs and for the server you're in.
+
+**Your real limit, never a guess.** The plugin asks Discord's own code what your limit is, the same check Discord runs when you upload, so it's right for no Nitro, Nitro Basic, Nitro and every server boost level, and stays right when Discord changes the numbers.
+
+**What it does to each kind of file:**
+- **Videos** (MP4, MOV, MKV, WebM, AVI and more): re-encoded in two passes aimed at the exact size, then checked and fixed if it missed. It picks the size and frame rate that look best for the space, for example 720p at 30 fps rather than a blurry 540p at 60. If a video is too long to look OK at all, it says so instead of making mush.
+- **Pictures**: the best quality that fits, and smaller only if it has to. See-through pictures stay see-through.
+- **GIFs**: rebuilt smaller, or turned into a small video if you turn that on.
+- **Audio**: turned into small Opus audio.
+- Hidden file info like your location and camera details is removed by default.
+
+**The video tool.** Videos, GIFs and audio need ffmpeg, a free video tool. If you don't have it, the plugin downloads it once (about 30 MB) the first time it's needed, or when you click **Download video tool** in the settings. It comes from a fixed release of ffmpeg-static on GitHub and is checked against a fingerprint built into the plugin before it's used. Pictures don't need it.
+
+**What it talks to:** nothing, except **github.com** for that one-time video tool download. Your files never leave your computer until Discord uploads them.
+
+**To install it:** copy the `custom-creations/shrinkUploads` folder into **Plugins Go Here**, then run the Equicord installer. If you build Equicord yourself, it goes in `src/userplugins`.
+
 ## Building it yourself
 
 You need [Go](https://go.dev).
