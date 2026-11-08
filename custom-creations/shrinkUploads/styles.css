@@ -1,0 +1,92 @@
+.vc-shrink-host {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 1002;
+    pointer-events: none;
+}
+
+.vc-shrink-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 320px;
+    pointer-events: auto;
+}
+
+.vc-shrink-job {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--background-floating, var(--background-base-lowest));
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-high, 0 8px 16px rgb(0 0 0 / 24%));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-shrink-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vc-shrink-name {
+    flex: 1;
+    overflow: hidden;
+    font-weight: 600;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.vc-shrink-phase {
+    margin: 4px 0 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.vc-shrink-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--background-modifier-accent, rgb(128 128 128 / 25%));
+    overflow: hidden;
+}
+
+.vc-shrink-fill {
+    height: 100%;
+    background: var(--brand-500, #5865f2);
+    transition: width 0.3s ease;
+}
+
+.vc-shrink-job[data-state="done"] .vc-shrink-fill {
+    background: var(--status-positive, #23a55a);
+}
+
+.vc-shrink-job[data-state="failed"] .vc-shrink-fill {
+    background: var(--status-danger, #da373c);
+}
+
+.vc-shrink-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 8px;
+    color: var(--text-default, var(--text-normal));
+    font-size: 14px;
+}
+
+.vc-shrink-note {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.vc-shrink-hint {
+    margin-top: 8px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.vc-shrink-hint[data-invalid="true"] {
+    color: var(--text-feedback-critical, var(--status-danger, #da373c));
+}
