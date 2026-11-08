@@ -31,6 +31,11 @@ function agent() {
     const ERROR_RECHECK_MS = 60_000;
     // Picture data arriving with not one frame decoded for this long means this window can't show the stream.
     const NO_PICTURE_MS = 30_000;
+    // Joined, but the call's voice connection hasn't worked for this long: leave and join again.
+    const VOICE_DEAD_MS = 30_000;
+    // Each rejoin that didn't help doubles the wait, up to this; a gap between checks starts the clock over.
+    const VOICE_DEAD_MAX_MS = 10 * 60_000;
+    const VOICE_CHECK_GAP_MS = 15_000;
     const CONNECT = 1n << 20n;
     const VIEW_CHANNEL = 1n << 10n;
 
@@ -55,6 +60,9 @@ function agent() {
     // Error id -> when it was acted on. Discord reuses one id per partner, so ids are dropped again once it clears.
     const handledErrors = new Map<string, number>();
     let decode = { since: 0, packets: 0, frames: 0, gpuLost: false, checking: false };
+    let voiceDeadSince = 0;
+    let voiceCheckedAt = 0;
+    let voiceDeadHits = 0;
 
     const setStatus = (phase: string, detail: string) => {
         status = { phase, detail, countedMs: 0, sessionMs: status.sessionMs };
@@ -153,6 +161,33 @@ function agent() {
     }
     const noPicture = (now: number) => decode.since > 0 && now - decode.since >= NO_PICTURE_MS;
 
+    // A call can stay selected while its voice connection is dead, and nothing works in it until it's left.
+    function voiceDead(now: number) {
+        if (now - voiceCheckedAt > VOICE_CHECK_GAP_MS) voiceDeadSince = 0;
+        voiceCheckedAt = now;
+        let state = "";
+        try {
+            state = store("RTCConnectionStore")?.getState?.() ?? "";
+        } catch {
+            return false;
+        }
+        if (!state || state === "RTC_CONNECTED") {
+            voiceDeadSince = voiceDeadHits = 0;
+            return false;
+        }
+        if (!navigator.onLine) {
+            voiceDeadSince = 0;
+            return false;
+        }
+        voiceDeadSince ||= now;
+        if (now - voiceDeadSince < Math.min(VOICE_DEAD_MS * 2 ** voiceDeadHits, VOICE_DEAD_MAX_MS)) return false;
+        voiceDeadSince = 0;
+        voiceDeadHits++;
+        mutedFor = "";
+        byProps("selectVoiceChannel", "disconnect")?.disconnect();
+        return true;
+    }
+
     // Where the streaming account is sitting, if this account may follow it there.
     function partnerSpot(partner: string) {
         const channelId = store("VoiceStateStore")?.getVoiceStateForUser?.(partner)?.channelId;
@@ -175,6 +210,7 @@ function agent() {
         if (now - lastJoin < JOIN_RETRY_MS) return;
         lastJoin = now;
         joinedCall = where.id;
+        voiceDeadSince = 0;
         mutedFor = ""; // a fresh join arrives unmuted
         byProps("selectVoiceChannel", "disconnect")?.selectVoiceChannel(where.id);
     }
@@ -238,6 +274,7 @@ function agent() {
         }
         partnerGoneSince = 0;
         if (!joinedHere(where.id)) return join(where, now);
+        if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
         muteOnJoin(where.id);
 
         if (!live || !stream) {
