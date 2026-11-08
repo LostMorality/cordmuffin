@@ -41,6 +41,8 @@ const CallActions: { ring(channelId: string, recipients?: string[]): void; } = f
 const PrivateChannelActions: { getOrEnsurePrivateChannel(userId: string): Promise<string>; } = findByPropsLazy("getOrEnsurePrivateChannel", "openPrivateChannel");
 const MuteActions: { setSelfMute(context: string, mute: boolean): void; toggleSelfDeaf(options?: { context?: string; syncRemote?: boolean; }): void; } = findByPropsLazy("setSelfMute", "toggleSelfDeaf");
 const IdleStore: { getSystemSuspended?(): boolean; } = findStoreLazy("IdleStore");
+// The call's own voice connection. "RTC_CONNECTED" when it works; a dead one can sit at "DISCONNECTED" for good.
+const RTCConnectionStore: { getState?(): string; } = findStoreLazy("RTCConnectionStore");
 const StreamRTCConnectionStore: { getRTCConnections(): Record<string, { isOwner: boolean; destroy(reason: string): void; }>; } = findStoreLazy("StreamRTCConnectionStore");
 const startStreamWithSource: (source: CaptureSource, options: Record<string, unknown>) => Promise<[boolean, string | undefined]> = findByCodeLazy('"no user or channel"');
 const watchStream: (stream: AppStream, options?: { noFocus?: boolean; forceMultiple?: boolean; }) => void = findByCodeLazy('type:"STREAM_WATCH",streamKey');
@@ -87,6 +89,14 @@ const SENDER_STUCK_MS = 45_000;
 // After this many failed starts in a row the status stops sounding like a hiccup and names the likely cause.
 const FAILS_BEFORE_REASON = 3;
 const LOST_STREAM_MS = 2 * 60_000;
+// A call can stay selected while its voice connection is dead (seen after a quick leave and rejoin): every Go Live then
+// fails with "stream-failed-to-start" until the call is left. Not connected for this long means it's left and joined again.
+const VOICE_DEAD_MS = 30_000;
+// Each rejoin that didn't help doubles the wait before the next one, up to this, so a connection that can't work at
+// all (UDP blocked, no route) doesn't hang up and ring the other account every half minute.
+const VOICE_DEAD_MAX_MS = 10 * 60_000;
+// A gap this long between checks means the call wasn't being watched (left, waiting, asleep), so the clock starts over.
+const VOICE_CHECK_GAP_MS = 15_000;
 const FARM_TITLE = "Stream farm (StreamTimeFarmer)";
 // The farm window is a Windows program started by Discord's desktop app; anywhere else the farm streams a random
 // open window, like it did before it had its own.
@@ -133,6 +143,9 @@ let lastConnect = Date.now();
 // Whether this run joined its call itself, and since when it's been in it.
 let farmJoined = false;
 let joinedAt = 0;
+let voiceDeadSince = 0;
+let voiceCheckedAt = 0;
+let voiceDeadHits = 0;
 // The account whose hang-up is waiting to be saved.
 let pendingOff = "";
 let hangUpTimer: ReturnType<typeof setTimeout> | undefined;
@@ -227,6 +240,37 @@ function isFull(where: Target) {
     }
 }
 
+// True when the call this Discord has selected hasn't had a working voice connection for VOICE_DEAD_MS. It's left
+// then, and the next tick joins it again, which is what fixes it by hand too.
+function voiceDead(now: number) {
+    if (now - voiceCheckedAt > VOICE_CHECK_GAP_MS) voiceDeadSince = 0;
+    voiceCheckedAt = now;
+    let state = "";
+    try {
+        state = RTCConnectionStore.getState?.() ?? "";
+    } catch {
+        return false;
+    }
+    if (!state || state === "RTC_CONNECTED") {
+        voiceDeadSince = voiceDeadHits = 0;
+        return false;
+    }
+    // Offline, Discord resumes the call by itself once the network is back.
+    if (!navigator.onLine) {
+        voiceDeadSince = 0;
+        return false;
+    }
+    voiceDeadSince ||= now;
+    if (now - voiceDeadSince < Math.min(VOICE_DEAD_MS * 2 ** voiceDeadHits, VOICE_DEAD_MAX_MS)) return false;
+    logger.info(`The call's voice connection is stuck at ${state}, joining it again`);
+    voiceDeadSince = 0;
+    voiceDeadHits++;
+    // Not a hang up: with inCall off, the leave below doesn't stop the farm. join()'s own retry spacing still applies.
+    inCall = false;
+    VoiceActions.disconnect();
+    return true;
+}
+
 // The streamer starts DM calls and rings the viewer; the viewer only joins a call that's already going.
 function join(where: Target, now: number, startCall: boolean) {
     if (isFull(where)) return setStatus("waiting", `${where.name} is full. Waiting for a spot.`);
@@ -237,6 +281,7 @@ function join(where: Target, now: number, startCall: boolean) {
     // A fresh join comes in unmuted, so it gets muted again.
     mutedFor = "";
     farmJoined = true;
+    voiceDeadSince = 0;
     VoiceActions.selectVoiceChannel(where.id);
     if (where.dm && startCall) CallActions.ring(where.id);
 }
@@ -557,6 +602,7 @@ function streamerTick(now: number, elapsed: number) {
     if (typeof where === "string") return setStatus("setup", where);
     const me = UserStore.getCurrentUser().id;
     if (!joinedHere(where.id)) return join(where, now, true);
+    if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
     if (!inCall) {
         joinedAt = now;
         // Discord only rejoins calls by itself right after it connects; any other call it was already in is the user's.
@@ -699,6 +745,7 @@ function viewerTick(now: number, elapsed: number) {
     }
     partnerGoneSince = 0;
     if (!joinedHere(where.id)) return join(where, now, false);
+    if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
     muteOnJoin(where.id, true);
 
     if (!live || !stream) {
@@ -870,7 +917,7 @@ export function startStreamFarm() {
     // Left over from a Discord that closed mid-run: put the user's Go Live quality back before starting again.
     if (!ApplicationStreamingStore.getCurrentUserActiveStream()) restoreGoLive();
     lastTick = Date.now();
-    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = lastRestart = stuckSince = senderStuckSince = liveFails = 0;
+    lastJoin = lastStart = lastWatch = lastDmOpen = partnerGoneSince = lastRestart = stuckSince = senderStuckSince = liveFails = voiceDeadSince = voiceCheckedAt = voiceDeadHits = 0;
     sessionMs = 0;
     mutedFor = liveError = "";
     inCall = false;
