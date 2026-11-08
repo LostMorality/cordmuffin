@@ -22,6 +22,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   and if that's because Discord lost your graphics card (it happens after a GPU driver update, until Discord restarts)
   the status says so and tells you to fully quit Discord from the tray and open it again. Time stops counting until
   then instead of being counted for a stream nobody could see.
+- StreamTimeFarmer: a call whose voice connection died while Discord still showed it as joined no longer leaves the
+  farm failing to go live over and over. After 30 seconds without a working connection it leaves the call and joins
+  it again by itself (waiting longer each time if that doesn't help), on both accounts.
 
 ## 2026-11-04
 
