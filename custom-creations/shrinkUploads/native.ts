@@ -7,9 +7,9 @@
 import { DATA_DIR } from "@main/utils/constants";
 import { type ChildProcess, execFile, spawn } from "child_process";
 import { createHash, randomUUID } from "crypto";
-import { app, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, type IpcMainInvokeEvent, net, type WebContents } from "electron";
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
-import { appendFile, open, stat } from "fs/promises";
+import { appendFile, open, stat, statfs } from "fs/promises";
 import { setPriority, tmpdir } from "os";
 import { join } from "path";
 import { Readable, Transform } from "stream";
@@ -21,8 +21,10 @@ import { correctKbps, firstGifStep, type GifStep, type MediaInfo, nextGifStep, p
 const ROOT = join(DATA_DIR, "shrinkUploads");
 const BIN = join(ROOT, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
 const READY = join(ROOT, "ffmpeg.ready");
-const WORK = join(tmpdir(), "shrink-uploads");
+const WORK = process.platform === "linux" ? join(ROOT, "work") : join(tmpdir(), "shrink-uploads");
 const NULL_OUT = process.platform === "win32" ? "NUL" : "/dev/null";
+const STALL_MS = 30_000;
+const CHECK_MS = 60_000;
 
 const RELEASE = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/";
 const BUILDS: Record<string, { file: string; sha256: string; mb: number; }> = {
@@ -35,6 +37,9 @@ const BUILDS: Record<string, { file: string; sha256: string; mb: number; }> = {
     "darwin-arm64": { file: "ffmpeg-darwin-arm64.gz", sha256: "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa", mb: 19 },
 };
 const BUILD = BUILDS[`${process.platform}-${process.platform === "win32" ? "x64" : process.arch}`];
+
+const TONEMAP = "setparams=color_primaries=bt2020:colorspace=bt2020nc,zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv";
+const DEINTERLACE = "bwdif=mode=send_frame:deint=interlaced";
 
 const SPEED = { fast: "veryfast", balanced: "medium", best: "slow" } as const;
 export type Speed = keyof typeof SPEED;
@@ -63,20 +68,49 @@ interface Job {
     cancelled: boolean;
     phase: string;
     percent: number;
+    reserve: number;
+}
+
+interface RunResult {
+    code: number;
+    out: string;
+    err: string;
+    spawnFailed: boolean;
 }
 
 const jobs = new Map<string, Job>();
 const watched = new WeakSet<WebContents>();
+const filterSupport = new Map<string, Promise<boolean>>();
 let system: Promise<string | null> | null = null;
 let installing: Promise<void> | null = null;
 let download: { received: number; total: number; } | null = null;
 let installError = "";
 
-function run(file: string, args: string[], job?: Job) {
-    return new Promise<{ code: number; out: string; err: string; }>(resolve => {
-        const child = execFile(file, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true }, (error, out, err) => {
+const DISK_FULL = "Your disk is full. Free up some space and try again.";
+const BLOCKED = "A file was blocked, maybe by antivirus. Try again.";
+const DAMAGED = "This file looks damaged or isn't a normal video or audio file.";
+const NO_NET = "Couldn't download the video tool. Check your internet and try again.";
+
+function plain(raw: string, code = "") {
+    console.error("[ShrinkUploads]", code, raw);
+    if (code === "ENOSPC" || /No space left|not enough space|ENOSPC/i.test(raw)) return DISK_FULL;
+    if (["EPERM", "EACCES", "EBUSY"].includes(code) || /EPERM|EACCES|EBUSY|Permission denied|Access is denied/i.test(raw)) return BLOCKED;
+    if (/Invalid data found|moov atom not found|could not find codec|does not contain any stream|Error while decoding/i.test(raw)) return DAMAGED;
+    return "Something went wrong while shrinking. Try again, or trim the file first.";
+}
+
+function friendly(e: any): never {
+    const raw = String(e?.message ?? e);
+    if (e?.code || /[\\/]/.test(raw)) throw new Error(plain(raw, e?.code));
+    throw e;
+}
+
+function run(file: string, args: string[], job?: Job, timeout = 0) {
+    return new Promise<RunResult>(resolve => {
+        const child = execFile(file, args, { maxBuffer: 16 * 1024 * 1024, windowsHide: true, timeout }, (error, out, err) => {
             if (job) job.proc = undefined;
-            resolve({ code: error ? (typeof error.code === "number" ? error.code : -1) : 0, out, err });
+            const spawnFailed = !!error && typeof error.code === "string" && error.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+            resolve({ code: error ? (typeof error.code === "number" ? error.code : -1) : 0, out: out ?? "", err: err ?? "", spawnFailed });
         });
         if (job) {
             job.proc = child;
@@ -98,8 +132,29 @@ function removeDir(dir: string) {
 }
 
 async function capable(file: string) {
-    const { out } = await run(file, ["-hide_banner", "-encoders"]);
-    return /\blibx264\b/.test(out) && /\blibopus\b/.test(out) ? file : null;
+    const { out } = await run(file, ["-hide_banner", "-encoders"], undefined, CHECK_MS);
+    if (!/\blibx264\b/.test(out) || !/\blibopus\b/.test(out)) return null;
+    const dir = join(WORK, `check-${randomUUID()}`);
+    try {
+        mkdirSync(dir, { recursive: true });
+        const test = join(dir, "t.mp4");
+        const { code } = await run(file, [
+            "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.2", "-f", "lavfi", "-i", "sine=d=0.2",
+            "-map", "0:v", "-map", "1:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "libopus", test
+        ], undefined, CHECK_MS);
+        return code === 0 && statSync(test, { throwIfNoEntry: false })?.size ? file : null;
+    } catch {
+        return null;
+    } finally {
+        removeDir(dir);
+    }
+}
+
+function canTonemap(bin: string) {
+    let p = filterSupport.get(bin);
+    if (!p) filterSupport.set(bin, p = run(bin, ["-hide_banner", "-filters"], undefined, CHECK_MS).then(r => /\bzscale\b/.test(r.out) && /\btonemap\b/.test(r.out)));
+    return p;
 }
 
 async function ffmpegPath() {
@@ -121,51 +176,85 @@ export async function getTools(_: IpcMainInvokeEvent) {
     };
 }
 
-async function fetchBinary() {
-    if (!BUILD) throw new Error("There is no ready made ffmpeg for this system. Install ffmpeg yourself and restart Discord.");
-    mkdirSync(ROOT, { recursive: true });
-    const res = await fetch(RELEASE + BUILD.file, { redirect: "follow" });
-    if (!res.ok || !res.body) throw new Error(`Download failed (HTTP ${res.status}).`);
+function clearPartials() {
+    if (!existsSync(ROOT)) return;
+    for (const f of readdirSync(ROOT)) {
+        if (!f.endsWith(".part")) continue;
+        try {
+            if (Date.now() - statSync(join(ROOT, f)).mtimeMs > 600_000) rmSync(join(ROOT, f), { force: true });
+        } catch { }
+    }
+}
 
-    download = { received: 0, total: Number(res.headers.get("content-length")) || BUILD.mb * 1024 * 1024 };
-    const hash = createHash("sha256");
-    const meter = new Transform({
-        transform(chunk: Buffer, _enc, done) {
-            hash.update(chunk);
-            if (download) download.received += chunk.length;
-            done(null, chunk);
-        }
-    });
+async function fetchBinary() {
+    if (!BUILD) throw new Error("There's no ready-made video tool for this system. Install ffmpeg yourself, then restart Discord.");
+    mkdirSync(ROOT, { recursive: true });
+    clearPartials();
+    const ctrl = new AbortController();
+    let stall = setTimeout(() => ctrl.abort(), STALL_MS);
+    const poke = () => {
+        clearTimeout(stall);
+        stall = setTimeout(() => ctrl.abort(), STALL_MS);
+    };
     const partial = `${BIN}.${process.pid}.${randomUUID()}.part`;
     try {
-        await pipeline(Readable.fromWeb(res.body as import("stream/web").ReadableStream<Uint8Array>), meter, createGunzip(), createWriteStream(partial));
-        if (hash.digest("hex") !== BUILD.sha256) throw new Error("The download did not match the expected checksum, so it was thrown away.");
+        const res = await net.fetch(RELEASE + BUILD.file, { signal: ctrl.signal }).catch(() => { throw new Error(NO_NET); });
+        if (!res.ok || !res.body) throw new Error(`The video tool download failed (error ${res.status}). Try again later.`);
+        poke();
+        download = { received: 0, total: Number(res.headers.get("content-length")) || BUILD.mb * 1024 * 1024 };
+        const hash = createHash("sha256");
+        const meter = new Transform({
+            transform(chunk: Buffer, _enc, done) {
+                poke();
+                hash.update(chunk);
+                if (download) download.received += chunk.length;
+                done(null, chunk);
+            }
+        });
+        await pipeline(Readable.fromWeb(res.body as import("stream/web").ReadableStream<Uint8Array>), meter, createGunzip(), createWriteStream(partial))
+            .catch(e => { throw ctrl.signal.aborted ? new Error("The download stopped. Check your internet and try again.") : /^Z_/.test(e?.code ?? "") ? new Error("The download was damaged, so it was thrown away. Try again.") : e; });
+        if (hash.digest("hex") !== BUILD.sha256) throw new Error("The download was damaged, so it was thrown away. Try again.");
         if (process.platform !== "win32") chmodSync(partial, 0o755);
         try {
             renameSync(partial, BIN);
         } catch (e) {
             if (!existsSync(READY)) throw e;
+            rmSync(partial, { force: true });
         }
-        if (!await capable(BIN)) throw new Error("The downloaded ffmpeg does not run on this system.");
+        if (!await capable(BIN)) throw new Error("The video tool wouldn't start. Your antivirus may have blocked it.");
         writeFileSync(READY, BUILD.sha256);
     } catch (e) {
         rmSync(partial, { force: true });
         throw e;
+    } finally {
+        clearTimeout(stall);
     }
 }
 
 export function installTools(_: IpcMainInvokeEvent) {
     installError = "";
     installing ??= fetchBinary()
-        .catch(e => { installError = String(e?.message ?? e); throw e; })
+        .catch(e => {
+            const raw = String(e?.message ?? e);
+            installError = e?.name === "AbortError" || /fetch failed|terminated|ECONN|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|UND_ERR|ERR_NAME|ERR_INTERNET|ERR_CONNECTION|socket|network/i.test(raw)
+                ? NO_NET
+                : e?.code || /[\\/]/.test(raw) ? plain(raw, e?.code) : raw;
+            throw new Error(installError);
+        })
         .finally(() => { installing = null; download = null; });
     return installing;
 }
 
 export function removeTools(_: IpcMainInvokeEvent) {
+    if (jobs.size || installing) throw new Error("Wait until shrinking is done, then try again.");
+    try {
+        rmSync(BIN, { force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+        throw new Error("The video tool is in use. Restart Discord and try again.");
+    }
     rmSync(READY, { force: true });
-    rmSync(BIN, { force: true });
     system = null;
+    filterSupport.clear();
 }
 
 function sweep() {
@@ -205,25 +294,33 @@ function watch(sender: WebContents) {
 app.once("will-quit", () => [...jobs.keys()].forEach(dropJob));
 sweep();
 
-export function startJob(e: IpcMainInvokeEvent, name: string) {
+export async function startJob(e: IpcMainInvokeEvent, name: string, size = 0, target = 0) {
     sweep();
     watch(e.sender);
     const id = randomUUID();
     const dir = join(WORK, id);
     mkdirSync(dir, { recursive: true });
+    const need = Math.max(0, size) + Math.max(0, target) * 3 + 256 * 1024 * 1024;
+    const pending = [...jobs.values()].reduce((sum, j) => sum + j.reserve, 0);
+    const free = await statfs(dir).then(s => s.bavail * s.bsize, () => Infinity);
+    if (free - pending < need) {
+        removeDir(dir);
+        const gb = Math.max(1, Math.ceil((need - (free - pending)) / 1024 ** 3));
+        throw new Error(`Not enough free disk space. Free up about ${gb} GB and try again.`);
+    }
     const ext = (/\.([a-z0-9]{1,5})$/i.exec(name)?.[1] ?? "bin").toLowerCase();
-    jobs.set(id, { owner: e.sender.id, dir, input: join(dir, `in.${ext}`), cancelled: false, phase: "Reading file", percent: 0 });
+    jobs.set(id, { owner: e.sender.id, dir, input: join(dir, `in.${ext}`), cancelled: false, phase: "Reading file", percent: 0, reserve: need });
     return id;
 }
 
 function getJob(id: string) {
     const job = jobs.get(id);
-    if (!job) throw new Error("This shrink job no longer exists.");
+    if (!job) throw new Error("Cancelled");
     return job;
 }
 
 export function writeChunk(_: IpcMainInvokeEvent, id: string, data: Uint8Array) {
-    return appendFile(getJob(id).input, data);
+    return appendFile(getJob(id).input, data).catch(friendly);
 }
 
 export function getProgress(_: IpcMainInvokeEvent, id: string) {
@@ -267,18 +364,29 @@ function ffmpeg(job: Job, bin: string, args: string[], duration: number, from: n
             const m = /out_time_(?:us|ms)=(\d+)/.exec(d.toString());
             if (m && duration > 0) job.percent = Math.min(99, from + span * Math.min(1, Number(m[1]) / 1e6 / duration));
         });
-        proc.on("error", reject);
+        proc.on("error", (e: NodeJS.ErrnoException) => {
+            console.error("[ShrinkUploads] ffmpeg failed to start", e);
+            reject(new Error(bin === BIN
+                ? "The video tool couldn't start. Remove it in the ShrinkUploads settings and download it again."
+                : "The ffmpeg on this computer couldn't start. Reinstall it, or remove it so the plugin can download its own."));
+        });
         proc.on("close", code => {
             job.proc = undefined;
             if (job.cancelled) reject(new Error("Cancelled"));
             else if (code === 0) resolve();
-            else reject(new Error(tail.trim().split(/\r?\n/).filter(l => !/^\s*$/.test(l)).slice(-2).join(" ") || `ffmpeg exited with code ${code}`));
+            else reject(new Error(plain(tail.trim().split(/\r?\n/).filter(l => !/^\s*$/.test(l)).slice(-3).join(" ") || `ffmpeg exited with code ${code}`)));
         });
     });
 }
 
 async function probe(job: Job, bin: string) {
-    const info = parseProbe((await run(bin, ["-hide_banner", "-i", job.input], job)).err);
+    const first = await run(bin, ["-hide_banner", "-i", job.input], job);
+    if (first.spawnFailed && !job.cancelled) {
+        if (bin === BIN) rmSync(READY, { force: true });
+        system = null;
+        throw new Error("The video tool couldn't start, maybe because antivirus blocked it. Get it again in the ShrinkUploads settings.");
+    }
+    const info = parseProbe(first.err);
     if (!info.duration && (info.hasVideo || info.hasAudio) && !job.cancelled) {
         job.phase = "Measuring length";
         const { err } = await run(bin, ["-hide_banner", "-i", job.input, "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "null", NULL_OUT], job);
@@ -299,6 +407,7 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
     const log = join(job.dir, "pass");
     let plan = planVideo({ ...info, hasAudio: withAudio && info.hasAudio }, target, opts.maxFps);
     if (!plan.ok) throw new Error(plan.reason);
+    const tonemap = info.hdr && await canTonemap(bin);
     let kbps = plan.videoKbps;
     let best: { path: string; size: number; note: string; } | null = null;
     let raised = false;
@@ -306,6 +415,8 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
     for (let attempt = 0; attempt < 3; attempt++) {
         const filters = [scaleFilter(info, plan.shortSide)];
         if (info.fps > 0 && plan.fps < info.fps - 0.5) filters.unshift(`fps=${plan.fps}`);
+        if (info.interlaced) filters.unshift(DEINTERLACE);
+        if (tonemap) filters.push(TONEMAP);
         const base = [
             "-i", job.input, "-map", "0:v:0",
             "-vf", [...filters, "format=yuv420p"].join(","),
@@ -313,14 +424,14 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
             "-passlogfile", log,
             ...(opts.keepMetadata ? [] : ["-map_metadata", "-1"]),
         ];
-        job.phase = attempt ? "Fine tuning size (pass 1 of 2)" : "Analyzing video";
+        job.phase = attempt ? "Getting the size just right" : "Checking the video";
         await ffmpeg(job, bin, [...base, "-pass", "1", "-an", "-f", "null", NULL_OUT], info.duration, 0, 40);
-        job.phase = attempt ? "Fine tuning size (pass 2 of 2)" : "Encoding video";
+        job.phase = attempt ? "Getting the size just right" : "Shrinking video";
         const audio = plan.audioKbps > 0 ? ["-map", "0:a:0", "-c:a", "aac", "-b:a", `${plan.audioKbps}k`, "-ac", String(plan.audioChannels)] : ["-an"];
         await ffmpeg(job, bin, [...base, "-pass", "2", ...audio, "-movflags", "+faststart", out], info.duration, 40, 60);
 
         const { size } = await stat(out);
-        const note = `${plan.shortSide}p ${Math.round(plan.fps)} fps`;
+        const note = `${plan.shortSide}p`;
         if (size <= target && (!best || size > best.size)) {
             const kept = join(job.dir, `best${attempt}.mp4`);
             renameSync(out, kept);
@@ -335,7 +446,7 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
         plan = { ...plan, ...planForKbps(info, kbps, plan) };
     }
 
-    if (!best) throw new Error("Could not get it under the limit. Trim it or try again with a smaller target.");
+    if (!best) throw new Error("It wouldn't fit under the limit. Trim it, or try a bigger size.");
     job.output = best.path;
     return { size: best.size, ext: "mp4", mime: "video/mp4", note: best.note };
 }
@@ -352,7 +463,7 @@ async function encodeAudio(job: Job, bin: string, info: MediaInfo, target: numbe
     let plan = planAudio(info, target);
     if (!plan.ok) throw new Error(plan.reason);
     for (let attempt = 0; attempt < 3; attempt++) {
-        job.phase = attempt ? "Fine tuning size" : "Encoding audio";
+        job.phase = attempt ? "Getting the size just right" : "Shrinking audio";
         await ffmpeg(job, bin, [
             "-i", job.input, "-map", "0:a:0", "-vn", "-c:a", "libopus", "-b:a", `${plan.kbps}k`, "-ac", String(plan.channels),
             ...(opts.keepMetadata ? [] : ["-map_metadata", "-1"]), out
@@ -360,12 +471,12 @@ async function encodeAudio(job: Job, bin: string, info: MediaInfo, target: numbe
         const { size } = await stat(out);
         if (size <= target) {
             job.output = out;
-            return { size, ext: "ogg", mime: "audio/ogg", note: `${plan.kbps} kbps` };
+            return { size, ext: "ogg", mime: "audio/ogg", note: "" };
         }
         plan = { ...plan, kbps: correctKbps(plan.kbps, target, size) };
         if (plan.kbps < 6) break;
     }
-    throw new Error("Could not get it under the limit. Trim it first.");
+    throw new Error("It wouldn't fit under the limit. Trim it first.");
 }
 
 async function encodeGif(job: Job, bin: string, info: MediaInfo, target: number): Promise<JobResult> {
@@ -373,12 +484,12 @@ async function encodeGif(job: Job, bin: string, info: MediaInfo, target: number)
     const inputSize = (await stat(job.input)).size;
     let step: GifStep | null = firstGifStep(inputSize, target, info.fps);
     for (let attempt = 0; step && attempt < 8; attempt++) {
-        job.phase = `Rebuilding GIF (try ${attempt + 1})`;
+        job.phase = attempt ? "Getting the size just right" : "Shrinking GIF";
         const width = Math.max(16, Math.floor(info.width * step.scale / 2) * 2);
         const fps = info.fps > 0 && step.fps < info.fps - 0.5 ? `fps=${step.fps},` : "";
         await ffmpeg(job, bin, [
             "-i", job.input,
-            "-filter_complex", `[0:v]${fps}scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`,
+            "-filter_complex", `[0:v]${fps}scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
             "-map_metadata", "-1", out
         ], info.duration, 0, 100);
         const { size } = await stat(out);
@@ -388,21 +499,25 @@ async function encodeGif(job: Job, bin: string, info: MediaInfo, target: number)
         }
         step = nextGifStep(step, target, size);
     }
-    throw new Error("Could not get this GIF under the limit. Try turning on GIF to video.");
+    throw new Error("This GIF wouldn't fit under the limit. Turn on \"GIFs as video\" in the settings and try again.");
 }
 
 export async function runJob(_: IpcMainInvokeEvent, id: string, kind: Kind, target: number, opts: JobOptions): Promise<JobResult> {
     const job = getJob(id);
     const bin = await ffmpegPath();
-    if (!bin) throw new Error("Video tools are not installed yet.");
+    if (!bin) throw new Error("The video tool isn't installed yet.");
     job.phase = "Reading file";
     const info = await probe(job, bin);
     if (job.cancelled) throw new Error("Cancelled");
     if (kind === "video" && !info.hasVideo && info.hasAudio) kind = "audio";
     if (!info.duration || (kind !== "audio" && !info.hasVideo) || (kind === "audio" && !info.hasAudio))
-        throw new Error("This file could not be read as media.");
+        throw new Error(DAMAGED);
 
-    if (kind === "audio") return encodeAudio(job, bin, info, target, opts);
-    if (kind === "gif" && !opts.gifToVideo) return encodeGif(job, bin, info, target);
-    return encodeVideo(job, bin, info, target, opts, kind === "video");
+    try {
+        if (kind === "audio") return await encodeAudio(job, bin, info, target, opts);
+        if (kind === "gif" && !opts.gifToVideo) return await encodeGif(job, bin, info, target);
+        return await encodeVideo(job, bin, info, target, opts, kind === "video");
+    } catch (e) {
+        friendly(e);
+    }
 }
