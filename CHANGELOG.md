@@ -3,6 +3,11 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-09
+
+- New plugin: BadgeTierViewer. In the badge window, click any tier of a badge to see it in the big preview. Tiers you
+  haven't unlocked show locked, and an eye button next to the preview shows how they look once unlocked.
+
 ## 2026-11-08
 
 - New plugin: ShrinkUploads. Files over your upload limit get shrunk on your own computer to just fit, instead of
