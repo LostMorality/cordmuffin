@@ -6,8 +6,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 ## 2026-11-08
 
 - New plugin: ShrinkUploads. Files over your upload limit get shrunk on your own computer to just fit, instead of
-  Discord's "file too big" error. Works for videos, pictures, GIFs and audio, and reads your real limit from Discord
-  (Nitro, Basic, free and server boosts). A Shrink button on any waiting file lets you pick your own size.
+  Discord's "file too big" error. Works for videos, pictures, GIFs and audio, even multi-GB recordings, and reads your
+  real limit from Discord (Nitro, Basic, free and server boosts). A Shrink button on any waiting file lets you pick
+  your own size. Phone HDR videos keep normal colours and screenshots stay sharp.
 
 ## 2026-11-07
 
