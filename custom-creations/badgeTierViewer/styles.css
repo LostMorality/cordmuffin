@@ -68,3 +68,18 @@
     background: var(--background-mod-normal);
     box-shadow: inset 0 0 0 2px var(--text-brand);
 }
+
+.vc-btv-eye-idle {
+    opacity: 0.45;
+}
+
+.vc-btv-eye-idle:hover {
+    opacity: 0.8;
+}
+
+.vc-btv-hint {
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-muted);
+}
