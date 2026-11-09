@@ -537,10 +537,10 @@ Lets you look at every tier of a tiered badge (Streaming, Game Time and the rest
 
 **What it does**
 - Click any tier in the grid under **Your progress** (or tab to it and press Enter) and the big preview switches to it, with its name, art and rarity. The picked tier gets a ring around it.
-- Tiers you haven't unlocked show greyed out with a lock and "Not unlocked yet".
-- The eye button next to the big preview flips that: open eye shows locked tiers the way they look once unlocked (marked "Preview"), closed eye with a line through it shows them locked again. It only shows up on badges that still have locked tiers.
+- Tiers you haven't unlocked show greyed out with a lock, along with what they take and how far off you are, like "Needs 300 hours (141 to go)". Nitro and Server Boosting tiers show a rough unlock date instead, like "Unlocks around Aug 22, 2027 if you stay subscribed".
+- The eye button next to the big preview flips that: open eye shows locked tiers the way they look once unlocked (marked "Preview"), closed eye with a line through it shows them locked again. It only shows up on badges that still have locked tiers, and it's dimmed while you're looking at a tier you already have.
 - Works on your own badges and on other people's. Closing the window puts it back on the tier it normally opens on.
-- Only changes what you see. Nothing is sent to Discord.
+- Only changes what you see. Nothing extra is sent to Discord, and Discord's own stats still get the tier you really have, not the one you're previewing.
 
 <details>
 <summary><b>Settings</b></summary>
