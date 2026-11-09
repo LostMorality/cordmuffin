@@ -12,6 +12,19 @@ the lines that are new for you. A line that starts with a plugin's name only sho
   animates until you reveal it, and a short line under the progress box says the tiers can be clicked.
 - BadgeTierViewer: the eye button dims on tiers you already have, and its tooltip is shorter. If a Discord update breaks
   part of the plugin, it now switches off cleanly instead of half working.
+- StreamTimeFarmer: when Discord drops you from the farm's call (alone too long, or moved to the AFK channel), the farm
+  joins again by itself and tells you, with a notice to click if you really meant to hang up.
+- StreamTimeFarmer: if no time has counted for a while, the status says for how long, and after 15 minutes a notice pops
+  up. It also says plainly when you're offline or what's wrong with the second account, instead of "waiting for them
+  to watch".
+- StreamTimeFarmer: a **Turn it on** button for DisableCallIdle, which stops Discord ending the call, and the second
+  account gets it turned on by itself.
+- StreamTimeFarmer: a broken second account rebuilds itself about every 15 minutes, a failed Equicord download is
+  retried a few minutes later instead of every few seconds, and if the farm's own window can't open, a DM call shows
+  your screen instead so time keeps counting.
+- StreamTimeFarmer: Sign out asks first, the farm's panel comes first in its settings, and the AFK screen is easier to
+  read and has a **Leave AFK** button.
+- StreamTimeFarmer: pop-up messages no longer break after Discord's November update.
 
 ## 2026-11-08
 
