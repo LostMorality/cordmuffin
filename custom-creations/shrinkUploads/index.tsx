@@ -13,7 +13,7 @@ import { classNameFactory } from "@utils/css";
 import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import type { Channel, CloudUpload, RenderModalProps } from "@vencord/discord-types";
-import { findByCodeLazy } from "@webpack";
+import { findByCodeLazy, findCssClassesLazy } from "@webpack";
 import { Alerts, ChannelStore, createRoot, Modal, openModal, SelectedGuildStore, TextInput, UploadAttachmentStore, UploadHandler, UploadManager, useEffect, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
@@ -23,10 +23,14 @@ import { formatBytes } from "./plan";
 
 const Native = VencordNative.pluginHelpers.ShrinkUploads as PluginNative<typeof import("./native")> | undefined;
 const ActionBarIcon = findByCodeLazy("Children.map", "isValidElement", "dangerous:");
+const sumTooBig = findByCodeLazy('"uploadSumTooLarge"') as (files: { size: number; }[]) => boolean;
+const TileClasses = findCssClassesLazy("action", "actionBarIcon", "attachmentItemSmall");
 const cl = classNameFactory("vc-shrink-");
 const logger = new Logger("ShrinkUploads");
 const MB = 1024 * 1024;
 const CHUNK = 8 * MB;
+const MAX_FILES = 10;
+const SMALL_TILE = 0;
 
 const settings = definePluginSettings({
     status: {
@@ -52,7 +56,7 @@ const settings = definePluginSettings({
     speed: {
         type: OptionType.SELECT,
         displayName: "Video speed",
-        description: "Video encoding speed. Slower looks better.",
+        description: "How fast videos shrink. Slower looks better.",
         options: [
             { label: "Fast", value: "fast" },
             { label: "Balanced", value: "balanced", default: true },
@@ -62,19 +66,19 @@ const settings = definePluginSettings({
     maxFps: {
         type: OptionType.SELECT,
         displayName: "Video frame rate",
-        description: "Highest frame rate for shrunk videos.",
+        description: "30 fps keeps shrunk videos sharper.",
         options: [
-            { label: "60 fps", value: 60, default: true },
-            { label: "30 fps", value: 30 },
+            { label: "60 fps (smoother)", value: 60, default: true },
+            { label: "30 fps (sharper)", value: 30 },
         ],
     },
     imageFormat: {
         type: OptionType.SELECT,
         displayName: "Picture format",
-        description: "Format for shrunk pictures.",
+        description: "Automatic keeps JPEGs as JPEG. See-through pictures always become WebP.",
         options: [
             { label: "Automatic", value: "auto", default: true },
-            { label: "WebP", value: "webp" },
+            { label: "WebP (smallest)", value: "webp" },
             { label: "JPEG", value: "jpeg" },
         ],
     },
@@ -87,13 +91,13 @@ const settings = definePluginSettings({
     keepMetadata: {
         type: OptionType.BOOLEAN,
         displayName: "Keep file info",
-        description: "Keep hidden file info like location and camera details.",
+        description: "Keep hidden info like location in videos and audio. Pictures always lose it.",
         default: false,
     },
     autoDownload: {
         type: OptionType.BOOLEAN,
         displayName: "Get the video tool automatically",
-        description: "Download the free video tool (ffmpeg) the first time it is needed.",
+        description: "Download the free video tool (ffmpeg) the first time it's needed.",
         default: true,
     },
 });
@@ -116,6 +120,17 @@ function kindOf(file: File): Kind | null {
 const targetFor = (limit: number) => Math.floor(limit * 0.985) - 4096;
 const errorText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "");
 
+function messageCap() {
+    try {
+        return sumTooBig([{ size: 600 * MB }]) ? 500 * MB : 1024 * MB;
+    } catch {
+        return 500 * MB;
+    }
+}
+
+const draftBytes = (channelId: string, draftType: number, skipId?: string) =>
+    UploadAttachmentStore.getUploads(channelId, draftType).reduce((n, u) => u.id === skipId ? n : n + (u.item?.file?.size ?? u.currentSize ?? 0), 0);
+
 interface Job {
     id: number;
     name: string;
@@ -130,7 +145,9 @@ let jobs: Job[] = [];
 let nextId = 1;
 const listeners = new Set<() => void>();
 const passThrough = new WeakSet<File>();
-let queue = Promise.resolve();
+const shared = new WeakMap<File, { target: number; result: Promise<File>; }[]>();
+let imageQueue = Promise.resolve();
+let toolQueue = Promise.resolve();
 let root: ReturnType<typeof createRoot> | null = null;
 let host: HTMLDivElement | null = null;
 
@@ -144,21 +161,23 @@ function update(job: Job, patch: Partial<Job>) {
     emit();
 }
 
+function close(job: Job) {
+    jobs = jobs.filter(j => j !== job);
+    emit();
+}
+
 function dismiss(job: Job, delay: number) {
-    setTimeout(() => {
-        jobs = jobs.filter(j => j !== job);
-        emit();
-    }, delay);
+    setTimeout(() => close(job), delay);
 }
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function ensureTools(job: Job) {
-    if (!Native) throw new Error("Video and audio shrinking needs the desktop app.");
+    if (!Native) throw new Error("Videos, GIFs and audio need the Discord desktop app.");
     let tools = await Native.getTools();
     if (tools.ready) return;
-    if (!tools.supported) throw new Error("There is no ready made video tool for this system. Install ffmpeg and restart Discord.");
-    if (!settings.store.autoDownload && !tools.installing) throw new Error("The video tool is not installed. Get it in the ShrinkUploads settings.");
+    if (!tools.supported) throw new Error("Your system needs ffmpeg installed to shrink videos. Install it, then restart Discord.");
+    if (!settings.store.autoDownload && !tools.installing) throw new Error("The video tool isn't installed. Get it in the ShrinkUploads settings.");
 
     const install = Native.installTools();
     let done = false;
@@ -166,7 +185,7 @@ async function ensureTools(job: Job) {
     while (!done) {
         tools = await Native.getTools();
         const d = tools.download;
-        update(job, { phase: "Getting the video tool (one time only)", percent: d?.total ? Math.min(99, d.received / d.total * 100) : 0 });
+        update(job, { phase: "Getting the video tool (only the first time)", percent: d?.total ? Math.min(99, d.received / d.total * 100) : 0 });
         if (job.controller.signal.aborted) throw new Error("Cancelled");
         await sleep(400);
     }
@@ -174,19 +193,19 @@ async function ensureTools(job: Job) {
 }
 
 async function shrinkWithTools(file: File, kind: Exclude<Kind, "image">, target: number, job: Job) {
-    if (!Native) throw new Error("Video and audio shrinking needs the desktop app.");
+    if (!Native) throw new Error("Videos, GIFs and audio need the Discord desktop app.");
     await ensureTools(job);
     const { signal } = job.controller;
-    const id = await Native.startJob(file.name);
+    const id = await Native.startJob(file.name, file.size, target);
     const onAbort = () => void Native.cancelJob(id);
     signal.addEventListener("abort", onAbort);
     try {
         for (let at = 0; at < file.size; at += CHUNK) {
             signal.throwIfAborted();
-            update(job, { phase: "Reading file", percent: at / file.size * 100 });
+            update(job, { phase: "Getting the file ready", percent: at / file.size * 3 });
             await Native.writeChunk(id, new Uint8Array(await file.slice(at, at + CHUNK).arrayBuffer()));
         }
-        update(job, { phase: "Starting", percent: 0 });
+        update(job, { phase: "Checking the file", percent: 3 });
 
         let finished = false;
         const work = Native.runJob(id, kind, target, {
@@ -198,19 +217,19 @@ async function shrinkWithTools(file: File, kind: Exclude<Kind, "image">, target:
         work.catch(() => { });
         while (!finished) {
             const p = await Native.getProgress(id);
-            if (p && !finished) update(job, { phase: p.phase, percent: p.percent });
+            if (p && !finished) update(job, { phase: p.phase === "Reading file" ? "Checking the file" : p.phase, percent: Math.max(3, p.percent) });
             await sleep(400);
         }
         const result = await work;
         signal.throwIfAborted();
 
-        const parts: Uint8Array[] = [];
+        const parts: Blob[] = [];
         for (let at = 0; at < result.size; at += CHUNK) {
             signal.throwIfAborted();
-            update(job, { phase: "Finishing", percent: 99 });
-            parts.push(await Native.readChunk(id, at, Math.min(CHUNK, result.size - at)));
+            update(job, { phase: "Almost done", percent: 99 });
+            parts.push(new Blob([await Native.readChunk(id, at, Math.min(CHUNK, result.size - at)) as BlobPart]));
         }
-        return { blob: new Blob(parts as BlobPart[], { type: result.mime }), ext: result.ext, mime: result.mime, note: result.note };
+        return { blob: new Blob(parts, { type: result.mime }), ext: result.ext, mime: result.mime, note: result.note };
     } finally {
         signal.removeEventListener("abort", onAbort);
         void Native.finishJob(id);
@@ -222,15 +241,15 @@ async function shrink(file: File, target: number, job: Job): Promise<File> {
     if (!kind) throw new Error("This kind of file can't be shrunk.");
     let out: { blob: Blob; ext: string; mime: string; note: string; };
     if (kind === "image") {
-        if (await isAnimatedStill(file)) throw new Error("Animated WebP, PNG and AVIF pictures can't be shrunk yet.");
+        if (await isAnimatedStill(file)) throw new Error("Moving pictures (animated WebP, PNG or AVIF) can't be shrunk yet.");
         out = await shrinkImage(file, target, settings.store.imageFormat as ImageFormat, job.controller.signal, text => update(job, { phase: text }));
     } else {
         out = await shrinkWithTools(file, kind, target, job);
     }
     job.controller.signal.throwIfAborted();
-    if (out.blob.size > target) throw new Error("The result was still too big.");
+    if (out.blob.size > target) throw new Error("It couldn't be made small enough.");
     const base = file.name.replace(/\.[^.]+$/, "") || "file";
-    update(job, { phase: `${formatBytes(file.size)} to ${formatBytes(out.blob.size)}${out.note ? ` (${out.note})` : ""}` });
+    update(job, { phase: `Done! ${formatBytes(file.size)} → ${formatBytes(out.blob.size)}${out.note ? ` (${out.note})` : ""}` });
     return new File([out.blob], `${base}.${out.ext}`, { type: out.mime, lastModified: Date.now() });
 }
 
@@ -250,12 +269,12 @@ function unmountPanel() {
     host = null;
 }
 
-function enqueue(file: File, target: number, onDone: (out: File) => void, onFail?: () => void) {
+function enqueue(file: File, target: number, onDone: (out: File) => void, onFail?: () => void, restoresOriginal = onFail != null) {
     mountPanel();
-    const job: Job = { id: nextId++, name: file.name, phase: "Waiting", percent: 0, state: "queued", controller: new AbortController(), onFail };
+    const job: Job = { id: nextId++, name: file.name, phase: "Waiting in line", percent: 0, state: "queued", controller: new AbortController(), onFail };
     jobs.push(job);
     emit();
-    queue = queue.then(async () => {
+    const step = async () => {
         if (job.controller.signal.aborted) return;
         update(job, { state: "working", phase: "Starting" });
         try {
@@ -266,11 +285,27 @@ function enqueue(file: File, target: number, onDone: (out: File) => void, onFail
         } catch (e) {
             const cancelled = job.controller.signal.aborted;
             if (!cancelled) logger.error(`Could not shrink ${file.name}`, e);
-            update(job, { state: "failed", phase: cancelled ? "Cancelled" : errorText(e) });
+            update(job, { state: "failed", phase: cancelled ? "Cancelled" : `${restoresOriginal ? "" : "Not added. "}${errorText(e)}` });
             onFail?.();
-            dismiss(job, cancelled ? 1500 : 12000);
+            if (cancelled) dismiss(job, 1500);
         }
+    };
+    if (kindOf(file) === "image") imageQueue = imageQueue.then(step);
+    else toolQueue = toolQueue.then(step);
+}
+
+function shrinkOnce(file: File, target: number) {
+    const list = shared.get(file) ?? [];
+    const hit = list.find(e => e.target <= target);
+    if (hit) return hit.result;
+    const entry = { target, result: new Promise<File>((resolve, reject) => enqueue(file, target, resolve, () => reject(new Error("failed")), false)) };
+    list.push(entry);
+    shared.set(file, list);
+    entry.result.catch(() => {
+        const i = list.indexOf(entry);
+        if (i >= 0) list.splice(i, 1);
     });
+    return entry.result;
 }
 
 function cancel(job: Job) {
@@ -304,16 +339,24 @@ function intercept(fileList: ArrayLike<File>, channel: Channel, draftType: numbe
         if (!limit) return false;
         const big = files.filter(f => !passThrough.has(f) && f.size > limit && kindOf(f));
         if (!big.length) return false;
+        if (UploadAttachmentStore.getUploadCount(channel.id, draftType) + files.length > MAX_FILES) {
+            Alerts.show({ title: "Too many files", body: `You can add up to ${MAX_FILES} files to one message.` });
+            return true;
+        }
+
+        const small = files.filter(f => !big.includes(f));
+        const room = messageCap() - draftBytes(channel.id, draftType) - small.reduce((n, f) => n + f.size, 0);
+        const target = Math.min(targetFor(limit), targetFor(Math.floor(room / big.length)));
+        if (target < 256 * 1024) return false;
 
         const metadata = options?.filesMetadata && new Map(files.map((f, i) => [f, options.filesMetadata?.[i]]));
-        const small = files.filter(f => !big.includes(f));
         const run = () => {
             addFiles(small, channel, draftType, metadata, options);
             for (const file of big)
-                enqueue(file, targetFor(limit), out => {
+                shrinkOnce(file, target).then(out => {
                     metadata?.set(out, metadata.get(file));
                     addFiles([out], channel, draftType, metadata, options);
-                });
+                }, () => { });
         };
 
         if (settings.store.whenTooBig === "ask") {
@@ -323,11 +366,12 @@ function intercept(fileList: ArrayLike<File>, channel: Channel, draftType: numbe
                 settled = true;
                 addFiles(small, channel, draftType, metadata, options);
             };
+            const one = big.length === 1;
             Alerts.show({
-                title: big.length === 1 ? "File too big" : "Files too big",
-                body: `${big.length === 1 ? `${big[0].name} is` : `${big.length} files are`} over your ${formatBytes(limit)} upload limit here. Shrink ${big.length === 1 ? "it" : "them"} on this computer so ${big.length === 1 ? "it fits" : "they fit"}?`,
+                title: one ? "File too big" : "Files too big",
+                body: `${one ? `${big[0].name} is` : `${big.length} files are`} over your ${formatBytes(limit)} upload limit here. Shrink ${one ? "it" : "them"} on this computer so ${one ? "it fits" : "they fit"}?`,
                 confirmText: "Shrink",
-                cancelText: "Cancel",
+                cancelText: one ? "Leave it out" : "Leave them out",
                 onConfirm: () => {
                     settled = true;
                     run();
@@ -355,11 +399,14 @@ function Panel() {
     return (
         <div className={cl("panel")}>
             {list.map(job => (
-                <div key={job.id} className={cl("job")} data-state={job.state}>
+                <div key={job.id} className={cl("job")} data-state={job.state} data-busy={job.state === "working" && job.percent <= 3}>
                     <div className={cl("row")}>
                         <span className={cl("name")} title={job.name}>{job.name}</span>
                         {(job.state === "queued" || job.state === "working") && (
                             <Button size="min" variant="secondary" onClick={() => cancel(job)}>Cancel</Button>
+                        )}
+                        {job.state === "failed" && job.phase !== "Cancelled" && (
+                            <Button size="min" variant="secondary" onClick={() => close(job)}>Close</Button>
                         )}
                     </div>
                     <div className={cl("phase")}>{job.phase}</div>
@@ -387,8 +434,10 @@ function StatusCard() {
         return () => { alive = false; clearInterval(timer); };
     }, []);
 
-    let toolLine: ReactNode = "Pictures shrink right away. Videos, GIFs and audio need the desktop app.";
-    if (Native && tools) {
+    let toolLine: ReactNode = "Pictures work here. Videos, GIFs and audio need the Discord desktop app.";
+    if (Native && !tools) {
+        toolLine = "Checking for the video tool...";
+    } else if (Native && tools) {
         if (tools.installing) {
             const d = tools.download;
             toolLine = `Downloading the video tool${d?.total ? ` (${Math.round(d.received / d.total * 100)}%)` : ""}...`;
@@ -397,12 +446,13 @@ function StatusCard() {
         } else if (!tools.supported) {
             toolLine = "Video tool: none available for this system. Install ffmpeg to shrink videos.";
         } else {
-            toolLine = `Video tool: not installed yet (${tools.sizeMb} MB, free).${tools.error ? ` Last try failed: ${tools.error}` : ""}`;
+            toolLine = `Video tool: not installed yet (${tools.sizeMb} MB, free).${settings.store.autoDownload ? " It downloads by itself the first time you need it." : ""}${tools.error ? ` Last try failed: ${tools.error}` : ""}`;
         }
     }
 
     return (
         <div className={cl("status")}>
+            <div>Just send a file. If it's too big, it gets shrunk first.</div>
             <div className={cl("limit")}>
                 Your upload limit: <b>{formatBytes(dms.limit)}</b> ({dms.plan})
                 {guildId && here.limit !== dms.limit && <> · this server: <b>{formatBytes(here.limit)}</b>{here.boosted ? " (boosted)" : ""}</>}
@@ -412,7 +462,7 @@ function StatusCard() {
                 <Button size="small" onClick={() => Native.installTools().catch(() => { })}>Download video tool</Button>
             )}
             {Native && tools?.source === "downloaded" && (
-                <Button size="small" variant="secondary" onClick={() => Native.removeTools()}>Remove video tool</Button>
+                <Button size="small" variant="secondary" onClick={() => Native.removeTools().catch(e => Alerts.show({ title: "Couldn't remove it", body: errorText(e) }))}>Remove video tool</Button>
             )}
             <div className={cl("note")}>Everything is shrunk on this computer. Files are never uploaded anywhere except to Discord.</div>
         </div>
@@ -426,7 +476,7 @@ function TargetModal({ upload, limit, onShrink, ...props }: RenderModalProps & {
     const mb = Number(value.trim().replace(",", "."));
     const bytes = Math.floor(mb * MB);
     const valid = Number.isFinite(mb) && bytes >= 64 * 1024 && bytes < size && bytes <= limit;
-    const hint = valid ? "Smaller sizes mean lower quality." : `Enter a size in MB below ${formatBytes(Math.min(size, limit))}.`;
+    const hint = valid ? "Smaller sizes mean lower quality." : `Pick a size in MB under ${formatBytes(Math.min(size, limit))}.`;
 
     return (
         <Modal
@@ -436,7 +486,8 @@ function TargetModal({ upload, limit, onShrink, ...props }: RenderModalProps & {
             subtitle={`${upload.filename} is ${formatBytes(size)}. Your limit here is ${formatBytes(limit)}.`}
             actions={[{ text: "Shrink", variant: "primary", disabled: !valid, onClick: () => valid && onShrink(bytes) }]}
         >
-            <TextInput value={value} onChange={setValue} placeholder="Target size in MB" />
+            <div className={cl("label")}>New size (MB)</div>
+            <TextInput value={value} onChange={setValue} placeholder="Size in MB" autoFocus />
             <div className={cl("hint")} data-invalid={!valid}>{hint}</div>
         </Modal>
     );
@@ -456,16 +507,19 @@ interface ActionBarProps {
     channelId: string;
     draftType: number;
     canEdit?: boolean;
+    size?: number;
 }
 
-function ShrinkButton({ upload, channelId, draftType }: ActionBarProps) {
+function ShrinkButton({ upload, channelId, draftType, size }: ActionBarProps) {
     const file = upload.item.platform === 1 ? upload.item.file : null;
     if (!file || !kindOf(file)) return null;
+    const small = size === SMALL_TILE;
 
     const open = () => {
         const channel = ChannelStore.getChannel(channelId);
-        const limit = getUploadLimit(channel?.guild_id);
-        if (!channel || !limit) return;
+        if (!channel) return;
+        const limit = Math.min(getUploadLimit(channel.guild_id), messageCap() - draftBytes(channelId, draftType, upload.id));
+        if (limit < 64 * 1024) return;
         const details = { spoiler: upload.spoiler, description: upload.description, filename: upload.filename, clip: upload.clip };
         const readd = (next: File) => {
             const metadata = details.clip ? new Map<File, unknown>([[next, { clip: details.clip }]]) : undefined;
@@ -481,8 +535,8 @@ function ShrinkButton({ upload, channelId, draftType }: ActionBarProps) {
     };
 
     return (
-        <ActionBarIcon tooltip="Shrink" onClick={open}>
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <ActionBarIcon tooltip="Shrink" onClick={open} className={small ? TileClasses.action : undefined}>
+            <svg className={small ? TileClasses.actionBarIcon : undefined} viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                 <path fill="currentColor" d="M5 16h3v3h2v-5H5v2Zm3-8H5v2h5V5H8v3Zm6 11h2v-3h3v-2h-5v5Zm2-11V5h-2v5h5V8h-3Z" />
             </svg>
         </ActionBarIcon>
