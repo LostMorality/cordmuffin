@@ -7,11 +7,11 @@
 import { DATA_DIR } from "@main/utils/constants";
 import { type ChildProcess, execFile, spawn } from "child_process";
 import { createHash, randomUUID } from "crypto";
-import { app, type IpcMainInvokeEvent, net, type WebContents } from "electron";
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, net, type OpenDialogOptions, type WebContents } from "electron";
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { appendFile, open, stat, statfs } from "fs/promises";
-import { setPriority, tmpdir } from "os";
-import { join } from "path";
+import { homedir, setPriority, tmpdir } from "os";
+import { delimiter, join } from "path";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 import { createGunzip } from "zlib";
@@ -19,10 +19,12 @@ import { createGunzip } from "zlib";
 import { correctKbps, firstGifStep, type GifStep, type MediaInfo, nextGifStep, parseProbe, planAudio, planVideo, seconds } from "./plan";
 
 const ROOT = join(DATA_DIR, "shrinkUploads");
-const BIN = join(ROOT, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+const WIN = process.platform === "win32";
+const EXE = WIN ? "ffmpeg.exe" : "ffmpeg";
+const BIN = join(ROOT, EXE);
 const READY = join(ROOT, "ffmpeg.ready");
 const WORK = process.platform === "linux" ? join(ROOT, "work") : join(tmpdir(), "shrink-uploads");
-const NULL_OUT = process.platform === "win32" ? "NUL" : "/dev/null";
+const NULL_OUT = WIN ? "NUL" : "/dev/null";
 const STALL_MS = 30_000;
 const CHECK_MS = 60_000;
 
@@ -40,6 +42,7 @@ const BUILD = BUILDS[`${process.platform}-${process.platform === "win32" ? "x64"
 
 const TONEMAP = "setparams=color_primaries=bt2020:colorspace=bt2020nc,zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv";
 const DEINTERLACE = "bwdif=mode=send_frame:deint=interlaced";
+const GIF_VIDEO_BPP = 0.12;
 
 const SPEED = { fast: "veryfast", balanced: "medium", best: "slow" } as const;
 export type Speed = keyof typeof SPEED;
@@ -82,6 +85,8 @@ const jobs = new Map<string, Job>();
 const watched = new WeakSet<WebContents>();
 const filterSupport = new Map<string, Promise<boolean>>();
 let system: Promise<string | null> | null = null;
+let custom = "";
+let customError = "";
 let installing: Promise<void> | null = null;
 let download: { received: number; total: number; } | null = null;
 let installError = "";
@@ -157,17 +162,114 @@ function canTonemap(bin: string) {
     return p;
 }
 
+function unshim(file: string) {
+    const shim = file.replace(/\.exe$/i, ".shim");
+    if (shim === file || !existsSync(shim)) return file;
+    try {
+        const target = /^\s*path\s*=\s*"?([^"\r\n]+?)"?\s*$/m.exec(readFileSync(shim, "utf8"))?.[1];
+        return target && existsSync(target) ? target : file;
+    } catch {
+        return file;
+    }
+}
+
+function isFile(file: string) {
+    try {
+        return statSync(file).isFile();
+    } catch {
+        return false;
+    }
+}
+
+function knownPlaces() {
+    const { env } = process;
+    const home = homedir();
+    const dirs = (env.PATH ?? env.Path ?? "").split(delimiter).map(d => d.trim().replace(/^"|"$/g, "")).filter(Boolean);
+    if (WIN) {
+        const data = env.ProgramData || "C:\\ProgramData";
+        dirs.push(
+            join(env.SCOOP || join(home, "scoop"), "shims"),
+            join(env.SCOOP_GLOBAL || join(data, "scoop"), "shims"),
+            join(env.LOCALAPPDATA || join(home, "AppData", "Local"), "Microsoft", "WinGet", "Links"),
+            join(data, "chocolatey", "lib", "ffmpeg", "tools", "ffmpeg", "bin"),
+            join(data, "chocolatey", "lib", "ffmpeg-full", "tools", "ffmpeg", "bin"),
+            join(data, "chocolatey", "bin"),
+            join(env.ProgramFiles || "C:\\Program Files", "ffmpeg", "bin"),
+            "C:\\ffmpeg\\bin",
+        );
+    } else {
+        dirs.push("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/snap/bin", join(home, ".local", "bin"));
+    }
+    const seen = new Set<string>();
+    const found: string[] = [];
+    for (const dir of dirs) {
+        const file = join(dir, EXE);
+        if (!isFile(file)) continue;
+        const real = unshim(file);
+        const key = WIN ? real.toLowerCase() : real;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push(real);
+    }
+    return found;
+}
+
+async function findSystem() {
+    for (const file of knownPlaces()) if (await capable(file)) return file;
+    return null;
+}
+
 async function ffmpegPath() {
+    if (custom) return custom;
     if (existsSync(READY) && existsSync(BIN)) return BIN;
-    system ??= capable("ffmpeg");
+    system ??= findSystem();
     return system;
+}
+
+export async function useTool(_: IpcMainInvokeEvent, file: string, saved = false) {
+    let path = String(file ?? "").trim().replace(/^"|"$/g, "");
+    if (!path) {
+        custom = "";
+        customError = "";
+        return "";
+    }
+    if (!isFile(path)) path = [join(path, EXE), join(path, "bin", EXE)].find(isFile) ?? "";
+    const real = path && unshim(path);
+    const problem = !real
+        ? "The ffmpeg you picked isn't there anymore. Pick it again, or go back to automatic."
+        : !await capable(real)
+            ? "The ffmpeg you picked didn't pass the test. It needs a full build with libx264 and libopus."
+            : "";
+    if (problem) {
+        if (saved) {
+            custom = "";
+            customError = problem;
+        }
+        throw new Error(problem);
+    }
+    custom = real;
+    customError = "";
+    return real;
+}
+
+export async function pickTool(e: IpcMainInvokeEvent) {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const options: OpenDialogOptions = {
+        title: "Choose ffmpeg",
+        properties: ["openFile"],
+        filters: WIN ? [{ name: "ffmpeg", extensions: ["exe"] }] : [],
+    };
+    const r = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options));
+    return r.canceled ? "" : r.filePaths[0] ?? "";
 }
 
 export async function getTools(_: IpcMainInvokeEvent) {
     const path = await ffmpegPath();
     return {
         ready: path != null,
-        source: path == null ? null : path === BIN ? "downloaded" : "system",
+        source: path == null ? null : path === custom ? "custom" : path === BIN ? "downloaded" : "system",
+        path: path ?? "",
+        customError,
         supported: BUILD != null,
         sizeMb: BUILD?.mb ?? 0,
         installing: installing != null,
@@ -214,7 +316,7 @@ async function fetchBinary() {
         await pipeline(Readable.fromWeb(res.body as import("stream/web").ReadableStream<Uint8Array>), meter, createGunzip(), createWriteStream(partial))
             .catch(e => { throw ctrl.signal.aborted ? new Error("The download stopped. Check your internet and try again.") : /^Z_/.test(e?.code ?? "") ? new Error("The download was damaged, so it was thrown away. Try again.") : e; });
         if (hash.digest("hex") !== BUILD.sha256) throw new Error("The download was damaged, so it was thrown away. Try again.");
-        if (process.platform !== "win32") chmodSync(partial, 0o755);
+        if (!WIN) chmodSync(partial, 0o755);
         try {
             renameSync(partial, BIN);
         } catch (e) {
@@ -362,13 +464,15 @@ function ffmpeg(job: Job, bin: string, args: string[], duration: number, from: n
         proc.stderr.on("data", (d: Buffer) => { tail = (tail + d.toString()).slice(-4000); });
         proc.stdout.on("data", (d: Buffer) => {
             const m = /out_time_(?:us|ms)=(\d+)/.exec(d.toString());
-            if (m && duration > 0) job.percent = Math.min(99, from + span * Math.min(1, Number(m[1]) / 1e6 / duration));
+            if (m && duration > 0) job.percent = Math.max(job.percent, Math.min(99, from + span * Math.min(1, Number(m[1]) / 1e6 / duration)));
         });
         proc.on("error", (e: NodeJS.ErrnoException) => {
             console.error("[ShrinkUploads] ffmpeg failed to start", e);
             reject(new Error(bin === BIN
                 ? "The video tool couldn't start. Remove it in the ShrinkUploads settings and download it again."
-                : "The ffmpeg on this computer couldn't start. Reinstall it, or remove it so the plugin can download its own."));
+                : bin === custom
+                    ? "The ffmpeg you picked couldn't start. Pick it again in the ShrinkUploads settings, or go back to automatic."
+                    : "The ffmpeg on this computer couldn't start. Reinstall it, or remove it so the plugin can download its own."));
         });
         proc.on("close", code => {
             job.proc = undefined;
@@ -383,6 +487,10 @@ async function probe(job: Job, bin: string) {
     const first = await run(bin, ["-hide_banner", "-i", job.input], job);
     if (first.spawnFailed && !job.cancelled) {
         if (bin === BIN) rmSync(READY, { force: true });
+        if (bin === custom) {
+            custom = "";
+            customError = "The ffmpeg you picked couldn't start, so the plugin went back to automatic.";
+        }
         system = null;
         throw new Error("The video tool couldn't start, maybe because antivirus blocked it. Get it again in the ShrinkUploads settings.");
     }
@@ -402,13 +510,29 @@ function scaleFilter(info: MediaInfo, shortSide: number) {
     return `scale='if(gte(iw,ih),-2,${shortSide})':'if(gte(iw,ih),${shortSide},-2)':flags=lanczos`;
 }
 
-async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: number, opts: JobOptions, withAudio: boolean): Promise<JobResult> {
+function attemptRange(attempt: number) {
+    return attempt ? { from: 90 + Math.min(attempt - 1, 3) * 2, span: 2 } : { from: 0, span: 100 };
+}
+
+async function retryOnce(job: Job, run: () => Promise<void>) {
+    try {
+        await run();
+    } catch (e: any) {
+        if (job.cancelled || [DISK_FULL, BLOCKED, DAMAGED].includes(e?.message) || /couldn't start/.test(e?.message ?? "")) throw e;
+        console.warn("[ShrinkUploads] encode failed once, trying again", e);
+        await run();
+    }
+}
+
+async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: number, opts: JobOptions, withAudio: boolean, fromGif = false): Promise<JobResult> {
     const out = join(job.dir, "out.mp4");
     const log = join(job.dir, "pass");
     let plan = planVideo({ ...info, hasAudio: withAudio && info.hasAudio }, target, opts.maxFps);
     if (!plan.ok) throw new Error(plan.reason);
     const tonemap = info.hdr && await canTonemap(bin);
-    let kbps = plan.videoKbps;
+    const aspect = Math.max(info.width, info.height) / Math.max(2, Math.min(info.width, info.height));
+    const ceiling = (p: { shortSide: number; fps: number; }) => fromGif ? Math.max(200, Math.ceil(GIF_VIDEO_BPP * p.shortSide * p.shortSide * aspect * p.fps / 1000)) : Infinity;
+    let kbps = Math.min(plan.videoKbps, ceiling(plan));
     let best: { path: string; size: number; note: string; } | null = null;
     let raised = false;
 
@@ -424,11 +548,14 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
             "-passlogfile", log,
             ...(opts.keepMetadata ? [] : ["-map_metadata", "-1"]),
         ];
-        job.phase = attempt ? "Getting the size just right" : "Checking the video";
-        await ffmpeg(job, bin, [...base, "-pass", "1", "-an", "-f", "null", NULL_OUT], info.duration, 0, 40);
-        job.phase = attempt ? "Getting the size just right" : "Shrinking video";
+        const { from, span } = attemptRange(attempt);
         const audio = plan.audioKbps > 0 ? ["-map", "0:a:0", "-c:a", "aac", "-b:a", `${plan.audioKbps}k`, "-ac", String(plan.audioChannels)] : ["-an"];
-        await ffmpeg(job, bin, [...base, "-pass", "2", ...audio, "-movflags", "+faststart", out], info.duration, 40, 60);
+        await retryOnce(job, async () => {
+            job.phase = attempt ? "Getting the size just right" : "Checking the video";
+            await ffmpeg(job, bin, [...base, "-pass", "1", "-an", "-f", "null", NULL_OUT], info.duration, from, span * 0.4);
+            job.phase = attempt ? "Getting the size just right" : "Shrinking video";
+            await ffmpeg(job, bin, [...base, "-pass", "2", ...audio, "-movflags", "+faststart", out], info.duration, from + span * 0.4, span * 0.6);
+        });
 
         const { size } = await stat(out);
         const note = `${plan.shortSide}p`;
@@ -437,13 +564,14 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
             renameSync(out, kept);
             best = { path: kept, size, note };
         }
-        if (best?.size === size && size >= target * 0.9) break;
-        const next = Math.floor(kbps - (size - target * 0.98) * 8 / 1000 / info.duration);
+        if (best?.size === size && (size >= target * 0.9 || kbps >= ceiling(plan))) break;
+        const next = Math.min(Math.floor(kbps - (size - target * 0.98) * 8 / 1000 / info.duration), ceiling(plan));
         if (size <= target && (raised || next <= kbps * 1.03)) break;
         if (next < 40) break;
         raised ||= next > kbps;
         kbps = next;
         plan = { ...plan, ...planForKbps(info, kbps, plan) };
+        kbps = Math.min(kbps, ceiling(plan));
     }
 
     if (!best) throw new Error("It wouldn't fit under the limit. Trim it, or try a bigger size.");
@@ -467,7 +595,7 @@ async function encodeAudio(job: Job, bin: string, info: MediaInfo, target: numbe
         await ffmpeg(job, bin, [
             "-i", job.input, "-map", "0:a:0", "-vn", "-c:a", "libopus", "-b:a", `${plan.kbps}k`, "-ac", String(plan.channels),
             ...(opts.keepMetadata ? [] : ["-map_metadata", "-1"]), out
-        ], info.duration, 0, 100);
+        ], info.duration, attemptRange(attempt).from, attemptRange(attempt).span);
         const { size } = await stat(out);
         if (size <= target) {
             job.output = out;
@@ -491,7 +619,7 @@ async function encodeGif(job: Job, bin: string, info: MediaInfo, target: number)
             "-i", job.input,
             "-filter_complex", `[0:v]${fps}scale=${width}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=${step.colors}:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`,
             "-map_metadata", "-1", out
-        ], info.duration, 0, 100);
+        ], info.duration, attemptRange(attempt).from, attemptRange(attempt).span);
         const { size } = await stat(out);
         if (size <= target) {
             job.output = out;
@@ -516,7 +644,7 @@ export async function runJob(_: IpcMainInvokeEvent, id: string, kind: Kind, targ
     try {
         if (kind === "audio") return await encodeAudio(job, bin, info, target, opts);
         if (kind === "gif" && !opts.gifToVideo) return await encodeGif(job, bin, info, target);
-        return await encodeVideo(job, bin, info, target, opts, kind === "video");
+        return await encodeVideo(job, bin, info, target, opts, kind === "video", kind === "gif");
     } catch (e) {
         friendly(e);
     }
