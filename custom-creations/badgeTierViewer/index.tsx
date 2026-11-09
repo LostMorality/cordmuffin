@@ -17,20 +17,32 @@ import type { KeyboardEvent, ReactNode } from "react";
 const cl = classNameFactory("vc-btv-");
 const logger = new Logger("BadgeTierViewer");
 
+interface Requirement {
+    threshold?: number | null;
+    unit?: string;
+}
+
+interface Progress {
+    current?: number | null;
+    unit?: string;
+}
+
 interface Tier {
     key: string;
     name?: string;
     rarity?: number;
     owned?: boolean;
+    milestone_text?: string;
+    requirements?: Requirement[] | null;
     simple_icon_url?: string;
     complex_icon_static_url?: string;
     complex_icon_animated_url?: string;
 }
 
 interface PreviewState {
-    key: string;
     locked: boolean;
     revealed: boolean;
+    need?: string;
     real: Badge;
 }
 
@@ -43,11 +55,21 @@ interface Badge {
     obtained_at?: string | null;
     tier_obtained_at?: Record<string, string>;
     tiers?: Tier[] | null;
+    progress?: Progress[] | null;
     simple_icon_url?: string;
     complex_icon_static_url?: string;
     complex_icon_animated_url?: string;
     __btv?: PreviewState;
 }
+
+interface HeroProps {
+    badge?: Badge;
+    isViewingOtherUser?: boolean;
+}
+
+// Discord's badge ids for the two badges that only keep counting while you pay for them.
+const SUBSCRIPTION_BADGES = new Set([1, 12]);
+const DAY = 86_400_000;
 
 const settings = definePluginSettings({
     revealLocked: {
@@ -84,8 +106,40 @@ function useStore() {
     return React.useSyncExternalStore(subscribe, () => version);
 }
 
+function amount(n: number, unit: string): string {
+    if (unit === "months" && n >= 12 && n % 12 === 0) return amount(n / 12, "years");
+    return `${n.toLocaleString()} ${n === 1 ? unit.replace(/s$/, "") : unit}`;
+}
+
+// What a locked tier takes, and on your own badges how far off it is. Only uses numbers Discord sent for this badge.
+function needText(badge: Badge, tier: Tier, own: boolean): string | undefined {
+    if (tier.owned) return;
+    const req = tier.requirements?.[0];
+    const threshold = req?.threshold;
+    if (typeof threshold !== "number" || !req?.unit) return tier.milestone_text ? `Needs ${tier.milestone_text}` : undefined;
+
+    const { unit } = req;
+    const progress = own ? badge.progress?.[0] : undefined;
+    const current = progress?.current;
+    if (typeof current === "number") {
+        // Time tiers are set in months or years but counted in days, so give a date instead of a mixed-unit gap.
+        if ((unit === "months" || unit === "years") && progress!.unit === "days" && badge.owned) {
+            // Counted from the days Discord reports, so time a lapsed subscription didn't count is left out.
+            const start = new Date(Date.now() - current * DAY);
+            start.setMonth(start.getMonth() + threshold * (unit === "years" ? 12 : 1));
+            if (start.getTime() > Date.now()) {
+                const date = start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+                return `Unlocks around ${date}${SUBSCRIPTION_BADGES.has(badge.badge_id) ? " if you stay subscribed" : ""}`;
+            }
+        } else if (progress!.unit === unit && threshold > current) {
+            return `Needs ${amount(threshold, unit)} (${(threshold - current).toLocaleString()} to go)`;
+        }
+    }
+    return `Needs ${amount(threshold, unit)}`;
+}
+
 // Swaps the badge the big preview reads for a copy showing the picked tier; Discord's tier picker then lands on that tier.
-function useHeroProps<P extends { badge?: Badge; }>(props: P): P {
+function useHeroProps<P extends HeroProps>(props: P): P {
     useStore();
     const { revealLocked } = settings.use(["revealLocked"]);
     const seen = useRef(new Set<object>());
@@ -98,33 +152,39 @@ function useHeroProps<P extends { badge?: Badge; }>(props: P): P {
     }, []);
 
     const badge = props?.badge;
+    const tiers = badge?.tiers;
     if (badge) seen.current.add(badge);
-    const key = badge?.tiers?.length ? pickedTier(badge) : undefined;
-    const tier = key ? badge!.tiers!.find(t => t.key === key) ?? badge!.tiers![0] : undefined;
+    const key = badge && tiers?.length ? pickedTier(badge) : undefined;
+    const tier = key && tiers ? tiers.find(t => t.key === key) ?? tiers[0] : undefined;
+    const own = !props?.isViewingOtherUser;
 
     const shown = useMemo(() => {
-        if (!badge || !tier) return badge;
+        if (!badge || !tier || !tiers) return badge;
         try {
             const owned = !!tier.owned;
+            const locked = !owned && !revealLocked;
             const isDefault = tier.key === defaultTier(badge);
+            // Locked art stays still: Discord plays the tier's own animation first, so it has to go from the tier too.
+            const animated = locked ? undefined : tier.complex_icon_animated_url ?? (isDefault ? badge.complex_icon_animated_url : undefined);
             return {
                 ...badge,
+                tiers: animated === tier.complex_icon_animated_url ? tiers : tiers.map(t => t === tier ? { ...t, complex_icon_animated_url: animated } : t),
                 current_tier: tier.key,
                 next_tier: tier.key,
                 owned: owned || revealLocked,
                 rarity: tier.rarity ?? badge.rarity,
                 // Same fallbacks Discord uses for the tier it would show anyway; a different tier only uses its own data.
                 obtained_at: badge.tier_obtained_at?.[tier.key] ?? (isDefault && badge.owned ? badge.obtained_at : null) ?? null,
-                complex_icon_animated_url: tier.complex_icon_animated_url ?? (isDefault ? badge.complex_icon_animated_url : undefined),
+                complex_icon_animated_url: animated,
                 complex_icon_static_url: tier.complex_icon_static_url ?? (isDefault ? badge.complex_icon_static_url : undefined) ?? tier.simple_icon_url ?? badge.complex_icon_static_url,
                 simple_icon_url: tier.simple_icon_url ?? badge.simple_icon_url,
-                __btv: { key: tier.key, locked: !owned && !revealLocked, revealed: !owned && revealLocked, real: badge }
+                __btv: { locked, revealed: !owned && revealLocked, need: needText(badge, tier, own), real: badge }
             } satisfies Badge;
         } catch (e) {
             logger.error("Couldn't build the tier preview", e);
             return badge;
         }
-    }, [badge, tier, revealLocked]);
+    }, [badge, tier, tiers, revealLocked, own]);
 
     return shown === badge ? props : { ...props, badge: shown };
 }
@@ -147,17 +207,17 @@ function EyeIcon({ open }: { open: boolean; }) {
     );
 }
 
-function EyeButton() {
+function EyeButton({ idle }: { idle: boolean; }) {
     const { revealLocked } = settings.use(["revealLocked"]);
-    const label = revealLocked ? "Showing locked tiers unlocked. Click to show them locked." : "Showing locked tiers locked. Click to see how they look unlocked.";
+    const tip = idle ? "Only changes locked tiers" : revealLocked ? "Show as locked" : "Show unlocked look";
     return (
-        <Tooltip text={label}>
+        <Tooltip text={tip}>
             {tooltip => (
                 <button
                     {...tooltip}
                     type="button"
-                    className={cl("eye")}
-                    aria-label={label}
+                    className={cl("eye", idle && "eye-idle")}
+                    aria-label="Show locked tiers unlocked"
                     aria-pressed={revealLocked}
                     onClick={() => { settings.store.revealLocked = !revealLocked; }}
                 >
@@ -169,13 +229,14 @@ function EyeButton() {
 }
 
 function HeroFrame({ badge, children }: { badge: Badge; children: ReactNode; }) {
-    const locked = !!badge?.__btv?.locked;
+    const state = badge?.__btv;
+    const locked = !!state?.locked;
     const hasLocked = !!badge?.tiers?.some(t => !t.owned);
     return (
         <span className={cl("hero", locked && "hero-locked")}>
             {children}
             {locked && <span className={cl("lock")}><LockIcon /></span>}
-            {hasLocked && <EyeButton />}
+            {hasLocked && <EyeButton idle={!state || (!state.locked && !state.revealed)} />}
         </span>
     );
 }
@@ -185,6 +246,9 @@ function selectTier(badge: Badge, key: string) {
     else picked.set(real(badge), key);
     emit();
 }
+
+const realBadgeProps = <P extends { badge?: Badge; }>(props: P): P =>
+    props?.badge?.__btv ? { ...props, badge: props.badge.__btv.real } : props;
 
 export default definePlugin({
     name: "BadgeTierViewer",
@@ -196,36 +260,23 @@ export default definePlugin({
     patches: [
         {
             find: 'parentComponent:"BadgeDirectoryModal"',
+            // These only make sense together: if a Discord update breaks one, the whole set stays off instead of half working.
+            group: true,
             replacement: [
                 {
                     // Detail panel (new + old layout): read the badge through the tier preview.
-                    match: /(onViewOwnCatalog:\i\}=)(\i)(?=,.{0,30}?\(0,\i\.DW\)\()/g,
+                    match: /(onViewOwnCatalog:\i\}=)(\i)(?=,.{0,30}?\(0,\i\.\i\)\()/g,
                     replace: "$1$self.useHeroProps($2)"
                 },
                 {
                     // Big badge art: wrap it so it can show a lock and the eye button.
-                    match: /("aria-labelledby":\i\((\i)\.badge_id\),.{0,700}?)null!=(\i)&&(\(0,\i\.jsx\)\("img",\{className:\i\(\)\(\i\.y2,.{0,60}?\),src:\3,alt:"","aria-hidden":!0,draggable:!1\}\))/g,
+                    match: /("aria-labelledby":\i\((\i)\.badge_id\),.{0,700}?)null!=(\i)&&(\(0,\i\.jsx\)\("img",\{className:\i\(\)\(\i\.\i,.{0,60}?\),src:\3,alt:"","aria-hidden":!0,draggable:!1\}\))/g,
                     replace: "$1null!=$3&&$self.renderHero($2,$4)"
                 },
                 {
-                    // Title: show the previewed tier's name even when it isn't unlocked.
-                    match: /null!=(\i)&&(\i)\.owned\?\{isNitro:(\i),eyebrow:(\i),displayName:\1\}/,
-                    replace: "null!=$1&&$self.showTierName($2)?{isNitro:$3,eyebrow:$4,displayName:$1}"
-                },
-                {
-                    // Status line: say plainly when a locked tier is only being previewed.
-                    match: /(\(0,\i\.H5\)\((\i)\),.{0,1000}?key:"status",node:\(0,\i\.jsx\)\(\i\.\i,\{.{0,120}?children:)(\i)\}/,
-                    replace: "$1$self.statusText($2,$3)}"
-                },
-                {
-                    // Old layout's status line (passed down as unlockedStatusText).
-                    match: /(\(0,\i\.jsx\)\(\i,\{badge:(\i),isOwnProfile:\i,isViewingOtherUser:\i,targetUsername:\i,viewedAvatarSrc:\i,targetOwnsBadge:\i,viewerOwnsBadge:\i,unlockedStatusText:)(\i)/,
-                    replace: "$1$self.statusText($2,$3)"
-                },
-                {
                     // Tier grid: always draw from the real badge (its dimming depends on real ownership), and re-render on picks.
-                    match: /(function \i\((\i)\)\{)(let\{badge:\i,isViewingOtherUser:\i,targetUsername:\i,isViewerOnUpgradeableNitro:\i=!1\}=\2,)/g,
-                    replace: "$1$2=$self.gridProps($2);$3btvVersion=$self.useStore(),"
+                    match: /(function \i\((\i)\)\{)(let\{badge:\i,isViewingOtherUser:[^}]{0,80}?isViewerOnUpgradeableNitro:[^}]{0,20}\}=\2,)/g,
+                    replace: "$1$2=$self.realBadgeProps($2);$3btvVersion=$self.useStore(),"
                 },
                 {
                     // Tier grid items: clickable, with the picked one marked.
@@ -233,11 +284,47 @@ export default definePlugin({
                     replace: '$1.tiers.map($2=>{$3role:"listitem",...$self.tierItemProps($1,$2),'
                 }
             ]
+        },
+        {
+            find: 'parentComponent:"BadgeDirectoryModal"',
+            replacement: [
+                {
+                    // Title: show the previewed tier's name even when it isn't unlocked.
+                    match: /null!=(\i)&&(\i)\.owned\?\{isNitro:(\i),eyebrow:(\i),displayName:\1\}/,
+                    replace: "null!=$1&&$self.isShown($2)?{isNitro:$3,eyebrow:$4,displayName:$1}"
+                },
+                {
+                    // Rarity tag: show it for the previewed tier too.
+                    match: /(\i)\.owned(&&\i!==\i\.\i\.COMMON&&null!=\i)/,
+                    replace: "$self.isShown($1)$2"
+                },
+                {
+                    // Status line: what a locked tier needs, and plainly say when one is only being previewed.
+                    match: /(\(0,\i\.H5\)\((\i)\),.{0,1000}?key:"status",node:\(0,\i\.jsx\)\(\i\.\i,\{.{0,120}?children:)(\i)\}/,
+                    replace: "$1$self.statusText($2,$3)}"
+                },
+                {
+                    // Old layout's status line: wrap the finished text, which covers locked tiers as well.
+                    match: /(let \i,\i,\{badge:(\i),isOwnProfile:\i,.{0,500}?return\{statusText:)(\i)(,toggleText:\i\}\})/,
+                    replace: "$1$self.statusText($2,$3)$4"
+                },
+                {
+                    // Tier grid: a short line saying the tiers can be clicked.
+                    match: /(\(0,\i\.jsx\)\("div",\{className:\i\.\i,role:"list","aria-label":\i\?void 0:(\i)\.name)/g,
+                    replace: "$self.gridHint($2),$1"
+                },
+                {
+                    // Analytics: report the tier you actually have, never the one being previewed.
+                    match: /(function \i\((\i)\)\{)(let\{actionName:\i,badge:\i,displayedUserId:)/,
+                    replace: "$1$2=$self.realBadgeProps($2);$3"
+                }
+            ]
         }
     ],
 
     useStore,
     useHeroProps,
+    realBadgeProps,
 
     renderHero(badge: Badge, img: ReactNode) {
         return (
@@ -247,16 +334,20 @@ export default definePlugin({
         );
     },
 
-    gridProps<P extends { badge?: Badge; }>(props: P): P {
-        return props?.badge?.__btv ? { ...props, badge: props.badge.__btv.real } : props;
+    gridHint(badge: Badge) {
+        if (!badge?.tiers || badge.tiers.length < 2) return null;
+        return <div className={cl("hint")}>Click a tier to see it above.</div>;
     },
 
-    showTierName(badge: Badge) {
+    isShown(badge: Badge) {
         return !!badge?.owned || badge?.__btv != null;
     },
 
     statusText(badge: Badge, native: ReactNode) {
-        return badge?.__btv?.revealed ? "Preview" : native;
+        const state = badge?.__btv;
+        if (state?.revealed) return `Preview • ${state.need ?? "Not unlocked yet"}`;
+        if (state?.locked && state.need) return state.need;
+        return native;
     },
 
     tierItemProps(badge: Badge, tier: Tier) {
@@ -270,15 +361,13 @@ export default definePlugin({
                 selectTier(badge, tier.key);
                 el?.closest("#badge-details")?.querySelector("[class*=\"detailScroller\"]")?.scrollTo({ top: 0 });
             };
-            const label = `${tier.owned ? "Show" : "Preview"} ${tier.name ?? "this tier"}${tier.owned ? "" : " (locked)"} in the big badge view`;
             return {
                 role: "button",
                 tabIndex: 0,
                 "aria-pressed": selected,
-                "aria-label": label,
+                "aria-description": "Shows this tier in the big badge view",
                 "data-btv-tier": "",
                 "data-btv-selected": selected ? "true" : undefined,
-                title: label,
                 onClick: pick,
                 onKeyDown: (e: KeyboardEvent) => {
                     if (e.key === "Enter" || e.key === " ") {
@@ -291,9 +380,5 @@ export default definePlugin({
             logger.error("Couldn't set up a tier", e);
             return {};
         }
-    },
-
-    stop() {
-        emit();
     }
 });
