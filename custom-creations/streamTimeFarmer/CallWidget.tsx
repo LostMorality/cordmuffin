@@ -15,7 +15,7 @@ import type { Root } from "react-dom/client";
 import { changeStreamProfile, pluginActive, settings } from ".";
 import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
-import { cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, refetchWeb, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
+import { BROKEN_TEXT, cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, refetchWeb, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 import { ReportStatus, TrackingWarning, useTrackingProblem } from "./TrackingWarning";
 
@@ -66,7 +66,7 @@ function useCallState(): { text: string; account: SecondAccountInfo | null; inCa
         case "login":
             return { text: "Log in to your second account in the window that opened.", account: null, inCall };
         case "broken":
-            return { text: "Your second account's window loaded Equicord, but the farm's half of it didn't start there. Hanging up and calling again usually sorts it, since that builds the window from scratch.", account, inCall };
+            return { text: BROKEN_TEXT, account, inCall };
         case "same":
             return { text: "That window is logged into this same account. Sign out there and log into your other account.", account, inCall };
         case "starting":
@@ -131,6 +131,16 @@ function confirmLogin() {
         confirmText: "Log in",
         cancelText: "Cancel",
         onConfirm: () => void linkSecondAccount(),
+    });
+}
+
+function confirmSignOut() {
+    Alerts.show({
+        title: "Sign out your second account?",
+        body: "This ends the call and forgets its login on this PC.",
+        confirmText: "Sign out",
+        cancelText: "Cancel",
+        onConfirm: () => void signOutSecondAccount()
     });
 }
 
@@ -236,7 +246,7 @@ export function SecondAccountCard() {
                     : <Button size="small" variant="positive" onClick={callSecond} disabled={second.phase === "same" || second.phase === "unavailable" || second.phase === "restart"}>Call</Button>}
                 {inCall && <Button size="small" variant="secondary" onClick={() => showSecondAccount()}>Open its window</Button>}
                 {inCall && <Button size="small" variant="secondary" onClick={enterAfk}>AFK mode</Button>}
-                <Button size="small" variant="dangerSecondary" onClick={() => signOutSecondAccount()}>Sign out</Button>
+                <Button size="small" variant="dangerSecondary" onClick={confirmSignOut}>Sign out</Button>
             </div>
         </div>
     );
