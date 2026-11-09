@@ -234,7 +234,7 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #5c5c5c;
+    color: #8a8a8a;
 }
 
 .vc-stf-afk-label {
@@ -272,10 +272,37 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
     color: #6e6e6e;
 }
 
+.vc-stf-afk-warn {
+    max-width: 480px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #e0a33a;
+}
+
 .vc-stf-afk-hint {
     margin-top: 18px;
     font-size: 12px;
-    color: #4a4a4a;
+    color: #8a8a8a;
+}
+
+.vc-stf-afk-leave {
+    padding: 6px 14px;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12px;
+    color: #a0a0a0;
+    background: #111;
+    cursor: pointer;
+}
+
+.vc-stf-afk-leave:hover {
+    color: #d0d0d0;
+    border-color: #5a5a5a;
+}
+
+.vc-stf-afk [hidden] {
+    display: none;
 }
 
 .vc-stf-login-warning {
@@ -371,4 +398,24 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
 
 .vc-stf-tracking-unknown {
     color: var(--text-muted);
+}
+
+/* A setting that keeps the farm from working well; the button fixes it. */
+.vc-stf-warn {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--status-warning);
+    border-left-width: 4px;
+    background: color-mix(in srgb, var(--status-warning) 10%, var(--background-secondary, var(--background-base-lower)));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-stf-warn-title {
+    font-weight: 700;
+    color: var(--header-primary, var(--text-strong));
 }
