@@ -7,6 +7,11 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 - New plugin: BadgeTierViewer. In the badge window, click any tier of a badge to see it in the big preview. Tiers you
   haven't unlocked show locked, and an eye button next to the preview shows how they look once unlocked.
+- BadgeTierViewer: locked tiers now say what they take and how far off you are ("Needs 300 hours (141 to go)"), and
+  Nitro and Server Boosting tiers show a rough unlock date. Locked tiers also show their rarity, their art no longer
+  animates until you reveal it, and a short line under the progress box says the tiers can be clicked.
+- BadgeTierViewer: the eye button dims on tiers you already have, and its tooltip is shorter. If a Discord update breaks
+  part of the plugin, it now switches off cleanly instead of half working.
 
 ## 2026-11-08
 
