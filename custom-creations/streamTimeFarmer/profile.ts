@@ -31,6 +31,8 @@ export interface StreamProfile {
     farmGame: FarmGame | null;
     hostSecond: boolean;
     countedMs: number;
+    // Time the farm ran as the streaming account without counting anything.
+    downtimeMs: number;
     // When Discord last accepted a stream report from this account.
     lastReportAt: number;
     // The latest stream reports Discord accepted, to compare with its count. Stays on this PC.
@@ -58,6 +60,7 @@ export const DEFAULT_PROFILE: StreamProfile = {
     farmGame: null,
     hostSecond: false,
     countedMs: 0,
+    downtimeMs: 0,
     lastReportAt: 0,
     reportLog: [],
     joinedCall: "",
