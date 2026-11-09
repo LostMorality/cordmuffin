@@ -15,12 +15,26 @@ import { classNameFactory } from "@utils/css";
 import { copyWithToast } from "@utils/discord";
 import { chooseFile, saveFile } from "@utils/web";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { Modal, openModal, showToast, TextArea, TextInput, useMemo, useState } from "@webpack/common";
+import { findByCodeLazy } from "@webpack";
+import { Modal, openModal, showToast as equicordShowToast, TextArea, TextInput, useMemo, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { addPreset, applyPreset, ApplyResult, captureCurrent, deletePreset, isManaged, planApply, Preset, renamePreset, savePreset, usePresets } from "./presets";
 import { Removed } from "./scrub";
 import { buildExport, fileNameFor, ImportReport, prepareImport, toCode, toFileText } from "./share";
+
+// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
+// function directly. A failed toast must never break what the plugin was doing.
+const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+
+function showToast(options: Parameters<typeof equicordShowToast>[0]) {
+    for (const show of [equicordShowToast, discordToast]) {
+        try {
+            show(options);
+            return;
+        } catch { }
+    }
+}
 
 const cl = classNameFactory("vc-pp-");
 
