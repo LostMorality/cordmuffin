@@ -14,12 +14,26 @@ import { addUserAreaButton } from "@api/UserArea";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Notice } from "@components/Notice";
 import definePlugin, { OptionType } from "@utils/types";
-import { Alerts, AuthenticationStore, Menu, SessionsStore, showToast, useEffect, useReducer } from "@webpack/common";
+import { findByCodeLazy } from "@webpack";
+import { Alerts, AuthenticationStore, Menu, SessionsStore, showToast as equicordShowToast, useEffect, useReducer } from "@webpack/common";
 
 import { PlatformButton, PlatformIcon } from "./Button";
 import { cancelReconnect, GatewaySocket, isReconnectPending, logger, scheduleReconnect } from "./gateway";
 import { StatusPanel } from "./Panel";
 import { isPlatformId, PLATFORM_IDS, PlatformId, platformLabel, PLATFORMS, SHOWS_LABEL, upgradePlatformId } from "./platforms";
+
+// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
+// function directly. A failed toast must never break what the plugin was doing.
+const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+
+function showToast(options: Parameters<typeof equicordShowToast>[0]) {
+    for (const show of [equicordShowToast, discordToast]) {
+        try {
+            show(options);
+            return;
+        } catch { }
+    }
+}
 
 const PLUGIN_NAME = "PlatformSpoofer+";
 
