@@ -11,7 +11,21 @@ import { Devs } from "@utils/constants";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Channel, Message, RenderModalProps } from "@vencord/discord-types";
-import { ChannelStore, ContextMenuApi, FluxDispatcher, GuildStore, Menu, MessageActions, Modal, React, SelectedChannelStore, showToast, StickersStore, TextInput, UserStore } from "@webpack/common";
+import { findByCodeLazy } from "@webpack";
+import { ChannelStore, ContextMenuApi, FluxDispatcher, GuildStore, Menu, MessageActions, Modal, React, SelectedChannelStore, showToast as equicordShowToast, StickersStore, TextInput, UserStore } from "@webpack/common";
+
+// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
+// function directly. A failed toast must never break what the plugin was doing.
+const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+
+function showToast(options: Parameters<typeof equicordShowToast>[0]) {
+    for (const show of [equicordShowToast, discordToast]) {
+        try {
+            show(options);
+            return;
+        } catch { }
+    }
+}
 
 // Takes over the original plugin's settings (and switches it off), so the two never patch the same button.
 migratePluginSettings("GreetStickerPicker+", "GreetStickerPicker");
