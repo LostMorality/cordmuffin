@@ -1,0 +1,70 @@
+.vc-btv-hero {
+    position: relative;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.vc-btv-hero-locked img {
+    filter: grayscale(1) brightness(0.55);
+    opacity: 0.6;
+}
+
+.vc-btv-lock {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--background-base-low, rgb(0 0 0 / 60%));
+    color: var(--text-default);
+    pointer-events: none;
+}
+
+.vc-btv-eye {
+    position: absolute;
+    top: 0;
+    right: -34px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--background-mod-normal);
+    color: var(--interactive-icon-default);
+    cursor: pointer;
+}
+
+.vc-btv-eye:hover {
+    color: var(--interactive-icon-hover);
+    background: var(--background-mod-strong);
+}
+
+.vc-btv-eye[aria-pressed="true"] {
+    color: var(--text-brand);
+}
+
+.vc-btv-eye:focus-visible,
+[data-btv-tier]:focus-visible {
+    outline: 2px solid var(--focus-primary);
+    outline-offset: 2px;
+}
+
+[data-btv-tier] {
+    cursor: pointer;
+    border-radius: 8px;
+}
+
+[data-btv-tier]:hover {
+    background: var(--background-mod-subtle);
+}
+
+[data-btv-selected="true"] {
+    background: var(--background-mod-normal);
+    box-shadow: inset 0 0 0 2px var(--text-brand);
+}
