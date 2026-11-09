@@ -24,6 +24,10 @@ import { allowTracking, loadConsents, startReportWatch, stopReportWatch, trackin
 const logger = new Logger("StreamTimeFarmer");
 
 export const settings = definePluginSettings({
+    streamFarm: {
+        type: OptionType.COMPONENT,
+        component: StreamFarm
+    },
     muteMic: {
         type: OptionType.BOOLEAN,
         description: "Mute your mic when the farm joins the call. It's unmuted again when the farm stops.",
@@ -72,10 +76,6 @@ export const settings = definePluginSettings({
         description: "AFK mode is on (it comes back after Discord restarts).",
         default: false,
         hidden: true
-    },
-    streamFarm: {
-        type: OptionType.COMPONENT,
-        component: StreamFarm
     },
     profiles: {
         type: OptionType.CUSTOM,
