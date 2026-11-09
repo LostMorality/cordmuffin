@@ -739,6 +739,9 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 - **AFK mode** for leaving it running for hours or days, at about half the CPU.
 - Checks your settings on both accounts and shows each one green or red.
 
+> [!WARNING]
+> Discord doesn't allow automating accounts, so both accounts are at risk. Don't use one you can't afford to lose.
+
 > [!IMPORTANT]
 > **Equicord blocks the Streaming badge by default.** StreamTimeFarmer shows what to change and has a **Fix these for me** button. Details under "Settings" below.
 
@@ -773,6 +776,10 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 
 - The farm only adds time while the second account is really watching. The widget and settings show what's happening and the time counted.
 - If either account drops, they reconnect on their own.
+- If Discord drops you from the call itself (you were alone in it too long, or it moved you to the AFK channel), the farm joins again after a short wait and tells you. Click that notice if you meant to hang up and it stays off.
+- If no time has counted for a while, the status says for how long, and after 15 minutes a notice pops up so you don't find out hours later.
+- Offline? It says so and waits for the internet to come back, instead of blaming Discord.
+- If the second account's hidden Discord breaks, it rebuilds itself about every 15 minutes. If the farm's own window can't open (an antivirus blocking it, say), a DM call shows your screen to the second account instead, so time keeps counting.
 - If the stream fails (like Discord's error 2012), gets stuck paused, or Discord says no picture is getting through, the second account reopens it, and your account restarts Go Live (and reopens its window if something closed it). Time doesn't count while it's broken.
 - **Show it as a game** (optional): search for a game and pick it. The farm's window takes that game's name and cover art, and Discord's own game detection is told the window is that game, so your stream shows as "Streaming <game>" and your profile as playing it. The game itself never runs; the picture is still the farm's window.
   - If another plugin (gameSessionSpoofer) is already showing a game, the window streams as itself until that ends, so the two don't fight.
@@ -780,7 +787,8 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 **AFK mode** (the **AFK** button during a call):
 - Discord is hidden behind a black screen that shows your total streaming time, how long the current call has run and whether it's counting.
 - Discord then uses about half the CPU and next to no graphics card. The call and stream keep going.
-- Press **Esc twice** to come back.
+- Press **Esc twice** or the **Leave AFK** button to come back.
+- If a setting might stop the badge counting, the AFK screen says so.
 - While it's on, your keyboard doesn't reach Discord, so nothing gets typed into a chat by accident.
 - If Discord restarts, it comes back in AFK mode.
 
@@ -807,6 +815,10 @@ It also names other plugins that may block the reports, and warns when a report 
 
 <img src="docs/stream-farm-tracking.png" alt="The Streaming badge warning in StreamTimeFarmer's settings" width="440"> <img src="docs/stream-farm-widget-tracking.png" alt="The same warning in the call widget, here for the second account (placeholder account shown)" width="240">
 
+**Discord ending the call**
+
+Discord ends a call after you've been alone in it for a few minutes, or away for a while. Equicord's **DisableCallIdle** plugin stops that. If it's off, the farm's settings show a **Turn it on** button (Discord then needs a restart), and the second account's hidden Discord gets it turned on by itself.
+
 **Plugin settings**
 
 - **Second account's online status** (default: leave as is): sets it to Online, Idle, Do Not Disturb or Invisible each time it starts.
@@ -831,11 +843,11 @@ It also names other plugins that may block the reports, and warns when a report 
 - The dot on the second account's picture in the widget and settings shows its real online status, with the name next to it. It shows Offline while it isn't running.
 - The second account's window shares one program with your Discord, so without **Quiet Second Account** your taskbar badge creeps up every time it's invited to a call and never clears. The account still receives everything; **Open** its window to read it.
 - **Keep Computer Awake** also covers moments when no call is live, such as AFK mode with the farm stopped or a farm waiting to reconnect. During a call Discord already keeps the PC awake and the screen on; otherwise the screen can still turn off. Your normal sleep settings come back when both stop. Some laptops on battery can still sleep after a while.
-- It needs the desktop app, and the web version of Equicord that the Cordmuffin installer builds next to it. Installers from before November 2026 don't build it; run the newest one once.
+- It needs the desktop app. The second account's window fetches its own Equicord, so there's nothing extra to install.
 - It used to be part of GameTimeSpoof. If you used the stream farm there, updating adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
 - Settings and totals are saved per account, so two accounts on one PC don't overwrite each other.
 - Your own Go Live quality is put back after each call.
-- The badge itself updates on Discord's daily schedule, like the play-time badges.
+- The badge doesn't update right after a report. It can take many hours, and Discord doesn't publish a schedule.
 
 </details>
 
