@@ -10,12 +10,13 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { relaunch } from "@utils/native";
-import { Alerts, showToast, useEffect, useState, useStateFromStores } from "@webpack/common";
+import { Alerts, useEffect, useState, useStateFromStores } from "@webpack/common";
 
 import { formatTime, useStreamStatus } from "./CallWidget";
 import { useProfile } from "./profile";
 import { allowSecondTracking, useSecondStatus } from "./secondAccount";
 import { nextReportMs } from "./stream";
+import { toast } from "./toast";
 import { allowTracking, ConsentStore, hasConsentStore, loadConsents, refreshStreamingBadge, reportMissing, streamingBadgeLabel, streamingBadgeMissing, trackingState } from "./tracking";
 
 const cl = classNameFactory("vc-stf-");
@@ -128,11 +129,11 @@ function TrackingWarningBody({ compact = false }: { compact?: boolean; }) {
         try {
             const { restart } = await allowTracking();
             const secondDone = bad.some(i => i.who === "second account") ? await allowSecondTracking() : true;
-            if (!secondDone) showToast({ text: "Your second account wasn't reachable. Press Fix again while it's in a call.", variant: "critical" });
+            if (!secondDone) toast({ text: "Your second account wasn't reachable. Press Fix again while it's in a call.", variant: "critical" });
             if (restart) askRestart(secondDone);
-            else if (secondDone) showToast({ text: "Done. Your Streaming badge counts from your next stream on.", variant: "success" });
+            else if (secondDone) toast({ text: "Done. Your Streaming badge counts from your next stream on.", variant: "success" });
         } catch (e: any) {
-            showToast({ text: `Couldn't change it: ${e?.body?.message ?? e?.message ?? "unknown error"}`, variant: "critical" });
+            toast({ text: `Couldn't change it: ${e?.body?.message ?? e?.message ?? "unknown error"}`, variant: "critical" });
         } finally {
             setBusy(false);
         }
