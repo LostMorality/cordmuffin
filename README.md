@@ -32,6 +32,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). The folder na
 | [PluginPresets](#pluginpresets) | Saves which plugins are on as presets you can switch between and share. |
 | [GreetStickerPicker+](#greetstickerpicker) | Pick any sticker for the "Wave to say hi!" button, in servers and in DMs. |
 | [HideClientBadges](#hideclientbadges) | Hides client mod badges, so profiles only show Discord's own. |
+| [BadgeTierViewer](#badgetierviewer) | Click any tier in Your Badges to see it in the big preview, locked or as it looks once unlocked. |
 | [TranslateItAll](#translateitall) | Translates messages with Google or Yandex Translate, no API key needed. |
 | [Discrub Loader](#discrub-loader) ⚠ | Opens Discrub, which exports, searches and cleans up your messages, inside Discord. |
 
@@ -518,6 +519,33 @@ Takes client mod badges off profiles, so they only show Discord's own badges: Ni
 <summary><b>Things to know</b></summary>
 
 Client mods hand out their own profile badges to donors and contributors, and donors can pick custom ones that everyone with the mod sees. In a big server, half the profiles end up covered in them. That's what this plugin cleans up.
+
+</details>
+
+---
+
+### BadgeTierViewer
+
+`badgeTierViewer` · Off by default
+
+**Connects to:** nothing new.
+
+Lets you look at every tier of a tiered badge (Streaming, Game Time and the rest) in the big preview at the top of the badge window, not just the one you're on.
+
+| <img src="docs/badge-tier-viewer-locked.png" alt="A locked tier picked, shown greyed out with a lock" width="360"><br>A locked tier, shown locked | <img src="docs/badge-tier-viewer-revealed.png" alt="The same tier with the eye on, shown as it looks once unlocked" width="360"><br>The same tier with the eye on |
+|---|---|
+
+**What it does**
+- Click any tier in the grid under **Your progress** (or tab to it and press Enter) and the big preview switches to it, with its name, art and rarity. The picked tier gets a ring around it.
+- Tiers you haven't unlocked show greyed out with a lock and "Not unlocked yet".
+- The eye button next to the big preview flips that: open eye shows locked tiers the way they look once unlocked (marked "Preview"), closed eye with a line through it shows them locked again. It only shows up on badges that still have locked tiers.
+- Works on your own badges and on other people's. Closing the window puts it back on the tier it normally opens on.
+- Only changes what you see. Nothing is sent to Discord.
+
+<details>
+<summary><b>Settings</b></summary>
+
+- **Reveal Locked** is the same switch as the eye button, so it remembers your choice. Off by default.
 
 </details>
 
