@@ -84,6 +84,26 @@
     font-size: 12px;
 }
 
+.vc-shrink-path {
+    max-width: 100%;
+    margin-top: -4px;
+    color: var(--text-muted);
+    font-family: var(--font-code);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.vc-shrink-warn {
+    color: var(--text-feedback-critical, var(--text-danger));
+    font-size: 13px;
+}
+
+.vc-shrink-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .vc-shrink-hint {
     margin-top: 8px;
     color: var(--text-muted);
