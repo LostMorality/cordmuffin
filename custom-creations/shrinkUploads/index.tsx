@@ -31,6 +31,7 @@ const MB = 1024 * 1024;
 const CHUNK = 8 * MB;
 const MAX_FILES = 10;
 const SMALL_TILE = 0;
+const MIN_TARGET = 64 * 1024;
 
 const settings = definePluginSettings({
     status: {
@@ -99,6 +100,12 @@ const settings = definePluginSettings({
         displayName: "Get the video tool automatically",
         description: "Download the free video tool (ffmpeg) the first time it's needed.",
         default: true,
+    },
+    ffmpegPath: {
+        type: OptionType.STRING,
+        description: "",
+        default: "",
+        hidden: true,
     },
 });
 
@@ -269,9 +276,9 @@ function unmountPanel() {
     host = null;
 }
 
-function enqueue(file: File, target: number, onDone: (out: File) => void, onFail?: () => void, restoresOriginal = onFail != null) {
+function enqueue(file: File, target: number, onDone: (out: File) => void, onFail?: () => void, restoresOriginal = onFail != null, label = file.name) {
     mountPanel();
-    const job: Job = { id: nextId++, name: file.name, phase: "Waiting in line", percent: 0, state: "queued", controller: new AbortController(), onFail };
+    const job: Job = { id: nextId++, name: label, phase: "Waiting in line", percent: 0, state: "queued", controller: new AbortController(), onFail };
     jobs.push(job);
     emit();
     const step = async () => {
@@ -419,10 +426,26 @@ function Panel() {
     );
 }
 
+async function setOwnTool(file: string) {
+    if (!Native) return;
+    try {
+        settings.store.ffmpegPath = await Native.useTool(file);
+    } catch (e) {
+        Alerts.show({ title: "Couldn't use that ffmpeg", body: errorText(e) });
+    }
+}
+
+async function pickOwnTool() {
+    if (!Native) return;
+    const file = await Native.pickTool().catch(() => "");
+    if (file) await setOwnTool(file);
+}
+
 function StatusCard() {
     const guildId = SelectedGuildStore.getGuildId();
     const here = describeLimit(guildId);
     const dms = describeLimit(null);
+    const { ffmpegPath } = settings.use(["ffmpegPath"]);
     const [tools, setTools] = useState<Awaited<ReturnType<NonNullable<typeof Native>["getTools"]>> | null>(null);
 
     useEffect(() => {
@@ -442,7 +465,9 @@ function StatusCard() {
             const d = tools.download;
             toolLine = `Downloading the video tool${d?.total ? ` (${Math.round(d.received / d.total * 100)}%)` : ""}...`;
         } else if (tools.ready) {
-            toolLine = tools.source === "system" ? "Video tool: using the ffmpeg already on this computer." : "Video tool: ready.";
+            toolLine = tools.source === "custom" ? "Video tool: using the ffmpeg you picked."
+                : tools.source === "system" ? "Video tool: using the ffmpeg already on this computer."
+                    : "Video tool: ready.";
         } else if (!tools.supported) {
             toolLine = "Video tool: none available for this system. Install ffmpeg to shrink videos.";
         } else {
@@ -458,11 +483,22 @@ function StatusCard() {
                 {guildId && here.limit !== dms.limit && <> · this server: <b>{formatBytes(here.limit)}</b>{here.boosted ? " (boosted)" : ""}</>}
             </div>
             <div className={cl("tools")}>{toolLine}</div>
-            {Native && tools && !tools.ready && tools.supported && !tools.installing && (
-                <Button size="small" onClick={() => Native.installTools().catch(() => { })}>Download video tool</Button>
-            )}
-            {Native && tools?.source === "downloaded" && (
-                <Button size="small" variant="secondary" onClick={() => Native.removeTools().catch(e => Alerts.show({ title: "Couldn't remove it", body: errorText(e) }))}>Remove video tool</Button>
+            {tools?.ready && tools.source !== "downloaded" && tools.path && <div className={cl("path")}>{tools.path}</div>}
+            {tools?.customError && <div className={cl("warn")}>{tools.customError}</div>}
+            {Native && tools && (
+                <div className={cl("buttons")}>
+                    {!tools.ready && tools.supported && !tools.installing && (
+                        <Button size="small" onClick={() => Native.installTools().catch(() => { })}>Download video tool</Button>
+                    )}
+                    {tools.source === "system" && tools.supported && !tools.installing && (
+                        <Button size="small" variant="secondary" onClick={() => Native.installTools().catch(e => Alerts.show({ title: "Couldn't download it", body: errorText(e) }))}>Use the plugin's own copy</Button>
+                    )}
+                    {tools.source === "downloaded" && (
+                        <Button size="small" variant="secondary" onClick={() => Native.removeTools().catch(e => Alerts.show({ title: "Couldn't remove it", body: errorText(e) }))}>Remove video tool</Button>
+                    )}
+                    {!tools.installing && <Button size="small" variant="secondary" onClick={pickOwnTool}>Use my own ffmpeg</Button>}
+                    {(tools.source === "custom" || tools.customError || ffmpegPath) && <Button size="small" variant="secondary" onClick={() => setOwnTool("")}>Back to automatic</Button>}
+                </div>
             )}
             <div className={cl("note")}>Everything is shrunk on this computer. Files are never uploaded anywhere except to Discord.</div>
         </div>
@@ -473,10 +509,12 @@ function TargetModal({ upload, limit, onShrink, ...props }: RenderModalProps & {
     const { size } = upload.item.file;
     const suggested = size > limit ? targetFor(limit) : Math.floor(size / 2);
     const [value, setValue] = useState(String(Math.floor(suggested / MB * 100) / 100));
-    const mb = Number(value.trim().replace(",", "."));
+    const text = value.trim();
+    const mb = /^\d+(?:[.,]\d+)?$/.test(text) ? Number(text.replace(",", ".")) : NaN;
     const bytes = Math.floor(mb * MB);
-    const valid = Number.isFinite(mb) && bytes >= 64 * 1024 && bytes < size && bytes <= limit;
-    const hint = valid ? "Smaller sizes mean lower quality." : `Pick a size in MB under ${formatBytes(Math.min(size, limit))}.`;
+    const valid = Number.isFinite(mb) && bytes >= MIN_TARGET && bytes < size && bytes <= limit;
+    const highest = Math.floor((Math.min(size - 1, limit) / MB) * 100) / 100;
+    const hint = valid ? "Smaller sizes mean lower quality." : `Pick a size between ${Math.ceil(MIN_TARGET / MB * 100) / 100} and ${highest} MB.`;
 
     return (
         <Modal
@@ -511,15 +549,16 @@ interface ActionBarProps {
 }
 
 function ShrinkButton({ upload, channelId, draftType, size }: ActionBarProps) {
+    const { shrinkButton } = settings.use(["shrinkButton"]);
     const file = upload.item.platform === 1 ? upload.item.file : null;
-    if (!file || !kindOf(file)) return null;
+    if (!shrinkButton || !file || !kindOf(file)) return null;
     const small = size === SMALL_TILE;
 
     const open = () => {
         const channel = ChannelStore.getChannel(channelId);
         if (!channel) return;
         const limit = Math.min(getUploadLimit(channel.guild_id), messageCap() - draftBytes(channelId, draftType, upload.id));
-        if (limit < 64 * 1024) return;
+        if (limit < MIN_TARGET) return;
         const details = { spoiler: upload.spoiler, description: upload.description, filename: upload.filename, clip: upload.clip };
         const readd = (next: File) => {
             const metadata = details.clip ? new Map<File, unknown>([[next, { clip: details.clip }]]) : undefined;
@@ -529,7 +568,7 @@ function ShrinkButton({ upload, channelId, draftType, size }: ActionBarProps) {
             <TargetModal {...props} upload={upload} limit={limit} onShrink={target => {
                 props.onClose();
                 UploadManager.remove(channelId, upload.id, draftType);
-                enqueue(file, target, readd, () => readd(file));
+                enqueue(file, target, readd, () => readd(file), true, details.filename || file.name);
             }} />
         ));
     };
@@ -569,8 +608,12 @@ export default definePlugin({
     intercept,
 
     renderShrinkButton(props: ActionBarProps) {
-        if (!settings.store.shrinkButton || props.canEdit === false) return null;
+        if (props.canEdit === false) return null;
         return <ErrorBoundary noop><ShrinkButton {...props} /></ErrorBoundary>;
+    },
+
+    start() {
+        if (Native && settings.store.ffmpegPath) Native.useTool(settings.store.ffmpegPath, true).catch(() => { });
     },
 
     stop() {
