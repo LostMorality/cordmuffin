@@ -36,6 +36,7 @@ function agent() {
     // Each rejoin that didn't help doubles the wait, up to this; a gap between checks starts the clock over.
     const VOICE_DEAD_MAX_MS = 10 * 60_000;
     const VOICE_CHECK_GAP_MS = 15_000;
+    const CALL_IDLE_RELOAD_MS = 60 * 60_000;
     const CONNECT = 1n << 20n;
     const VIEW_CHANNEL = 1n << 10n;
 
@@ -257,9 +258,9 @@ function agent() {
         const partner = partnerId();
         const me = C.UserStore?.getCurrentUser?.();
         if (!me) return setStatus("setup", "Still signing in.");
-        if (!partner) return setStatus("setup", "Enter the user ID of the account that streams.");
-        if (partner === me.id) return setStatus("setup", "The other account's ID is this account. Enter the other one.");
-        if (!C.UserStore.getUser(partner)) return setStatus("setup", "Couldn't find that account. Check the ID, and make sure the two accounts are friends.");
+        if (!partner) return setStatus("setup", "Waiting for your main account to call this one.");
+        if (partner === me.id) return setStatus("setup", "This is the same account as the one that streams. Log into your other account here.");
+        if (!C.UserStore.getUser(partner)) return setStatus("setup", "Can't reach the account that streams yet. Hang up and call again from it.");
         const name = partnerName("the streaming account");
         const streaming = store("ApplicationStreamingStore");
         if (!streaming) return setStatus("setup", "This Discord build doesn't expose its streaming state.");
@@ -498,6 +499,22 @@ function agent() {
         V.Settings.plugins.StreamTimeFarmer ??= { enabled: true };
         V.Settings.plugins.StreamTimeFarmer.enabled = true;
     } catch { /* the host falls back to the window key */ }
+
+    // Without DisableCallIdle, Discord drops this account from a DM call after a few minutes of nobody talking. It
+    // patches Discord as the page loads, so turning it on only works after one reload. When that reload happened is
+    // kept in the settings, so a setting that doesn't stick can't reload the page over and over.
+    try {
+        const all = V.Settings?.plugins;
+        const mine = all?.StreamTimeFarmer;
+        if (mine && V.Plugins?.plugins?.DisableCallIdle && !all.DisableCallIdle?.enabled) {
+            all.DisableCallIdle ??= { enabled: false };
+            all.DisableCallIdle.enabled = true;
+            if (Math.abs(Date.now() - (Number(mine.callIdleReloadAt) || 0)) >= CALL_IDLE_RELOAD_MS) {
+                mine.callIdleReloadAt = Date.now();
+                setTimeout(() => location.reload(), 1_000);
+            }
+        }
+    } catch { /* the call still works, it may just be dropped when idle */ }
 }
 
 // Only the function's own source reaches the window, so it must not close over anything in this module.
