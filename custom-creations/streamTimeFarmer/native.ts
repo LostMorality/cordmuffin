@@ -98,6 +98,8 @@ let win: BrowserWindow | null = null;
 let winPartition = "";
 let quitting = false;
 let placed = false;
+// Bumped whenever the window is closed on purpose, so an open still waiting on the download doesn't build one afterwards.
+let closes = 0;
 
 // The second account's window runs Equicord's own released web build, fetched straight from Equicord and kept in this
 // plugin's own folder. Nobody has to build or install anything, and the window always has the current Equicord. A
@@ -125,11 +127,19 @@ const fresh = (path: string) => {
 };
 
 let downloading: Promise<string> | null = null;
+// After a failed download the next one waits a while (longer each time it fails again), so a site that's down isn't
+// asked again on every check. Only refetchWeb skips the wait: the "Try again" button and a broken window's own retry.
+const RETRY_WAITS_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
+let failures = 0;
+let failedAt = 0;
+let failedWhy = "";
 
 // Downloads the released build to the cache. Resolves with "" when the window has something to load afterwards, or a
 // short reason when it doesn't. Only one download runs at a time, and a failure leaves any older copy in place.
-function downloadWeb(): Promise<string> {
+function downloadWeb(force = false): Promise<string> {
     if (downloading) return downloading;
+    if (!force && failures && Date.now() - failedAt < RETRY_WAITS_MS[Math.min(failures, RETRY_WAITS_MS.length) - 1])
+        return Promise.resolve(existsSync(webCache()) ? "" : failedWhy);
     downloading = (async () => {
         const target = webCache();
         try {
@@ -142,11 +152,15 @@ function downloadWeb(): Promise<string> {
             const tmp = `${target}.part`;
             writeFileSync(tmp, text);
             renameSync(tmp, target);
+            failures = 0;
+            failedWhy = "";
             return "";
         } catch (e: any) {
+            failures++;
+            failedAt = Date.now();
+            failedWhy = `Couldn't download Equicord for the second account's window (${e?.message ?? e}). Check your internet connection and try again.`;
             // An older copy still works, so a failed refresh isn't a failure.
-            if (existsSync(target)) return "";
-            return `Couldn't download Equicord for the second account's window (${e?.message ?? e}). Check your internet connection and try again.`;
+            return existsSync(target) ? "" : failedWhy;
         }
     })();
     void downloading.finally(() => downloading = null);
@@ -176,7 +190,7 @@ export async function webBuildProblem(_: IpcMainInvokeEvent): Promise<string> {
 
 // Fetches the build again even when the cached one is still young, for the "Try again" button after a failure.
 export function refetchWeb(_: IpcMainInvokeEvent): Promise<string> {
-    return downloadWeb();
+    return downloadWeb(true);
 }
 
 app.on("before-quit", () => quitting = true);
@@ -268,11 +282,17 @@ export function setKeepAwake(_: IpcMainInvokeEvent, on: boolean) {
 
 // "created" when a new window was built (its page starts from scratch), true when it was already there.
 export async function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = ""): Promise<boolean | "created"> {
-    await ensureWeb();
-    if (!webBuild()) return false;
     const partition = partitionFor(login);
     if (win && !win.isDestroyed() && (win.webContents.isCrashed() || winPartition !== partition)) win.destroy();
     let created = false;
+    // A window that's already running keeps the copy it loaded, so the build is only checked for a new one.
+    if (!win || win.isDestroyed()) {
+        const before = closes;
+        await ensureWeb();
+        if (before !== closes || !webBuild()) return false;
+        // Another call may have built the window while this one waited on the download.
+        if (win && !win.isDestroyed() && winPartition !== partition) win.destroy();
+    }
     if (!win || win.isDestroyed()) {
         create(partition);
         created = true;
@@ -302,6 +322,7 @@ export function hideSecondAccount(_: IpcMainInvokeEvent) {
 }
 
 export function closeSecondAccount(_: IpcMainInvokeEvent) {
+    closes++;
     if (win && !win.isDestroyed()) win.destroy();
     win = null;
 }
