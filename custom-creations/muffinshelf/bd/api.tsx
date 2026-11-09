@@ -12,7 +12,8 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Flex } from "@components/Flex";
 import { FormSwitch } from "@components/FormSwitch";
 import { Logger as VcLogger } from "@utils/Logger";
-import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast, Slider, TextInput, Tooltip, useState } from "@webpack/common";
+import { findByCodeLazy } from "@webpack";
+import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast as equicordShowToast, Slider, TextInput, Tooltip, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { notify } from "../notify";
@@ -21,6 +22,19 @@ import { animate, boundCommands, cache, Commands, getType, Inputs, Modal as BdMo
 import { makePatcher } from "./patcher";
 import * as Runtime from "./runtime";
 import { forceLoad, loadEntry, mapObject, Webpack } from "./webpack";
+
+// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
+// function directly. A failed toast must never break what the plugin was doing.
+const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+
+function showToast(options: Parameters<typeof equicordShowToast>[0]) {
+    for (const show of [equicordShowToast, discordToast]) {
+        try {
+            show(options);
+            return;
+        } catch { }
+    }
+}
 
 const logger = new VcLogger("Muffinshelf");
 const STYLE_ROOT_ID = "vc-muffinshelf-bd-styles";
