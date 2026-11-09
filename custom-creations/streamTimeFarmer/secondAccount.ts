@@ -8,11 +8,12 @@ import { plugins, startPlugin } from "@api/PluginManager";
 import { Settings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
 import type { PluginNative } from "@utils/types";
-import { showToast, useEffect, UserStore, useState } from "@webpack/common";
+import { useEffect, UserStore, useState } from "@webpack/common";
 
 import { changeStreamProfile, pluginActive } from ".";
 import { currentUserId, profile, type SecondAccountInfo, type SecondPresence, updateProfile } from "./profile";
 import type { StreamStatus } from "./stream";
+import { toast } from "./toast";
 import type { TrackingState } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
@@ -61,6 +62,10 @@ const FAILED_READS_LIMIT = 3;
 // once (which reads the web build again); if that doesn't help either, the user is told.
 let stuckReads = 0;
 const STUCK_READS_LIMIT = 12;
+// While it's broken it tries again by itself now and then: a fresh download of the web build and a new window.
+const BROKEN_RETRY_MS = 12 * 60_000;
+let brokenSince = 0;
+let lastBrokenRetry = 0;
 // The online status already put on the second account since its window opened. It's set once per start (or when the
 // setting changes), so changing it somewhere else during a call isn't undone every few seconds.
 let appliedPresence: SecondPresence | null = null;
@@ -226,6 +231,7 @@ async function tick() {
         if (!configured || !configured.ok) return void await stuck(r.account);
         if (configured.applied) appliedPresence = secondPresence;
         stuckReads = 0;
+        brokenSince = 0;
         setStatus({ phase: "ready", account: r.account, viewer: r.viewer ?? null, presence: configured.presence || r.presence || "", tracking: r.tracking ?? null });
     } catch (e) {
         logger.warn("Second account check failed", e);
@@ -240,6 +246,22 @@ async function stuck(account: SecondAccountInfo | null = null) {
     if (stuckReads === STUCK_READS_LIMIT) await Native?.closeSecondAccount();
     if (run !== generation) return;
     const phase = stuckReads >= 2 * STUCK_READS_LIMIT ? "broken" : "starting";
+    const now = Date.now();
+    if (phase === "broken") {
+        brokenSince ||= now;
+        // Timed from the last retry too, so the minute or two it takes to fail again doesn't shorten the wait.
+        if (now - brokenSince >= BROKEN_RETRY_MS && now - lastBrokenRetry >= BROKEN_RETRY_MS) {
+            lastBrokenRetry = now;
+            const why = await refetchWeb();
+            if (why) logger.warn("Couldn't download Equicord again for the second account:", why);
+            if (run !== generation) return;
+            await Native?.closeSecondAccount();
+            if (run !== generation) return;
+            stuckReads = 0;
+            brokenSince = 0;
+            return setStatus({ phase: "starting", account: account ?? status.account ?? profile().account, viewer: null });
+        }
+    }
     setStatus({ phase, account: account ?? status.account ?? profile().account, viewer: null });
 }
 
@@ -266,7 +288,7 @@ export function applySecondPresence() {
 export function stopSecondAccount(close = true) {
     generation++;
     busy = false;
-    loggedOutReads = failedReads = stuckReads = 0;
+    loggedOutReads = failedReads = stuckReads = brokenSince = 0;
     appliedPresence = null;
     clearInterval(timer);
     timer = undefined;
@@ -284,7 +306,7 @@ export function turnOn() {
     if (pluginActive()) return true;
     const plugin = plugins.StreamTimeFarmer;
     if (!plugin || !startPlugin(plugin)) {
-        showToast({ text: "StreamTimeFarmer couldn't start. Turn it on in the plugin list instead.", variant: "critical" });
+        toast({ text: "StreamTimeFarmer couldn't start. Turn it on in the plugin list instead.", variant: "critical" });
         return false;
     }
     Settings.plugins.StreamTimeFarmer.enabled = true;
@@ -295,7 +317,7 @@ export function turnOn() {
 export async function linkSecondAccount() {
     const problem = await setupProblem();
     if (problem) {
-        showToast({ text: problem === "restart" ? RESTART_TEXT : WEB_TEXT, variant: "critical" });
+        toast({ text: problem === "restart" ? RESTART_TEXT : WEB_TEXT, variant: "critical" });
         return;
     }
     if (!turnOn()) return;
@@ -308,6 +330,8 @@ export async function linkSecondAccount() {
 }
 
 export const RESTART_TEXT = "StreamTimeFarmer was added or updated while Discord was running. Quit Discord fully (right-click its tray icon, then Quit Discord) and open it again to finish setting it up.";
+// About 2 minutes of failed checks, then BROKEN_RETRY_MS, between tries.
+export const BROKEN_TEXT = "Your second account's window keeps failing to load. The farm tries again by itself about every 15 minutes.";
 export const WEB_TEXT = "The second account's window needs Equicord's web build, which this plugin downloads from Equicord on its own. That download hasn't worked yet, so there's nothing for the window to load.";
 
 // Whether the window has what it needs, and fetching it again. Both answer with "" when all is well, or a short reason.
