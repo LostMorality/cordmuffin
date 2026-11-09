@@ -5,6 +5,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-09
 
+- Pop-up messages in Dictation, Discrub Loader, GameTimeSpoof, GreetStickerPicker+, Muffinshelf, PlatformSpoofer+,
+  PluginPresets, ProfileImages, QuestRunner and Ransom work again after Discord's November update, and a failed pop-up
+  can no longer stop what the plugin was doing.
 - New plugin: BadgeTierViewer. In the badge window, click any tier of a badge to see it in the big preview. Tiers you
   haven't unlocked show locked, and an eye button next to the preview shows how they look once unlocked.
 - BadgeTierViewer: locked tiers now say what they take and how far off you are ("Needs 300 hours (141 to go)"), and
