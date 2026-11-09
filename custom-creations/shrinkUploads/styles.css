@@ -1,7 +1,7 @@
 .vc-shrink-host {
     position: fixed;
     right: 16px;
-    bottom: 16px;
+    bottom: 88px;
     z-index: 1002;
     pointer-events: none;
 }
@@ -10,15 +10,18 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    width: 320px;
+    width: min(320px, calc(100vw - 32px));
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
     pointer-events: auto;
 }
 
 .vc-shrink-job {
+    flex-shrink: 0;
     padding: 10px 12px;
     border-radius: 8px;
-    background: var(--background-floating, var(--background-base-lowest));
-    border: 1px solid var(--border-subtle);
+    background: var(--background-surface-higher, var(--background-floating, var(--background-base-lowest, #111214)));
+    border: 1px solid var(--border-subtle, transparent);
     box-shadow: var(--shadow-high, 0 8px 16px rgb(0 0 0 / 24%));
     color: var(--text-default, var(--text-normal));
 }
@@ -89,4 +92,35 @@
 
 .vc-shrink-hint[data-invalid="true"] {
     color: var(--text-feedback-critical, var(--status-danger, #da373c));
+}
+
+.vc-shrink-label {
+    margin-bottom: 8px;
+    color: var(--header-secondary, var(--text-muted));
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.vc-shrink-job[data-busy="true"] .vc-shrink-fill {
+    width: 30% !important;
+    transition: none;
+    animation: vc-shrink-busy 1.2s ease-in-out infinite;
+}
+
+@keyframes vc-shrink-busy {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(340%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .vc-shrink-job[data-busy="true"] .vc-shrink-fill {
+        width: 100% !important;
+        animation: none;
+        opacity: 0.4;
+    }
+}
+
+.vc-shrink-job[data-state="failed"] .vc-shrink-track {
+    display: none;
 }
