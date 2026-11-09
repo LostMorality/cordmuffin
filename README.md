@@ -492,19 +492,21 @@ Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, 
 **How to use it:**
 - **Just send the file.** If it's over your limit, the plugin shrinks it to just under the limit and adds it back to your message. You can have it ask first or do nothing instead. Files that already fit in the same drop go through like normal.
 - **The Shrink button** on any file waiting to be sent lets you pick your own size, for example to save someone's data. The file keeps its spoiler, description and name.
-- A small panel shows each file's progress, with **Cancel**. Cancelling a Shrink button job puts the original file back.
+- A small panel shows each file's progress, with **Cancel**. Cancelling a Shrink button job puts the original file back. If a too-big file gets cancelled or can't be shrunk, it's left out of the message and the panel says why, until you close it. Just send it again to retry.
+- Huge files are fine. A 6 GB 4K camera clip shrinks to fit a free account's 20 MB in under half a minute on a fast PC. It checks there's enough free disk space first.
 - The settings page shows your real limit, for DMs and for the server you're in.
 
 **Your real limit, never a guess.** The plugin asks Discord's own code what your limit is, the same check Discord runs when you upload, so it's right for no Nitro, Nitro Basic, Nitro and every server boost level, and stays right when Discord changes the numbers.
 
 **What it does to each kind of file:**
 - **Videos** (MP4, MOV, MKV, WebM, AVI and more): re-encoded in two passes aimed at the exact size, then checked and fixed if it missed. It picks the size and frame rate that look best for the space, for example 720p at 30 fps rather than a blurry 540p at 60. If a video is too long to look OK at all, it says so instead of making mush.
-- **Pictures**: the best quality that fits, and smaller only if it has to. See-through pictures stay see-through.
+- **Pictures**: the best quality that fits, and smaller only if it has to. Screenshots stay pin-sharp when they can. See-through pictures stay see-through.
 - **GIFs**: rebuilt smaller, or turned into a small video if you turn that on.
 - **Audio**: turned into small Opus audio.
-- Hidden file info like your location and camera details is removed by default.
+- Phone HDR videos get normal colours, so they don't look washed out. Old camcorder and TV recordings get cleaned up so motion doesn't look doubled.
+- Hidden file info like your location and camera details is removed by default. Pictures and GIFs always lose it; videos and audio keep it if you turn on **Keep file info**.
 
-**The video tool.** Videos, GIFs and audio need ffmpeg, a free video tool. If you don't have it, the plugin downloads it once (about 30 MB) the first time it's needed, or when you click **Download video tool** in the settings. It comes from a fixed release of ffmpeg-static on GitHub and is checked against a fingerprint built into the plugin before it's used. Pictures don't need it.
+**The video tool.** Videos, GIFs and audio need ffmpeg, a free video tool. If you don't have it, the plugin downloads it once (about 30 MB) the first time it's needed, or when you click **Download video tool** in the settings. It comes from a fixed release of ffmpeg-static on GitHub and is checked against a fingerprint built into the plugin before it's used. Pictures don't need it. If the download fails, check your internet and click **Download video tool** in the settings to try again. It works through your computer's proxy settings, like Discord does.
 
 **What it talks to:** nothing, except **github.com** for that one-time video tool download. Your files never leave your computer until Discord uploads them.
 
