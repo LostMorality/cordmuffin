@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { Settings } from "@api/Settings";
+import { plugins } from "@api/PluginManager";
+import { Settings, useSettings } from "@api/Settings";
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
+import { relaunch } from "@utils/native";
 import { Alerts, ChannelStore, RestAPI, Select, SelectedChannelStore, TextInput, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
 
 import { changeStreamProfile } from ".";
@@ -137,6 +139,47 @@ function GamePicker({ game }: { game: FarmGame | null; }) {
     );
 }
 
+function askCallIdleRestart() {
+    Alerts.show({
+        title: "Restart Discord now?",
+        body: "DisableCallIdle starts working after Discord restarts. The farm picks up again by itself afterwards.",
+        confirmText: "Restart now",
+        cancelText: "Later",
+        onConfirm: relaunch
+    });
+}
+
+// DisableCallIdle patches Discord as it starts, so switching it on only takes effect after a restart.
+function CallIdleWarning() {
+    const { plugins: pluginSettings } = useSettings(["plugins.DisableCallIdle.enabled"]);
+    const plugin = plugins.DisableCallIdle;
+    if (!plugin) return null;
+    const enabled = !!pluginSettings.DisableCallIdle?.enabled;
+    if (enabled && plugin.started) return null;
+
+    const turnOn = () => {
+        Settings.plugins.DisableCallIdle ??= { enabled: false };
+        Settings.plugins.DisableCallIdle.enabled = true;
+        askCallIdleRestart();
+    };
+
+    return (
+        <div className={cl("warn")}>
+            <div className={cl("warn-title")}>{enabled ? "Restart Discord to finish turning on DisableCallIdle" : "DisableCallIdle is off"}</div>
+            <div>
+                {enabled
+                    ? "It's on, but it only starts working after Discord restarts."
+                    : "Without it, Discord can end the call after 3 minutes alone or after you've been away a while."}
+            </div>
+            <div className={cl("stream-row")}>
+                {enabled
+                    ? <Button size="small" onClick={relaunch}>Restart Discord</Button>
+                    : <Button size="small" onClick={turnOn}>Turn it on</Button>}
+            </div>
+        </div>
+    );
+}
+
 function StreamFarmPanel() {
     const status = useStreamStatus();
     const { role, channel: channelId, where, countedMs, hostSecond, source, secondPresence, farmGame } = useProfile();
@@ -178,9 +221,7 @@ function StreamFarmPanel() {
 
             <TrackingWarning />
 
-            {!Settings.plugins.DisableCallIdle?.enabled && (
-                <Paragraph>Turn on the DisableCallIdle plugin, or Discord can end the call after 3 minutes alone or after a long idle.</Paragraph>
-            )}
+            <CallIdleWarning />
 
             <SecondAccountCard />
 
