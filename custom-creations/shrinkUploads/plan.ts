@@ -14,6 +14,8 @@ export interface MediaInfo {
     audioChannels: number;
     audioKbps: number;
     totalKbps: number;
+    hdr: boolean;
+    interlaced: boolean;
 }
 
 export interface VideoPlan {
@@ -48,6 +50,12 @@ function pickAudio(totalKbps: number, info: MediaInfo) {
     return { kbps: capped, channels: capped <= 64 || info.audioChannels === 1 ? 1 : 2 };
 }
 
+const capFps = (src: number, cap: number) => {
+    if (src <= cap + 0.5) return src;
+    const even = src / Math.ceil((src - 0.5) / cap);
+    return even >= cap * 0.75 ? even : cap;
+};
+
 export function planVideo(info: MediaInfo, targetBytes: number, maxFps = 60, share = CONTAINER_SHARE): VideoPlan {
     const total = budgetKbps(targetBytes, info.duration, share);
     let { kbps: audioKbps, channels: audioChannels } = pickAudio(total, info);
@@ -60,18 +68,18 @@ export function planVideo(info: MediaInfo, targetBytes: number, maxFps = 60, sha
     }
 
     const srcFps = info.fps > 0 ? info.fps : 30;
-    let fps = Math.min(srcFps, maxFps);
-    if (videoKbps < 1500) fps = Math.min(fps, 30);
-    if (videoKbps < 300) fps = Math.min(fps, 24);
+    let fps = capFps(srcFps, maxFps);
+    if (videoKbps < 1500) fps = capFps(fps, 30);
 
     const srcShort = Math.max(2, Math.min(info.width, info.height));
     const aspect = Math.max(info.width, info.height) / srcShort;
     const sides = [srcShort, ...LADDER.filter(s => s < srcShort)];
     const sideAt = (rate: number) => sides.find(s => videoKbps * 1000 / (s * s * aspect * rate) >= MIN_BPP) ?? sides[sides.length - 1];
     let shortSide = sideAt(fps);
-    if (fps > 30 && shortSide < Math.min(srcShort, 720) && sideAt(30) > shortSide) {
-        fps = 30;
-        shortSide = sideAt(30);
+    const half = capFps(fps, 30);
+    if (fps > 30 && shortSide < Math.min(srcShort, 720) && sideAt(half) > shortSide) {
+        fps = half;
+        shortSide = sideAt(half);
     }
 
     if (videoKbps < MIN_VIDEO_KBPS)
@@ -158,7 +166,7 @@ export async function searchImage<T extends ImageAttempt>(
 export const seconds = (h: string, m: string, s: string) => Number(h) * 3600 + Number(m) * 60 + Number(s);
 
 export function parseProbe(text: string): MediaInfo {
-    const info: MediaInfo = { duration: 0, width: 0, height: 0, fps: 0, hasVideo: false, hasAudio: false, audioChannels: 2, audioKbps: 0, totalKbps: 0 };
+    const info: MediaInfo = { duration: 0, width: 0, height: 0, fps: 0, hasVideo: false, hasAudio: false, audioChannels: 2, audioKbps: 0, totalKbps: 0, hdr: false, interlaced: false };
     const dur = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(text);
     if (dur) info.duration = seconds(dur[1], dur[2], dur[3]);
     const total = /Duration:.*?bitrate: (\d+) kb\/s/.exec(text);
@@ -174,6 +182,8 @@ export function parseProbe(text: string): MediaInfo {
             info.height = Number(size[2]);
             const fps = /([\d.]+) fps/.exec(line) ?? /([\d.]+) tbr/.exec(line);
             if (fps) info.fps = Number(fps[1]);
+            info.hdr = /smpte2084|arib-std-b67/.test(line);
+            info.interlaced = /\b(?:top|bottom) (?:coded )?first\b/.test(line);
         } else if (!info.hasAudio && /: Audio: /.test(line)) {
             info.hasAudio = true;
             if (/\bmono\b/.test(line)) info.audioChannels = 1;
