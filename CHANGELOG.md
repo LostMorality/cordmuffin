@@ -8,7 +8,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - New plugin: ShrinkUploads. Files over your upload limit get shrunk on your own computer to just fit, instead of
   Discord's "file too big" error. Works for videos, pictures, GIFs and audio, even multi-GB recordings, and reads your
   real limit from Discord (Nitro, Basic, free and server boosts). A Shrink button on any waiting file lets you pick
-  your own size. Phone HDR videos keep normal colours and screenshots stay sharp.
+  your own size. Phone HDR videos keep normal colours and screenshots stay sharp. If you already have ffmpeg
+  (scoop, winget, Chocolatey or anywhere on PATH) it's used instead of downloading one, or you can pick your own.
 
 ## 2026-11-07
 
