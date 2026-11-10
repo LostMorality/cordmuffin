@@ -17,11 +17,12 @@ import { enterAfk } from "./afk";
 import { type SecondAccountInfo, useProfile } from "./profile";
 import { BROKEN_TEXT, cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, refetchWeb, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
-import { ReportStatus, TrackingWarning, useTrackingProblem } from "./TrackingWarning";
+import { ReportStatus, TrackingWarning, useTrackingLevel } from "./TrackingWarning";
 
 const cl = classNameFactory("vc-stf-");
 
 export function formatTime(ms: number) {
+    ms = Math.max(0, ms);
     const h = Math.floor(ms / 3_600_000);
     const m = Math.floor(ms % 3_600_000 / 60_000);
     return h ? `${h}h ${m}m` : `${m}m`;
@@ -146,31 +147,24 @@ function confirmSignOut() {
 
 // Shown only when the second account's window has nothing to load. The plugin fetches Equicord's web build from
 // Equicord by itself, so there is nothing to install; this is for when that download hasn't got through, and all it
-// offers is another go.
-function WebSetup() {
+// offers is another go. Once it works, onDone lets the card move on.
+function WebSetup({ onDone }: { onDone(): void; }) {
     const [fetching, setFetching] = useState(false);
-    const [done, setDone] = useState(false);
     const [failed, setFailed] = useState("");
 
     const retry = async () => {
         setFailed("");
         setFetching(true);
         const why = await refetchWeb();
+        if (!why) return onDone();
         setFetching(false);
         setFailed(why);
-        setDone(!why);
     };
-
-    const text = done
-        ? "Got it. Your second account can start now."
-        : fetching
-            ? "Downloading Equicord for that window..."
-            : failed || WEB_TEXT;
 
     return (
         <div className={cl("call-card")}>
-            <div className={cl("call-text")}>{text}</div>
-            {!done && <Button size="small" disabled={fetching} onClick={retry}>{fetching ? "Downloading..." : "Try again"}</Button>}
+            <div className={cl("call-text")}>{fetching ? "Downloading what your second account needs..." : failed || WEB_TEXT}</div>
+            <Button size="small" disabled={fetching} onClick={retry}>{fetching ? "Downloading..." : "Try again"}</Button>
         </div>
     );
 }
@@ -181,10 +175,11 @@ export function SecondAccountCard() {
     const stream = useStreamStatus();
     const { hostSecond } = useProfile();
     const problem = useSetupProblem();
+    const [webFetched, setWebFetched] = useState(false);
     // Whether the plugin runs isn't something React sees, so turning it on here redraws the card by hand.
     const [, redraw] = useState(0);
 
-    if (!canHostSecond()) return <div className={cl("stream-status", "stream-setup")}>The second account runs in the Discord desktop app.</div>;
+    if (!canHostSecond()) return <div className={cl("stream-status", "stream-setup")}>This needs the Discord desktop app.</div>;
     // Nothing to press until the check is done, so Log in or Turn on can't be clicked when they can't work. On a
     // first run that check downloads Equicord for the second account's window, which takes a moment.
     if (problem === null) return <div className={cl("call-card")}><div className={cl("call-text")}>Getting your second account ready...</div></div>;
@@ -196,7 +191,7 @@ export function SecondAccountCard() {
             </div>
         );
     }
-    if (problem === "web") return <WebSetup />;
+    if (problem === "web" && !webFetched) return <WebSetup onDone={() => setWebFetched(true)} />;
     if (hostSecond && !pluginActive()) {
         return (
             <div className={cl("call-card")}>
@@ -253,19 +248,20 @@ export function SecondAccountCard() {
 }
 
 function Widget() {
-    const [open, setOpen] = useState(true);
     const { hostSecond } = useProfile();
-    const { callWidget } = settings.use(["callWidget"]);
+    const { callWidget, widgetOpen: open } = settings.use(["callWidget", "widgetOpen"]);
+    const setOpen = (value: boolean) => void (settings.store.widgetOpen = value);
     const second = useSecondStatus();
     const stream = useStreamStatus();
     const { text, account, inCall } = useCallState();
-    const trackingProblem = useTrackingProblem();
+    const tracking = useTrackingLevel();
 
     if (!callWidget || !hostSecond || !canHostSecond() || second.phase === "off") return null;
 
     if (!open) {
+        const hint = tracking === "blocked" ? `${text} Your Streaming badge won't count. Open this to fix it.` : tracking === "maybe" ? `${text} Your Streaming badge may not count. Open this to see why.` : text;
         return (
-            <button className={cl("call-widget", "call-pill", trackingProblem && "call-pill-warn")} onClick={() => setOpen(true)} title={trackingProblem ? `${text} Your Streaming badge won't count: open this to fix it.` : text} aria-label={`Open the call widget. ${text}`}>
+            <button className={cl("call-widget", "call-pill", tracking === "blocked" && "call-pill-warn", tracking === "maybe" && "call-pill-maybe")} onClick={() => setOpen(true)} title={hint} aria-label={`Open the call widget. ${hint}`}>
                 <Avatar account={account} size={40} />
             </button>
         );
