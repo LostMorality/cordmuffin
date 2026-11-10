@@ -779,7 +779,8 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 - If Discord drops you from the call itself (you were alone in it too long, or it moved you to the AFK channel), the farm joins again after a short wait and tells you. Click that notice if you meant to hang up and it stays off.
 - If no time has counted for a while, the status says for how long, and after 15 minutes a notice pops up so you don't find out hours later.
 - Offline? It says so and waits for the internet to come back, instead of blaming Discord.
-- If the second account's hidden Discord breaks, it rebuilds itself about every 15 minutes. If the farm's own window can't open (an antivirus blocking it, say), a DM call shows your screen to the second account instead, so time keeps counting.
+- If the second account's hidden Discord breaks, it rebuilds itself about every 15 minutes. If the farm's own window can't open (an antivirus blocking it, say), a DM call shows your screen to the second account instead, so time keeps counting. It tries its own window again each time it reports the time.
+- If you picked a window to stream and it's minimized, the status tells you to open it, because a minimized window doesn't count.
 - If the stream fails (like Discord's error 2012), gets stuck paused, or Discord says no picture is getting through, the second account reopens it, and your account restarts Go Live (and reopens its window if something closed it). Time doesn't count while it's broken.
 - **Show it as a game** (optional): search for a game and pick it. The farm's window takes that game's name and cover art, and Discord's own game detection is told the window is that game, so your stream shows as "Streaming <game>" and your profile as playing it. The game itself never runs; the picture is still the farm's window.
   - If another plugin (gameSessionSpoofer) is already showing a game, the window streams as itself until that ends, so the two don't fight.
