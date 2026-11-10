@@ -25,7 +25,9 @@ function agent() {
     const TICK_MS = 5_000;
     const JOIN_RETRY_MS = 15_000;
     const WATCH_RETRY_MS = 10_000;
-    const LEAVE_AFTER_MS = 30_000;
+    // Shorter than Discord's own kick for being alone in a call.
+    const LEAVE_AFTER_MS = 2 * 60_000;
+    const OFFLINE_TEXT = "Offline. Watching picks up again when the internet is back.";
     const STUCK_MS = 20_000;
     // An error Discord never clears still counts again after this long, so a reopen that didn't help is tried again.
     const ERROR_RECHECK_MS = 60_000;
@@ -36,6 +38,10 @@ function agent() {
     // Each rejoin that didn't help doubles the wait, up to this; a gap between checks starts the clock over.
     const VOICE_DEAD_MAX_MS = 10 * 60_000;
     const VOICE_CHECK_GAP_MS = 15_000;
+    // While the picture can't be shown, the stream is still reopened this often in case that's changed.
+    const PICTURE_RETRY_MS = 5 * 60_000;
+    // Reopens in a row for a missing picture before the user is told what to change.
+    const PICTURE_REOPENS_LIMIT = 3;
     const CALL_IDLE_RELOAD_MS = 60 * 60_000;
     const CONNECT = 1n << 20n;
     const VIEW_CHANNEL = 1n << 10n;
@@ -61,6 +67,8 @@ function agent() {
     // Error id -> when it was acted on. Discord reuses one id per partner, so ids are dropped again once it clears.
     const handledErrors = new Map<string, number>();
     let decode = { since: 0, packets: 0, frames: 0, gpuLost: false, checking: false };
+    let pictureReopens = 0;
+    let lastPictureReopen = 0;
     let voiceDeadSince = 0;
     let voiceCheckedAt = 0;
     let voiceDeadHits = 0;
@@ -134,6 +142,10 @@ function agent() {
         }
     }
 
+    // With Hardware Acceleration off, or in a virtual machine, it's in software mode from the start and streams still
+    // play, so that only counts as lost when it wasn't like that when this window opened.
+    const softwareAtStart = gpuLost();
+
     // Samples the incoming video in the background (stats are async, the tick isn't) and notes since when picture data
     // has been arriving without a single frame coming out of the decoder.
     function sampleDecode(now: number) {
@@ -152,6 +164,7 @@ function agent() {
                     frames += r.framesDecoded ?? 0;
                 }
             });
+            if (frames > decode.frames) pictureReopens = 0;
             if (frames > decode.frames || packets <= decode.packets) {
                 decode.since = 0;
                 decode.gpuLost = false;
@@ -184,7 +197,6 @@ function agent() {
         if (now - voiceDeadSince < Math.min(VOICE_DEAD_MS * 2 ** voiceDeadHits, VOICE_DEAD_MAX_MS)) return false;
         voiceDeadSince = 0;
         voiceDeadHits++;
-        mutedFor = "";
         byProps("selectVoiceChannel", "disconnect")?.disconnect();
         return true;
     }
@@ -212,7 +224,6 @@ function agent() {
         lastJoin = now;
         joinedCall = where.id;
         voiceDeadSince = 0;
-        mutedFor = ""; // a fresh join arrives unmuted
         byProps("selectVoiceChannel", "disconnect")?.selectVoiceChannel(where.id);
     }
 
@@ -255,15 +266,19 @@ function agent() {
     }
 
     function viewerTick(now: number, elapsed: number) {
+        // Offline, the partner only looks gone and the stream only looks stuck, so nothing is hung up or reopened.
+        if (!navigator.onLine) {
+            partnerGoneSince = stuckSince = 0;
+            return setStatus("waiting", OFFLINE_TEXT);
+        }
         const partner = partnerId();
         const me = C.UserStore?.getCurrentUser?.();
         if (!me) return setStatus("setup", "Still signing in.");
         if (!partner) return setStatus("setup", "Waiting for your main account to call this one.");
         if (partner === me.id) return setStatus("setup", "This is the same account as the one that streams. Log into your other account here.");
-        if (!C.UserStore.getUser(partner)) return setStatus("setup", "Can't reach the account that streams yet. Hang up and call again from it.");
         const name = partnerName("the streaming account");
         const streaming = store("ApplicationStreamingStore");
-        if (!streaming) return setStatus("setup", "This Discord build doesn't expose its streaming state.");
+        if (!streaming) return setStatus("setup", "This window can't see streams yet. Hanging up and calling again usually fixes this.");
 
         const where = partnerSpot(partner);
         const stream = where && streaming.getStreamForUser(partner, where.guildId);
@@ -286,10 +301,14 @@ function agent() {
         const watching = active != null && streaming.getViewerIds(stream).includes(me.id);
         if (watching && active.state === "ACTIVE") sampleDecode(now);
         else decode.since = 0;
-        // Reopening can't fix a Discord that lost its graphics card, so say what will instead of looping. Checked here,
-        // in the same tick as the reopen below, or the reopen would always win and loop.
-        if (watching && noPicture(now) && (decode.gpuLost ||= gpuLost())) {
-            return setStatus("setup", `Discord lost its graphics card (usually after a GPU driver update), so this account can't show ${name}'s stream. Fully quit Discord from the tray and open it again to fix it.`);
+        // Reopening can't fix a Discord that lost its graphics card, or one in software mode that can't show the picture,
+        // so say what will instead of looping. Checked here, in the same tick as the reopen below, or the reopen would
+        // always win and loop. The reopen still runs now and then, so a wrong guess can't keep the stream closed for good.
+        if (watching && noPicture(now) && now - lastPictureReopen < PICTURE_RETRY_MS) {
+            if (!softwareAtStart && (decode.gpuLost ||= gpuLost()))
+                return setStatus("setup", `Discord lost its graphics card (usually after a GPU driver update), so this account can't show ${name}'s stream. Fully quit Discord from the tray and open it again to fix it.`);
+            if (softwareAtStart && pictureReopens >= PICTURE_REOPENS_LIMIT)
+                return setStatus("setup", "This PC can't show the stream right now. Turn on Hardware Acceleration in Discord's Advanced settings, or quit Discord fully and open it again.");
         }
         // Open but broken: failed (Discord's error 2012), no picture arriving, or stalled. Close it and open it again.
         if (active) {
@@ -300,6 +319,10 @@ function agent() {
                     : noPicture(now) ? "isn't showing a picture"
                         : stuckSince && now - stuckSince >= STUCK_MS ? "got stuck" : "";
             if (why) {
+                if (noPicture(now)) {
+                    pictureReopens++;
+                    lastPictureReopen = now;
+                }
                 stuckSince = 0;
                 decode.since = 0;
                 forgetStreamErrors(partner);
@@ -351,6 +374,7 @@ function agent() {
         if (joinedCall && joinedHere(joinedCall)) byProps("selectVoiceChannel", "disconnect")?.disconnect();
         joinedCall = "";
         mutedFor = "";
+        pictureReopens = lastPictureReopen = 0;
         undo();
         setStatus("off", "");
     }
