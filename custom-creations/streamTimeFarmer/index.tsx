@@ -19,7 +19,7 @@ import { applySecondPresence, startSecondAccount, stopSecondAccount, syncQuietSe
 import { startSoundMute, stopSoundMute } from "./sounds";
 import { noteConnect, noteReports, refreshGoLive, startStreamFarm, stopStreamFarm, streamStatus, takePendingHangUp } from "./stream";
 import { StreamFarm } from "./StreamFarm";
-import { allowTracking, loadConsents, startReportWatch, stopReportWatch, trackingState } from "./tracking";
+import { allowTracking, loadConsents, startReportWatch, stopConsents, stopReportWatch, trackingState } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -35,12 +35,12 @@ export const settings = definePluginSettings({
     },
     muteCallSounds: {
         type: OptionType.BOOLEAN,
-        description: "Silence Discord's call sounds while the farm runs: calling and ringing (including real incoming calls, though their popup still shows), Go Live starting and ending, joins and leaves, mute and deafen. Message sounds stay on. This can't change what other people in the call hear on their own Discord.",
+        description: "Silence Discord's call sounds while the farm runs, including ringing from real calls. Message sounds stay on.",
         default: true
     },
     keepComputerAwake: {
         type: OptionType.BOOLEAN,
-        description: "Stop your computer going to sleep by itself while the farm is running or AFK mode is on, including moments when no call is live. During a call Discord already does this itself and keeps the screen on; otherwise the screen can still turn off. Your normal sleep settings come back when both stop. Choosing Sleep yourself or closing a laptop lid still puts it to sleep, and some laptops on battery can still sleep after a while.",
+        description: "Keep your computer awake while the farm or AFK mode is on. The screen can still turn off.",
         default: false,
         onChange: () => syncKeepAwake()
     },
@@ -51,7 +51,7 @@ export const settings = definePluginSettings({
     },
     quietSecondAccount: {
         type: OptionType.BOOLEAN,
-        description: "Keep the second account quiet: no desktop notifications from it, and its unread count stays off your taskbar badge. Its window shares one Electron app with your Discord, so without this its unreads add to yours and the badge creeps up every time a call starts. The account still receives everything; open its window to read it.",
+        description: "No notifications or taskbar badge from the second account. Open its window to read its messages.",
         default: true,
         onChange: value => syncQuietSecondAccount(value)
     },
@@ -62,7 +62,7 @@ export const settings = definePluginSettings({
     },
     reportEvery: {
         type: OptionType.SELECT,
-        description: "Discord only counts a stream's time toward the Streaming badge when the stream ends. The farm ends and restarts its stream this often (the second account stays in the call), so Discord gets the time so far, and a crash or shutdown only loses the time since the last restart. The badge doesn't update right after a report: it can take many hours, and Discord doesn't publish a schedule. Each restart plays Discord's stream sounds.",
+        description: "How often the farm restarts the stream to send Discord its time.",
         options: [
             { label: "Every 30 minutes", value: 30 },
             { label: "Every hour", value: 60, default: true },
@@ -75,6 +75,12 @@ export const settings = definePluginSettings({
         type: OptionType.BOOLEAN,
         description: "AFK mode is on (it comes back after Discord restarts).",
         default: false,
+        hidden: true
+    },
+    widgetOpen: {
+        type: OptionType.BOOLEAN,
+        description: "The call widget is open, not minimized.",
+        default: true,
         hidden: true
     },
     profiles: {
@@ -160,6 +166,16 @@ const loadTracking = () => {
     }
 };
 let stopNotingReports: (() => void) | undefined;
+// The last report goes out a moment after the stream ends, so the report watch stays on this long after a stop.
+const UNHOOK_AFTER_MS = 30_000;
+let unhookTimer: ReturnType<typeof setTimeout> | undefined;
+function unhookReports() {
+    clearTimeout(unhookTimer);
+    unhookTimer = undefined;
+    stopReportWatch();
+    stopNotingReports?.();
+    stopNotingReports = undefined;
+}
 
 export default definePlugin({
     name: "StreamTimeFarmer",
@@ -187,6 +203,7 @@ export default definePlugin({
         FluxDispatcher.subscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.subscribe("LOGOUT", followAccount);
         FluxDispatcher.subscribe("CONNECTION_OPEN", loadTracking);
+        unhookReports();
         startReportWatch();
         startSoundMute();
         stopNotingReports = noteReports();
@@ -206,10 +223,11 @@ export default definePlugin({
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", followAccount);
         FluxDispatcher.unsubscribe("LOGOUT", followAccount);
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", loadTracking);
-        stopReportWatch();
-        stopNotingReports?.();
+        stopConsents();
         stopStreamFarm();
         stopSecondAccount();
+        clearTimeout(unhookTimer);
+        unhookTimer = setTimeout(unhookReports, UNHOOK_AFTER_MS);
         stopSoundMute();
         unmountCallWidget();
         exitAfk(false);
