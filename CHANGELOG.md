@@ -3,6 +3,21 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-10
+
+- StreamTimeFarmer: a second account that isn't your friend yet no longer leaves the farm stuck in setup. It opens the
+  DM itself, or tells you to add it as a friend.
+- StreamTimeFarmer: it waits for the call to connect before going live, rejoins faster when the second account is still
+  in the call, and waits longer between tries when Discord keeps refusing the stream. Waits show the real time
+  ("in 4m") instead of "soon".
+- StreamTimeFarmer: a picked window that's minimized is no longer restarted over and over, and the status tells you to
+  open it. After falling back to your screen, the farm tries its own window again each time it reports the time.
+- StreamTimeFarmer: the second account's window reloads itself when its page fails to load, retries a failed download
+  within a couple of minutes, and no longer takes your keyboard when it needs a login.
+- StreamTimeFarmer: the **Try again** button on the download card no longer gets stuck, the minimized widget shows a
+  yellow "may not count" for settings that only might block the badge, it remembers being minimized, and several
+  messages are shorter and plainer.
+
 ## 2026-11-09
 
 - Pop-up messages in Dictation, Discrub Loader, GameTimeSpoof, GreetStickerPicker+, Muffinshelf, PlatformSpoofer+,
