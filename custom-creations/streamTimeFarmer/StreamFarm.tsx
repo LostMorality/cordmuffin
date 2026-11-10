@@ -11,7 +11,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { relaunch } from "@utils/native";
-import { Alerts, ChannelStore, RestAPI, Select, SelectedChannelStore, TextInput, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
+import { Alerts, ChannelStore, PermissionsBits, PermissionStore, RestAPI, Select, SelectedChannelStore, TextInput, useEffect, useMemo, useState, useStateFromStores } from "@webpack/common";
 
 import { changeStreamProfile } from ".";
 import { formatTime, SecondAccountCard, useStreamStatus } from "./CallWidget";
@@ -23,8 +23,8 @@ const cl = classNameFactory("vc-stf-");
 
 function Choice({ label, options, value, onChange }: { label: string; options: { label: string; value: string; }[]; value: string; onChange(v: string): void; }) {
     return (
-        <div className={cl("stream-row")}>
-            <span className={cl("stream-label")}>{label}</span>
+        <div className={cl("stream-row")} role="group" aria-label={label}>
+            <span className={cl("stream-label")} aria-hidden="true">{label}</span>
             <div className={cl("stream-grow")}>
                 <Select options={options} select={onChange} isSelected={v => v === value} serialize={String} />
             </div>
@@ -45,7 +45,7 @@ function SourcePicker({ streamSource }: { streamSource: string; }) {
     if (streamSource && streamSource !== "random" && !options.some(o => o.value === streamSource)) options.push({ label: `${streamSource} (not open)`, value: streamSource });
 
     return (
-        <div className={cl("stream-row")}>
+        <div className={cl("stream-row")} role="group" aria-label="What to stream">
             <div className={cl("stream-grow")}>
                 <Select
                     options={options}
@@ -122,11 +122,11 @@ function GamePicker({ game }: { game: FarmGame | null; }) {
             )}
             <div className={cl("stream-row")}>
                 <div className={cl("stream-grow")}>
-                    <TextInput value={query} onChange={setQuery} placeholder="Search for a game" />
+                    <TextInput value={query} onChange={setQuery} placeholder="Search for a game" aria-label="Search for a game" />
                 </div>
             </div>
             {search.length >= 2 && (
-                <div className={cl("stream-games")}>
+                <div className={cl("stream-games")} aria-live="polite">
                     {failed ? <>Couldn't load Discord's game list. <Button size="small" variant="secondary" onClick={() => setAttempt(n => n + 1)}>Try again</Button></>
                         : !apps ? "Loading games..."
                             : !matches.length ? "No game with that name."
@@ -191,6 +191,15 @@ function StreamFarmPanel() {
         const type = id ? ChannelStore.getChannel(id)?.type : undefined;
         return type === 2 ? id : null;
     });
+    // The same check the farm makes before it joins, so a channel this account can't enter is caught while picking.
+    const cantJoin = useStateFromStores([PermissionStore, ChannelStore], () => {
+        if (channel?.type !== 2 || channel.id === serverVoiceId) return false;
+        try {
+            return !PermissionStore.can(PermissionsBits.VIEW_CHANNEL, channel) || !PermissionStore.can(PermissionsBits.CONNECT, channel);
+        } catch {
+            return false;
+        }
+    }, [channel, serverVoiceId]);
     const running = streamFarmRunning();
     const total = running ? status.countedMs : countedMs;
 
@@ -212,11 +221,9 @@ function StreamFarmPanel() {
     return (
         <div className={cl("stream")}>
             <Paragraph>
-                The Streaming badge only counts time with someone else in the call watching the stream. Log your other
-                account in below, then press Call: this account calls it, goes live at the lowest quality with its own small
-                window (see-through, behind everything and with no taskbar button, so you never notice it), and the other account joins,
-                watches, and stays muted and deafened. If the stream breaks, it's reopened by itself. Hanging up (here, in the
-                corner widget, or by leaving the call) ends it and closes the other account's window until the next call.
+                The Streaming badge only counts time when someone else watches your stream. Log your other account in
+                below, then press Call. This account streams a small hidden window, and the other account joins and
+                watches, muted and deafened. Hang up to end it.
             </Paragraph>
 
             <TrackingWarning />
@@ -257,6 +264,9 @@ function StreamFarmPanel() {
                             Use the one I'm in
                         </Button>
                     </div>}
+                    {where === "server" && cantJoin && channel && (
+                        <div className={cl("stream-note")} role="alert">This account can't join {channel.name}. Pick another voice channel.</div>
+                    )}
                     {where === "server" && <Paragraph>Each report restart may notify members of a small server. A DM call avoids that.</Paragraph>}
 
                     <span className={cl("stream-label")}>What to stream (nobody sees it but your other account)</span>
