@@ -114,10 +114,16 @@ export function loadConsents(): Promise<void> {
         })
         .catch(() => {
             clearTimeout(consentsRetry);
-            consentsRetry = setTimeout(() => void loadConsents(), RETRY_MS);
+            // The report watch only runs while the plugin does, so a retry never outlives the plugin.
+            consentsRetry = setTimeout(() => watching && void loadConsents(), RETRY_MS);
         })
         .finally(() => void (consentsLoad = null));
     return consentsLoad;
+}
+
+export function stopConsents() {
+    clearTimeout(consentsRetry);
+    consentsRetry = undefined;
 }
 
 // Turns them all on for this account, the same way Discord's own privacy settings do. Says whether Discord has to restart.
@@ -252,6 +258,7 @@ let badgeLabel = "";
 let badgeFor = "";
 let badgeAt = 0;
 let badgeMissing = false;
+let badgeFails = 0;
 // True when Discord answered and this account has no Streaming badge entry.
 export function streamingBadgeMissing() {
     return badgeMissing && badgeFor === (UserStore.getCurrentUser()?.id ?? "");
@@ -262,12 +269,18 @@ export function streamingBadgeLabel() {
     return me && me === badgeFor ? badgeLabel : "";
 }
 
+// True once the lookup has failed a few times in a row, so the missing count can be explained.
+export function streamingBadgeUnreadable() {
+    return badgeFails >= 3 && badgeFor === (UserStore.getCurrentUser()?.id ?? "");
+}
+
 export async function refreshStreamingBadge() {
     const me = UserStore.getCurrentUser()?.id ?? "";
     if (!me || me === badgeFor && Date.now() - badgeAt < BADGE_EVERY_MS) return;
     if (me !== badgeFor) {
         badgeLabel = "";
         badgeMissing = false;
+        badgeFails = 0;
     }
     badgeAt = Date.now();
     badgeFor = me;
@@ -278,7 +291,9 @@ export async function refreshStreamingBadge() {
         if (badgeFor !== me) return;
         if (typeof badge?.info_label === "string") badgeLabel = badge.info_label;
         badgeMissing = Array.isArray(list) && !badge;
+        badgeFails = 0;
     } catch {
-        badgeAt = 0;
+        // Tried again after 5 minutes, then 10, 20, 40 and at most every hour, instead of every minute.
+        if (badgeFor === me) badgeAt = Date.now() - BADGE_EVERY_MS + Math.min(60, 5 * 2 ** badgeFails++) * 60_000;
     }
 }
