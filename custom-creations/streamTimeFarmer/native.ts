@@ -130,6 +130,8 @@ let downloading: Promise<string> | null = null;
 // After a failed download the next one waits a while (longer each time it fails again), so a site that's down isn't
 // asked again on every check. Only refetchWeb skips the wait: the "Try again" button and a broken window's own retry.
 const RETRY_WAITS_MS = [5 * 60_000, 15 * 60_000, 60 * 60_000];
+// With nothing at all to load, the window can't open until a download works, so those waits stay short.
+const EMPTY_RETRY_WAITS_MS = [30_000, 60_000, 2 * 60_000];
 let failures = 0;
 let failedAt = 0;
 let failedWhy = "";
@@ -138,7 +140,8 @@ let failedWhy = "";
 // short reason when it doesn't. Only one download runs at a time, and a failure leaves any older copy in place.
 function downloadWeb(force = false): Promise<string> {
     if (downloading) return downloading;
-    if (!force && failures && Date.now() - failedAt < RETRY_WAITS_MS[Math.min(failures, RETRY_WAITS_MS.length) - 1])
+    const waits = webBuild() ? RETRY_WAITS_MS : EMPTY_RETRY_WAITS_MS;
+    if (!force && failures && Date.now() - failedAt < waits[Math.min(failures, waits.length) - 1])
         return Promise.resolve(existsSync(webCache()) ? "" : failedWhy);
     downloading = (async () => {
         const target = webCache();
@@ -158,7 +161,8 @@ function downloadWeb(force = false): Promise<string> {
         } catch (e: any) {
             failures++;
             failedAt = Date.now();
-            failedWhy = `Couldn't download Equicord for the second account's window (${e?.message ?? e}). Check your internet connection and try again.`;
+            console.warn("[StreamTimeFarmer] Couldn't download Equicord for the second account's window:", e);
+            failedWhy = "Couldn't download what your second account needs. Check your internet and try again.";
             // An older copy still works, so a failed refresh isn't a failure.
             return existsSync(target) ? "" : failedWhy;
         }
@@ -195,9 +199,36 @@ export function refetchWeb(_: IpcMainInvokeEvent): Promise<string> {
 
 app.on("before-quit", () => quitting = true);
 
-// Only the second account's own window gets the code.
+const APP_URL = "https://discord.com/app";
+// How long after a page fails to load (no internet, Discord down) it's loaded again.
+const RELOAD_AFTER_MS = 10_000;
+
+// Discord's own sites: discord.com with its subdomains, and the older discordapp.com with its canary and ptb copies.
+function isDiscord(url: string) {
+    try {
+        const { protocol, hostname } = new URL(url);
+        return protocol === "https:" && /^(([a-z0-9-]+\.)*discord\.com|((canary|ptb|www)\.)?discordapp\.com)$/i.test(hostname);
+    } catch {
+        return false;
+    }
+}
+
+// Only the second account's own window gets the code, and only while it's showing Discord (not an error page).
 ipcMain.on(CODE_CHANNEL, e => {
     if (!win || win.isDestroyed() || e.sender !== win.webContents) {
+        e.returnValue = "";
+        return;
+    }
+    // While a page is still loading, either address can be empty or left over from before (a blank or error page),
+    // and those count as not known. It's only refused when both are known and neither is Discord; the window can't
+    // leave Discord anyway (see create).
+    const known = (url: string) => url && url !== "about:blank" && !url.startsWith("chrome-error://") ? url : "";
+    let from = "", page = "";
+    try {
+        from = known(e.senderFrame?.url ?? "");
+        page = known(win.webContents.getURL());
+    } catch { /* a frame that's already gone has no address */ }
+    if (from && page && !isDiscord(from) && !isDiscord(page)) {
         e.returnValue = "";
         return;
     }
@@ -217,14 +248,15 @@ ipcMain.on(CODE_CHANNEL, e => {
 
 function create(partition: string) {
     const ses = session.fromPartition(partition);
-    // The web app needs the microphone to join a call (it stays muted); nothing else is granted.
-    ses.setPermissionRequestHandler((_, permission, callback) => callback(permission === "media"));
-    ses.setPermissionCheckHandler((_, permission) => permission === "media");
+    // The web app needs the microphone to join a call (it stays muted); nothing else is granted, and only to Discord.
+    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(permission === "media" && isDiscord(details.requestingUrl || contents.getURL())));
+    ses.setPermissionCheckHandler((contents, permission, origin, details) =>
+        permission === "media" && isDiscord(origin || details.securityOrigin || details.requestingUrl || contents?.getURL() || ""));
 
     const preload = join(app.getPath("userData"), "streamtimefarmer-second-account-preload.js");
     writeFileSync(preload, PRELOAD);
 
-    win = new BrowserWindow({
+    const built = win = new BrowserWindow({
         show: false,
         width: 480,
         height: 720,
@@ -246,7 +278,20 @@ function create(partition: string) {
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     // It only ever shows Discord, so the second account's login and the injected code never reach another site.
     win.webContents.on("will-navigate", (e, url) => {
-        if (!/^https:\/\/([a-z0-9-]+\.)?discord\.com(\/|$)/i.test(url)) e.preventDefault();
+        if (!isDiscord(url)) e.preventDefault();
+    });
+    win.webContents.on("will-redirect", (e, url, _inPlace, isMainFrame) => {
+        if (isMainFrame && !isDiscord(url)) e.preventDefault();
+    });
+    // A page that didn't load (no internet, Discord down) is loaded again a little later. -3 is a load that was
+    // stopped on purpose, like the two blocks above or a redirect.
+    let reload: ReturnType<typeof setTimeout> | undefined;
+    win.webContents.on("did-fail-load", (_e, code, _why, _url, isMainFrame) => {
+        if (!isMainFrame || code === -3) return;
+        clearTimeout(reload);
+        reload = setTimeout(() => {
+            if (!built.isDestroyed()) built.loadURL(APP_URL).catch(() => { });
+        }, RELOAD_AFTER_MS);
     });
     // Discord's page title would make it look like a second Discord in the taskbar.
     win.on("page-title-updated", e => e.preventDefault());
@@ -262,11 +307,13 @@ function create(partition: string) {
         if (win && !win.isDestroyed()) win.destroy();
     });
     win.on("closed", () => {
+        clearTimeout(reload);
         win = null;
         placed = false;
     });
     winPartition = partition;
-    win.loadURL("https://discord.com/app");
+    // A failed load is retried by the handler above.
+    win.loadURL(APP_URL).catch(() => { });
 }
 
 // Stops the computer sleeping by itself, while still letting the screen turn off. Windows drops it if Discord closes.
@@ -280,8 +327,9 @@ export function setKeepAwake(_: IpcMainInvokeEvent, on: boolean) {
     return awakeBlocker !== undefined && powerSaveBlocker.isStarted(awakeBlocker);
 }
 
-// "created" when a new window was built (its page starts from scratch), true when it was already there.
-export async function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = ""): Promise<boolean | "created"> {
+// "created" when a new window was built (its page starts from scratch), true when it was already there. Without
+// focus the window is shown but doesn't come to the front, for when it opens by itself and not from a button.
+export async function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, login = "", focus = true): Promise<boolean | "created"> {
     const partition = partitionFor(login);
     if (win && !win.isDestroyed() && (win.webContents.isCrashed() || winPartition !== partition)) win.destroy();
     let created = false;
@@ -311,8 +359,14 @@ export async function openSecondAccount(_: IpcMainInvokeEvent, show: boolean, lo
             if (width !== w || height !== h) win!.setSize(width, height);
             win!.setPosition(Math.max(area.x, area.x + area.width - width - 24), Math.max(area.y, area.y + area.height - height - 24));
         }
-        win!.show();
-        win!.focus();
+        if (focus) {
+            win!.show();
+            win!.focus();
+        } else {
+            win!.showInactive();
+            // In front of Discord so it isn't missed, still without taking the keyboard.
+            win!.moveTop();
+        }
     }
     return created ? "created" : true;
 }
