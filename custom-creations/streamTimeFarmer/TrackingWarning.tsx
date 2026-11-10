@@ -17,7 +17,7 @@ import { useProfile } from "./profile";
 import { allowSecondTracking, useSecondStatus } from "./secondAccount";
 import { nextReportMs } from "./stream";
 import { toast } from "./toast";
-import { allowTracking, ConsentStore, hasConsentStore, loadConsents, refreshStreamingBadge, reportMissing, streamingBadgeLabel, streamingBadgeMissing, trackingState } from "./tracking";
+import { allowTracking, ConsentStore, hasConsentStore, loadConsents, refreshStreamingBadge, reportMissing, streamingBadgeLabel, streamingBadgeMissing, streamingBadgeUnreadable, trackingState } from "./tracking";
 
 const cl = classNameFactory("vc-stf-");
 
@@ -40,7 +40,7 @@ const whoShort = (i: TrackingItem) => i.who === "this account" ? "you" : "second
 function itemText(i: TrackingItem) {
     if (i.restart) return `${i.what} is OFF, but keeps blocking until ${i.who === "this account" ? "Discord restarts" : "its Discord reloads"} (${i.who})`;
     if (i.state === "unknown") return `${i.what}: couldn't check yet (${i.who})`;
-    if (i.maybe) return `${i.what}: ${i.want} is recommended, effect on the badge not proven (${i.who})`;
+    if (i.maybe) return `${i.what}: ${i.want} is recommended (${i.who})`;
     return `${i.what} must be ${i.want} (${i.who})`;
 }
 
@@ -49,6 +49,8 @@ function shortText(i: TrackingItem) {
     if (i.state === "unknown") return `${i.short}: couldn't check yet (${whoShort(i)})`;
     return `${i.short} \u2192 ${i.want} (${whoShort(i)})`;
 }
+
+const missingReportNote = (who: string) => `Discord didn't get the last stream time from ${who}. An ad blocker may be blocking it, unless Go Live just failed.`;
 
 const consentItem = (what: string, short: string, who: TrackingItem["who"], on: boolean | null, maybe: boolean): TrackingItem => ({
     what, short, who, want: "ON", state: on === null ? "unknown" : on ? "ok" : "bad", maybe
@@ -89,19 +91,23 @@ function useTracking() {
     if (ready && !theirs) notes.push("Your second account's window didn't answer the check. Hang up and call again so it loads afresh.");
     for (const name of mine.blockers) notes.push(`${name} may block the reports on your account. Turn it off in your plugins.`);
     for (const name of theirs?.blockers ?? []) notes.push(`${name} may block the reports on your second account. Turn it off in its plugins.`);
-    if (reportMissing(mine)) notes.push("No stream report was seen for your account. If Go Live just failed (Discord's error 2012, say), that's the reason and it isn't this plugin. If Go Live has been fine, something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
-    if (theirs && reportMissing(theirs, true)) notes.push("No stream report was seen for your second account. If Go Live just failed (Discord's error 2012, say), that's the reason and it isn't this plugin. If Go Live has been fine, something outside these settings may be blocking it, such as an ad blocker or Pi-hole.");
+    if (reportMissing(mine)) notes.push(missingReportNote("your account"));
+    if (theirs && reportMissing(theirs, true)) notes.push(missingReportNote("your second account"));
 
     // The second account's page starts fresh with each call, so its settings get their own time to load.
     const settled = (i: TrackingItem) => Date.now() - ((i.who === "this account" ? mine.loadedAt : theirs?.loadedAt) ?? startedAt) >= UNKNOWN_AFTER_MS;
     const allOk = items.every(i => i.state === "ok" || i.state === "unknown" && !settled(i));
     // Everything's set, but NoTrack was blocking when Discord started and keeps blocking until it restarts.
-    const restartOnly = mine.blockedAtStart && !mine.blocked && items.every(i => i.restart && i.who === "this account" || i.state === "ok");
-    return { items, theirs, restartOnly, notes, restartNeeded: mine.blockedAtStart, problem: !allOk || notes.length > 0 };
+    const restartOnly = mine.blockedAtStart && !mine.blocked && notes.length === 0 && items.every(i => i.restart && i.who === "this account" || i.state === "ok");
+    const problem = !allOk || notes.length > 0;
+    // "blocked" stops the badge counting; "maybe" is only recommended or couldn't be checked.
+    const level: TrackingLevel = !problem ? "none" : items.some(i => i.state === "bad" && !i.maybe) || notes.length ? "blocked" : "maybe";
+    return { items, theirs, restartOnly, notes, restartNeeded: mine.blockedAtStart, problem, level };
 }
 
-// Whether anything stops the Streaming badge from counting, for a quick sign where the full list doesn't fit.
-export const useTrackingProblem = () => useTracking().problem;
+// How badly the Streaming badge is held back, for a quick sign where the full list doesn't fit.
+export type TrackingLevel = "none" | "maybe" | "blocked";
+export const useTrackingLevel = () => useTracking().level;
 
 function askRestart(secondDone: boolean) {
     Alerts.show({
@@ -118,11 +124,13 @@ function askRestart(secondDone: boolean) {
 // The checklist in red and green with a button that fixes it after asking, in the settings and (compact) in the corner
 // widget. Hidden once everything is right.
 function TrackingWarningBody({ compact = false }: { compact?: boolean; }) {
-    const { items, theirs, restartOnly, notes, restartNeeded, problem } = useTracking();
+    const { items, theirs, restartOnly, notes, restartNeeded, problem, level } = useTracking();
     const { hostSecond } = useProfile();
     const [busy, setBusy] = useState(false);
     if (!problem) return null;
     const bad = items.filter(i => i.state !== "ok");
+    const changes = bad.filter(i => !i.restart);
+    const secondReloads = bad.some(i => i.who === "second account" && i.want === "OFF");
 
     const fix = async () => {
         setBusy(true);
@@ -143,24 +151,27 @@ function TrackingWarningBody({ compact = false }: { compact?: boolean; }) {
         title: "Let your Streaming badge count?",
         body: (
             <div className={cl("login-warning")}>
-                <Paragraph>This changes:</Paragraph>
-                <ul className={cl("tracking-changes")}>
-                    {bad.filter(i => !i.restart).map(i => <li key={itemText(i)}>{i.what}{" → "}{i.want} ({i.who})</li>)}
-                </ul>
+                {changes.length > 0 && (
+                    <>
+                        <Paragraph>This changes:</Paragraph>
+                        <ul className={cl("tracking-changes")}>
+                            {changes.map(i => <li key={itemText(i)}>{i.what}{" → "}{i.want} ({i.who})</li>)}
+                        </ul>
+                    </>
+                )}
                 <Paragraph>
-                    Discord only counts streaming time from the report your Discord sends when a stream ends. NoTrack throws
-                    that report away, and Discord says its personalize setting has to be on. Once they're changed, Discord gets
-                    your client's normal usage reports, and they can show you run a modded client. Crash events sent as usage
-                    reports can include code stack text that names Equicord or plugins. NoTrack still blocks Sentry and metrics.
+                    Discord only counts streaming time from a report your Discord sends when a stream ends. NoTrack blocks
+                    that report, and Discord says the personalize setting has to be on. After this, Discord gets your normal
+                    usage reports again. They can show that you use a modded Discord.
                 </Paragraph>
                 {restartNeeded && <Paragraph>Discord has to restart afterwards for NoTrack's change to apply.</Paragraph>}
-                {bad.some(i => i.who === "second account" && i.want === "OFF") && (
+                {secondReloads && (
                     <Paragraph>Your second account's hidden Discord reloads to apply it and rejoins the call by itself.</Paragraph>
                 )}
                 <Paragraph>Time streamed while NoTrack was blocking never reached Discord, so it can't be added back. Whether time streamed with the privacy settings off counts later isn't known.</Paragraph>
             </div>
         ),
-        confirmText: "Change them",
+        confirmText: changes.length ? "Change them" : secondReloads ? "Reload second account" : "Continue",
         cancelText: "Cancel",
         onConfirm: () => void fix()
     });
@@ -170,7 +181,7 @@ function TrackingWarningBody({ compact = false }: { compact?: boolean; }) {
             <div className={cl("tracking-title")}>
                 {restartOnly
                     ? compact ? "Restart Discord so your badge counts" : "Restart Discord so your Streaming badge counts"
-                    : items.some(i => i.state === "bad" && !i.maybe) || notes.length
+                    : level === "blocked"
                         ? compact ? "Your Streaming badge won't count" : "Your Streaming badge won't count with these settings"
                         : compact ? "Your Streaming badge may not count" : "These settings may affect your Streaming badge"}
             </div>
@@ -215,9 +226,10 @@ export function ReportStatus() {
     const next = nextReportMs();
     return (
         <div className={cl("stream-time")}>
-            {lastReportAt > 0 && <div>Last report sent (Discord replied OK): {formatTime(Date.now() - lastReportAt)} ago</div>}
-            {status.phase === "counting" && <div>{next == null ? "Next report: when the stream ends" : `Next report: in ${formatTime(next)}`}</div>}
+            {lastReportAt > 0 && <div>Last report Discord accepted: {Date.now() - lastReportAt < 60_000 ? "just now" : `${formatTime(Date.now() - lastReportAt)} ago`}</div>}
+            {status.phase === "counting" && <div>{next == null ? "Next report: when the stream ends" : next < 60_000 ? "Next report: in under a minute" : `Next report: in ${formatTime(next)}`}</div>}
             {label && <div>Discord's count: {label} (Discord updates this on its own schedule, and it can go up or down)</div>}
+            {streamingBadgeUnreadable() && <div>Couldn't read Discord's count right now.</div>}
             {streamingBadgeMissing() && <div>Discord lists no Streaming badge on this account yet, so it may not have this feature.</div>}
         </div>
     );
