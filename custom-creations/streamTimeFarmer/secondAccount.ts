@@ -58,6 +58,18 @@ let loggedOutReads = 0;
 // Checks in a row that got no answer at all: its page crashed or froze, so the window is rebuilt.
 let failedReads = 0;
 const FAILED_READS_LIMIT = 3;
+// Checks in a row where Equicord is there but Discord itself never finished loading. After two minutes the window is
+// rebuilt, and again every two minutes for as long as it stays that way.
+let notReadyReads = 0;
+const NOT_READY_READS_LIMIT = 24;
+// Windows in a row lost to a crash or a freeze without the account ever showing up. After a few, the window stays
+// closed for BROKEN_RETRY_MS instead of being rebuilt over and over.
+let deadRebuilds = 0;
+const DEAD_REBUILDS_LIMIT = 3;
+let deadSince = 0;
+// Whether the next new window is one this side asked for (first start, or after closing it on purpose). A new window
+// nobody asked for means the last one's page crashed.
+let expectNew = true;
 // Checks in a row where the page answered but Equicord never got going there. After a minute the window is rebuilt
 // once (which reads the web build again); if that doesn't help either, the user is told.
 let stuckReads = 0;
@@ -176,22 +188,48 @@ const setUp = (streamerId: string, watch: boolean, presence: SecondPresence) => 
 
 const idle = (): SecondStatus => ({ phase: "idle", account: profile().account, viewer: null });
 
+// Notes a window lost to a crash or freeze. True once that has happened too often in a row: it's closed and left
+// closed for a while.
+async function died(run: number) {
+    if (++deadRebuilds < DEAD_REBUILDS_LIMIT) return false;
+    deadSince = Date.now();
+    expectNew = true;
+    await Native?.closeSecondAccount();
+    if (run === generation) setStatus({ phase: "broken", account: status.account ?? profile().account, viewer: null });
+    return true;
+}
+
 async function tick() {
     if (busy || !Native) return;
     const run = generation;
     const stale = () => run !== generation || !timer;
     busy = true;
     try {
+        if (deadRebuilds >= DEAD_REBUILDS_LIMIT) {
+            if (Date.now() - deadSince < BROKEN_RETRY_MS) return;
+            deadRebuilds = 0;
+            const why = await refetchWeb();
+            if (why) logger.warn("Couldn't download Equicord again for the second account:", why);
+            if (stale()) return;
+            setStatus({ phase: "starting", account: status.account ?? profile().account, viewer: null });
+        }
         const opened = await Native.openSecondAccount(false, loginKey());
         if (stale()) return;
         if (!opened) return setStatus({ phase: "unavailable", account: null, viewer: null });
-        // Rebuilt while the user was logging in: its window has to be shown again.
-        if (opened === "created" && loggingIn) void Native.openSecondAccount(true, loginKey());
+        if (opened === "created") {
+            if (!expectNew && await died(run)) return;
+            if (stale()) return;
+            expectNew = false;
+            // Rebuilt while the user was logging in: its window has to be shown again, without jumping in front.
+            if (loggingIn) void Native.openSecondAccount(true, loginKey(), false);
+        }
         const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; presence?: string; tracking?: TrackingState | null; } | null;
         if (stale()) return;
         if (r == null) {
             if (++failedReads >= FAILED_READS_LIMIT) {
                 failedReads = 0;
+                expectNew = true;
+                if (await died(run)) return;
                 await Native.closeSecondAccount();
                 if (stale()) return;
             }
@@ -200,18 +238,29 @@ async function tick() {
         failedReads = 0;
         if (!r.ready) {
             if (r.noVencord) return void await stuck();
-            return setStatus({ ...status, phase: status.phase === "ready" ? "ready" : "starting", account: status.account ?? profile().account });
+            if (++notReadyReads >= NOT_READY_READS_LIMIT) {
+                notReadyReads = 0;
+                expectNew = true;
+                await Native.closeSecondAccount();
+                if (stale()) return;
+            }
+            // One slow answer keeps what was last known; after that it counts as loading again.
+            if (status.phase === "ready" && notReadyReads === 1) return;
+            return setStatus({ phase: "starting", account: status.account ?? profile().account, viewer: null });
         }
+        notReadyReads = 0;
         if (!r.loggedIn || !r.account) {
             if (++loggedOutReads < LOGGED_OUT_READS) return;
             // Logged out (or never logged in): show its window so the user can log in.
             if (!loggingIn) {
                 loggingIn = true;
-                void Native.openSecondAccount(true, loginKey());
+                // It opened by itself, so it's shown without taking the keyboard from whatever the user is doing.
+                void Native.openSecondAccount(true, loginKey(), false);
             }
             return setStatus({ phase: "login", account: null, viewer: null });
         }
         loggedOutReads = 0;
+        deadRebuilds = 0;
 
         const me = UserStore.getCurrentUser().id;
         if (r.account.id === me) return setStatus({ phase: "same", account: r.account, viewer: null });
@@ -243,7 +292,14 @@ async function tick() {
 async function stuck(account: SecondAccountInfo | null = null) {
     const run = generation;
     stuckReads++;
-    if (stuckReads === STUCK_READS_LIMIT) await Native?.closeSecondAccount();
+    if (stuckReads === STUCK_READS_LIMIT) {
+        // The copy it loaded may be the problem, so the rebuilt window gets a fresh download.
+        const why = await refetchWeb();
+        if (why) logger.warn("Couldn't download Equicord again for the second account:", why);
+        if (run !== generation) return;
+        expectNew = true;
+        await Native?.closeSecondAccount();
+    }
     if (run !== generation) return;
     const phase = stuckReads >= 2 * STUCK_READS_LIMIT ? "broken" : "starting";
     const now = Date.now();
@@ -255,6 +311,7 @@ async function stuck(account: SecondAccountInfo | null = null) {
             const why = await refetchWeb();
             if (why) logger.warn("Couldn't download Equicord again for the second account:", why);
             if (run !== generation) return;
+            expectNew = true;
             await Native?.closeSecondAccount();
             if (run !== generation) return;
             stuckReads = 0;
@@ -288,7 +345,8 @@ export function applySecondPresence() {
 export function stopSecondAccount(close = true) {
     generation++;
     busy = false;
-    loggedOutReads = failedReads = stuckReads = brokenSince = 0;
+    loggedOutReads = failedReads = stuckReads = brokenSince = notReadyReads = deadRebuilds = deadSince = 0;
+    expectNew = true;
     appliedPresence = null;
     clearInterval(timer);
     timer = undefined;
@@ -332,22 +390,24 @@ export async function linkSecondAccount() {
 export const RESTART_TEXT = "StreamTimeFarmer was added or updated while Discord was running. Quit Discord fully (right-click its tray icon, then Quit Discord) and open it again to finish setting it up.";
 // About 2 minutes of failed checks, then BROKEN_RETRY_MS, between tries.
 export const BROKEN_TEXT = "Your second account's window keeps failing to load. The farm tries again by itself about every 15 minutes.";
-export const WEB_TEXT = "The second account's window needs Equicord's web build, which this plugin downloads from Equicord on its own. That download hasn't worked yet, so there's nothing for the window to load.";
+export const WEB_TEXT = "Couldn't download what your second account needs. Check your internet and try again.";
 
 // Whether the window has what it needs, and fetching it again. Both answer with "" when all is well, or a short reason.
 export const webProblem = async () => {
     try {
         return Native ? await Native.webBuildProblem() : "";
-    } catch (e: any) {
-        return `Couldn't check for Equicord's web build (${e?.message ?? e}).`;
+    } catch (e) {
+        logger.warn("Couldn't check for Equicord's web build", e);
+        return RESTART_TEXT;
     }
 };
 
 export const refetchWeb = async () => {
     try {
         return await Native!.refetchWeb();
-    } catch (e: any) {
-        return `The download couldn't run (${e?.message ?? e}).`;
+    } catch (e) {
+        logger.warn("The download of Equicord's web build couldn't run", e);
+        return RESTART_TEXT;
     }
 };
 
@@ -366,15 +426,38 @@ export function cancelLink() {
     else startSecondAccount();
 }
 
-export const showSecondAccount = () => Native?.openSecondAccount(true, loginKey());
+// Opening it by hand also ends the wait after too many lost windows, so the new window is set up at once.
+export function showSecondAccount() {
+    const parked = timer != null && deadRebuilds >= DEAD_REBUILDS_LIMIT;
+    const run = generation;
+    if (parked) {
+        deadRebuilds = deadSince = failedReads = 0;
+        setStatus({ phase: "starting", account: status.account ?? profile().account, viewer: null });
+    }
+    const opened = Native?.openSecondAccount(true, loginKey());
+    if (parked) void opened?.then(result => {
+        if (run !== generation) return;
+        // This window was asked for, so the next check must not take it for a crashed one's replacement.
+        if (result === "created") expectNew = false;
+        void tick();
+    }, () => { });
+    return opened;
+}
 export const hideSecondAccount = () => Native?.hideSecondAccount();
 
 // Forgets the second account completely: ends any call, closes its window and clears its saved login.
 export async function signOutSecondAccount() {
     const login = loginKey();
     stopSecondAccount();
-    await Native?.signOutSecondAccount(login);
-    changeStreamProfile({ hostSecond: false, account: null, partner: "", role: "off" });
+    try {
+        await Native?.signOutSecondAccount(login);
+    } catch (e) {
+        logger.error("Couldn't clear the second account's login", e);
+        toast({ text: "Your second account was removed, but its saved login couldn't be cleared. Quit Discord fully and open it again.", variant: "critical" });
+    } finally {
+        // Unlinked either way, so the saved profile never lists an account the status shows as off.
+        changeStreamProfile({ hostSecond: false, account: null, partner: "", role: "off" });
+    }
 }
 
 // Turns stream reporting on inside the second account's Discord. Its page reloads afterwards when NoTrack was
