@@ -391,9 +391,13 @@ body.vc-stf-afk-on > :not(.vc-stf-afk) {
     font-size: 13px;
 }
 
-/* The minimized widget gets a red ring while the Streaming badge can't count. */
+/* The minimized widget gets a red ring while the Streaming badge can't count, a yellow one while it may not. */
 .vc-stf-call-pill-warn {
     box-shadow: 0 0 0 2px var(--status-danger);
+}
+
+.vc-stf-call-pill-maybe {
+    box-shadow: 0 0 0 2px var(--status-warning);
 }
 
 .vc-stf-tracking-unknown {
