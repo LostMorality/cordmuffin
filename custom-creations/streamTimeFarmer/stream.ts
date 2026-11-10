@@ -20,7 +20,7 @@ import { formatTime } from "./CallWidget";
 import { currentUserId, FARM_SOURCE, type FarmGame, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
 import { BROKEN_TEXT, onSecondStatus, RESTART_TEXT, type SecondStatus, secondStatus } from "./secondAccount";
 import { toast } from "./toast";
-import { expectReports, onReport, trackingProblem, watchReportsFrom } from "./tracking";
+import { expectReports, onReport, reportMissing, trackingProblem, trackingState, watchReportsFrom } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
 
@@ -78,7 +78,8 @@ const START_RETRY_MS = 30_000;
 const WATCH_RETRY_MS = 10_000;
 const DM_RETRY_MS = 60_000;
 // How long the viewer stays in a call it joined after the streaming account is gone, in case it's just reconnecting.
-const LEAVE_AFTER_MS = 30_000;
+// Longer than the streaming account takes to come back, and shorter than Discord's own kick for being alone.
+const LEAVE_AFTER_MS = 2 * 60_000;
 const CONNECT = 1n << 20n;
 const VIEW_CHANNEL = 1n << 10n;
 const SAVE_EVERY_MS = 60_000;
@@ -95,6 +96,8 @@ const RESTART_EVERY_MS = 60_000;
 const SENDER_STUCK_MS = 45_000;
 // After this many failed starts in a row the status stops sounding like a hiccup and names the likely cause.
 const FAILS_BEFORE_REASON = 3;
+// Past that many, each further failure doubles the wait before the next try, up to this.
+const FAIL_WAIT_MAX_MS = 5 * 60_000;
 const LOST_STREAM_MS = 2 * 60_000;
 // A call can stay selected while its voice connection is dead (seen after a quick leave and rejoin): every Go Live then
 // fails with "stream-failed-to-start" until the call is left. Not connected for this long means it's left and joined again.
@@ -137,6 +140,7 @@ let lastStart = 0;
 let starts = 0;
 let lastWatch = 0;
 let lastDmOpen = 0;
+let dmFailed = false;
 let partnerGoneSince = 0;
 let lastSave = 0;
 let sessionMs = 0;
@@ -156,6 +160,9 @@ let liveSince = 0;
 // The farm's last stream, so it isn't taken for the user's own after a short gap in Discord's list of streams.
 let lastStartedKey = "";
 let lostStreamAt = 0;
+// Whether the last Go Live the farm started showed its own window, and when a stream it started last ended.
+let startedOwnWindow = true;
+let ownEndedAt = 0;
 let watchedKey = "";
 // The account this run belongs to, so its settings stay with it even if the user switches accounts mid-run.
 let owner = "";
@@ -173,6 +180,10 @@ let joinedAt = 0;
 let voiceDeadSince = 0;
 let voiceCheckedAt = 0;
 let voiceDeadHits = 0;
+// The voice connection's state at the last check ("" when it can't be read).
+let voiceState = "";
+// The call states that mean "not connected yet". A state Discord adds later counts as connected, so it can't block the farm.
+const VOICE_NOT_READY = new Set(["DISCONNECTED", "AWAITING_ENDPOINT", "AUTHENTICATING", "CONNECTING", "RTC_DISCONNECTED", "RTC_CONNECTING", "NO_ROUTE", "ICE_CHECKING", "DTLS_CONNECTING"]);
 // A leave Discord made by itself (its idle kick, a move to the AFK channel): why, when the call is joined again, and
 // how many came in a row.
 let droppedWhy = "";
@@ -263,20 +274,31 @@ function target(now: number): Target | string {
         const id = snowflake(channelId);
         const channel = id ? ChannelStore.getChannel(id) : null;
         if (!channel || channel.type !== 2) return "Pick the voice channel both accounts can join.";
+        try {
+            if (!joinedHere(channel.id) && (!PermissionStore.can(VIEW_CHANNEL, channel) || !PermissionStore.can(CONNECT, channel))) {
+                return `This account can't join ${channel.name}. Pick another voice channel.`;
+            }
+        } catch { }
         return { id: channel.id, name: channel.name, guildId: channel.guild_id ?? null, dm: false };
     }
     if (!partner) return prof().hostSecond
         ? "Your second account isn't set up yet. Log into it in its window."
         : "Your second account isn't set up yet. Press Log in to second account.";
     if (partner === UserStore.getCurrentUser().id) return "Your second account's window is logged into this same account. Sign out there and log into your other account.";
-    if (!UserStore.getUser(partner)) return "Can't reach your second account yet. Hang up and call again.";
     const dm = ChannelStore.getDMFromUserId(partner);
     if (dm) return { id: dm, name: `the call with ${partnerName("your other account")}`, guildId: null, dm: true };
+    // Opened even when Discord hasn't loaded the other account yet: opening the DM is what loads it.
     if (now - lastDmOpen >= DM_RETRY_MS) {
         lastDmOpen = now;
-        PrivateChannelActions.getOrEnsurePrivateChannel(partner).catch(e => logger.warn("Couldn't open the DM with the other account", e));
+        const myRun = run;
+        PrivateChannelActions.getOrEnsurePrivateChannel(partner).then(() => {
+            if (myRun === run) dmFailed = false;
+        }, e => {
+            logger.warn("Couldn't open the DM with the other account", e);
+            if (myRun === run) dmFailed = true;
+        });
     }
-    return "Opening a DM with your other account...";
+    return dmFailed ? "Couldn't open a DM with your second account. Add it as a friend." : "Opening a DM with your second account...";
 }
 
 // The account is in that call from another session: the phone, or another Discord. Its own voice state from before the
@@ -319,17 +341,24 @@ const onGatewayOpen = () => {
     gatewayClosed = false;
 };
 
+const voiceDeadWait = () => Math.min(VOICE_DEAD_MS * 2 ** voiceDeadHits, VOICE_DEAD_MAX_MS);
+
+// A wait in words, for status texts.
+const inAbout = (ms: number) => ms >= 60_000 ? `in ${formatTime(ms)}` : "in under a minute";
+
 // True when the call this Discord has selected hasn't had a working voice connection for VOICE_DEAD_MS. It's left
 // then, and the next tick joins it again, which is what fixes it by hand too.
 function voiceDead(now: number) {
     if (now - voiceCheckedAt > VOICE_CHECK_GAP_MS) voiceDeadSince = 0;
     voiceCheckedAt = now;
     let state = "";
+    voiceState = "";
     try {
         state = RTCConnectionStore.getState?.() ?? "";
     } catch {
         return false;
     }
+    voiceState = state;
     if (!state || state === "RTC_CONNECTED") {
         voiceDeadSince = voiceDeadHits = 0;
         return false;
@@ -340,7 +369,7 @@ function voiceDead(now: number) {
         return false;
     }
     voiceDeadSince ||= now;
-    if (now - voiceDeadSince < Math.min(VOICE_DEAD_MS * 2 ** voiceDeadHits, VOICE_DEAD_MAX_MS)) return false;
+    if (now - voiceDeadSince < voiceDeadWait()) return false;
     logger.info(`The call's voice connection is stuck at ${state}, joining it again`);
     voiceDeadSince = 0;
     voiceDeadHits++;
@@ -353,16 +382,18 @@ function voiceDead(now: number) {
 // The streamer starts DM calls and rings the viewer; the viewer only joins a call that's already going.
 function join(where: Target, now: number, startCall: boolean) {
     if (isFull(where)) return setStatus("waiting", `${where.name} is full. Waiting for a spot.`);
-    setStatus("joining", where.dm && startCall ? `Calling ${partnerName("your other account")}...` : `Joining ${where.name}...`);
-    if (now - lastJoin < (where.dm && startCall ? CALL_RETRY_MS : JOIN_RETRY_MS)) return;
+    const calling = where.dm && startCall;
+    // The other account is only rung when it isn't sitting in the call already, so coming back to it doesn't wait out
+    // the spacing between rings.
+    const ring = calling && !VoiceStateStore.getVoiceStatesForChannel(where.id)?.[partnerId()];
+    if (now - lastJoin < (ring ? CALL_RETRY_MS : JOIN_RETRY_MS)) return setStatus("joining", ring ? "Calling again in a moment..." : `Joining ${where.name}...`);
+    setStatus("joining", ring ? `Calling ${partnerName("your other account")}...` : `Joining ${where.name}...`);
     lastJoin = now;
     if (prof().joinedCall !== where.id) setProf({ joinedCall: where.id });
-    // A fresh join comes in unmuted, so it gets muted again.
-    mutedFor = "";
     farmJoined = true;
     voiceDeadSince = 0;
     VoiceActions.selectVoiceChannel(where.id);
-    if (where.dm && startCall) CallActions.ring(where.id);
+    if (ring) CallActions.ring(where.id);
 }
 
 // Mute once per joined channel, so someone who unmutes on purpose isn't fought every few seconds. The viewer also
@@ -543,6 +574,7 @@ async function farmOrFallback(): Promise<CaptureSource | null> {
         if (myRun !== run) return null;
         if (source) {
             farmFails = farmRetryAt = 0;
+            fallbackNote = "";
             return source;
         }
         farmFails++;
@@ -602,23 +634,32 @@ function applyGoLive({ preset, resolution, fps, soundshareEnabled }: GoLiveSetti
     }
 }
 
+// The wait before the next try, growing once a stream has failed often enough to be more than a hiccup.
+const failWait = (base: number) => Math.min(base * 2 ** Math.max(0, liveFails - FAILS_BEFORE_REASON), FAIL_WAIT_MAX_MS);
+
 async function goLive(now: number, where: Target) {
-    if (now - lastStart < START_RETRY_MS) return;
+    if (now - lastStart < failWait(START_RETRY_MS)) return;
     lastStart = now;
     const myRun = run;
     const myStart = ++starts;
+    // The growing wait is for starts Discord refused. A look that started nothing is made again after the flat wait.
+    const flatWait = () => {
+        lastStart = now - failWait(START_RETRY_MS) + START_RETRY_MS;
+    };
     const source = await pickSource();
     if (myRun !== run) return;
     if (!source) {
-        liveError = !isFarmSource() ? `Couldn't find "${prof().source}" to stream. Pick another source.`
+        flatWait();
+        const wanted = prof().source.trim().toLowerCase();
+        liveError = !isFarmSource() ? ["", "screen", FARM_SOURCE, "random"].includes(wanted) ? "Couldn't find anything to stream. Pick a window instead." : `Couldn't find "${prof().source}" to stream. Pick another source.`
             : !usingFarmWindow() ? "The farm's own window wouldn't open, and there's no screen to stream instead."
                 : farmOpening() ? "Opening the farm's own window..."
-                    : farmFails ? `The farm's own window didn't open (${fallbackAllowed() ? `${farmFails} of ${FARM_FAILS_MAX} tries` : "antivirus or Windows may be blocking it"}). Trying again ${farmRetryAt - Date.now() >= 60_000 ? `in ${formatTime(farmRetryAt - Date.now())}` : "in under a minute"}.`
+                    : farmFails ? `The farm's own window didn't open (${fallbackAllowed() ? `${farmFails} of ${FARM_FAILS_MAX} tries` : "antivirus or Windows may be blocking it"}). Trying again ${inAbout(farmRetryAt - Date.now())}.`
                         : "The farm's own window didn't show up in Go Live. Trying again soon.";
         return;
     }
     // Stopped, or moved to another call while looking for the source.
-    if (SelectedChannelStore.getVoiceChannelId() !== where.id) return;
+    if (SelectedChannelStore.getVoiceChannelId() !== where.id) return flatWait();
     const { preset, resolution, fps, soundshareEnabled } = StreamSettingsStore.getState();
     const before = { preset, resolution, fps, soundshareEnabled };
     // The farm's own quality, left behind by a stream that started late, is never mistaken for the user's choice.
@@ -630,19 +671,23 @@ async function goLive(now: number, where: Target) {
         // The farm stopped while Go Live was starting, so its teardown couldn't end this stream yet, and starting it
         // set the farm's quality after the user's was already put back. The stream key is the same for every stream in
         // the call, so once a newer start (after a source change) has begun, the stream is that one's and stays.
-        if (ok && myStart === starts) stopStream(key, false);
+        if (ok && myStart === starts) {
+            stopStream(key, false);
+            ownEndedAt = Date.now();
+        }
         if (!isFarmGoLive(before)) applyGoLive(before);
         return;
     }
     if (ok) {
         startedKey = lastStartedKey = key;
+        startedOwnWindow = isFarmSource() && !fallbackNote;
         lastWindow = source.id.startsWith("window:") ? { source: prof().source.trim().toLowerCase(), handle: source.id.split(":")[1] } : null;
         liveSince = Date.now();
         watchedSinceReport = 0;
         senderStuckSince = 0;
         forgetStreamErrors("sender", me);
     } else if (!offline()) liveFails++;
-    liveError = ok ? "" : `Go Live didn't start${why ? ` (${why})` : ""}. Trying again soon.`;
+    liveError = ok ? "" : failNote(`Go Live didn't start. Trying again ${inAbout(failWait(START_RETRY_MS))}.`);
     if (!ok) logger.warn("Go Live didn't start:", why);
 }
 
@@ -682,10 +727,12 @@ function forgetStreamErrors(kind: "sender" | "receiver", userId: string) {
 
 // Ends a broken Go Live so the next tick starts a fresh one (and reopens the farm window if it closed).
 const canRestart = (now: number) => now - lastRestart >= RESTART_EVERY_MS;
+// The same for a stream that keeps breaking, which waits longer each time.
+const canRetry = (now: number) => now - lastRestart >= failWait(RESTART_EVERY_MS);
 
 // Once a stream has failed a few times running, say so plainly instead of looking like it's about to work.
 const failNote = (text: string) => liveFails >= FAILS_BEFORE_REASON
-    ? `${text} Discord has refused this stream ${liveFails} times in a row, usually its own error 2012 rather than anything this plugin or your settings did.`
+    ? `${text} Discord has refused this stream ${liveFails} times in a row, so the farm keeps trying.`
     : text;
 
 // A failed restart is one the stream forced; a scheduled one isn't, so only failures count toward liveFails.
@@ -698,6 +745,7 @@ function restartLive(stream: AppStream, now: number, why: string, failure = fals
     forgetStreamErrors("sender", stream.ownerId);
     logger.info("Restarting Go Live:", why);
     stopStream(streamKey(stream), false);
+    if (startedKey) ownEndedAt = now;
     startedKey = "";
     lastStart = 0;
     liveError = `${why} Restarting Go Live...`;
@@ -707,6 +755,41 @@ function restartLive(stream: AppStream, now: number, why: string, failure = fals
 // A stream that failed (for example its window closed) stays listed until it's started again.
 const isLive = (stream: AppStream | null, channelId: string): stream is AppStream =>
     stream != null && stream.channelId === channelId && stream.state !== "FAILED" && stream.state !== "ENDED";
+
+// Whether what the farm streams right now is its own window, not the screen it falls
+// back to, a window the user picked, or a Go Live the user started themselves.
+export function streamingOwnWindow() {
+    if (!canUseFarmWindow() || !isFarmSource() || fallbackNote || !startedOwnWindow) return false;
+    try {
+        const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
+        // A stream of the farm's that was just ended can stay listed for a moment.
+        const users = stream != null && stream.state !== "FAILED" && stream.state !== "ENDED" && streamKey(stream) !== startedKey
+            && Date.now() - ownEndedAt > 3 * TICK_MS;
+        return !users;
+    } catch {
+        return false;
+    }
+}
+
+// When a stream the farm started itself last ended (0 if none has).
+export const ownStreamEndedAt = () => ownEndedAt;
+
+// Ends the Go Live this run started, if it's still the one that's live.
+function endOwnStream() {
+    if (!startedKey) return;
+    const own = ApplicationStreamingStore.getCurrentUserActiveStream();
+    // Already gone: leaving the call ended it, which is noted the same as ending it here.
+    if (!own) {
+        ownEndedAt = Date.now();
+        return;
+    }
+    if (streamKey(own) !== startedKey) return;
+    // A stream that was counting sends its report as it ends, so one is expected. Not offline or while logging out,
+    // where it may not get out at all.
+    if (status.phase === "counting" && watchedSinceReport > 0 && !loggingOut && !offline()) expectReports(true);
+    stopStream(startedKey, false);
+    ownEndedAt = Date.now();
+}
 
 function count(elapsed: number) {
     notCountingSince = 0;
@@ -772,12 +855,18 @@ function streamerTick(now: number, elapsed: number) {
     const me = UserStore.getCurrentUser().id;
     if (!joinedHere(where.id)) {
         aloneSince = 0;
+        // Leaving the call ended the farm's stream too. Noted now, not when the call is joined again.
+        const left = ApplicationStreamingStore.getCurrentUserActiveStream();
+        if (startedKey && (!left || streamKey(left) !== startedKey)) {
+            startedKey = "";
+            lostStreamAt = ownEndedAt = now;
+        }
         // Taken over on another device (the phone) after the leave: the user's, not something to take back.
         if (droppedWhy && inCall && onOtherDevice(me, where.id)) {
             userHungUp("The stream farm stopped because you took its call on another device. Press Call to start it again.");
             return;
         }
-        if (now < rejoinAt) return setStatus("waiting", `${droppedWhy} The farm joins it again soon.`);
+        if (now < rejoinAt) return setStatus("waiting", `${droppedWhy} The farm joins it again ${inAbout(rejoinAt - now)}.`);
         return join(where, now, true);
     }
     droppedWhy = "";
@@ -811,20 +900,26 @@ function streamerTick(now: number, elapsed: number) {
         // Kept while the farm's own stream is failed, so it can still be restarted once the wait between restarts is over.
         if (!failed && startedKey) {
             startedKey = "";
-            lostStreamAt = now;
+            lostStreamAt = ownEndedAt = now;
+        }
+        // Go Live can't start before the call itself is connected, and a try made too early would only hold up the next.
+        if (VOICE_NOT_READY.has(voiceState)) {
+            return setStatus("joining", voiceDeadHits && voiceDeadSince
+                ? `The call isn't connecting. The farm joins it again ${inAbout(voiceDeadWait() - (now - voiceDeadSince))}.`
+                : "Connecting to the call...");
         }
         const myRun = run;
         void goLive(now, where).catch(e => {
             logger.error("Couldn't go live", e);
             if (myRun !== run) return;
-            liveError = `Go Live didn't start (${e?.message ?? e}). Trying again soon.`;
+            liveError = failNote(`Go Live didn't start. Trying again ${inAbout(failWait(START_RETRY_MS))}.`);
             kick();
         });
         return setStatus("starting", liveError || "Going live...");
     }
     liveError = "";
 
-    if (ours && canRestart(now) && freshStreamError("sender", me) && restartLive(stream, now, "Discord said the stream wasn't sending.", true)) return setStatus("starting", failNote(liveError));
+    if (ours && canRetry(now) && freshStreamError("sender", me) && restartLive(stream, now, "Discord said the stream wasn't sending.", true)) return setStatus("starting", failNote(liveError));
     if (ours && isFarmSource() && usingFarmWindow() && !farmCheck) {
         // The farm window was closed (Task Manager, a crash): the stream would only show a frozen picture.
         const myRun = run, checked = farmPid;
@@ -832,7 +927,8 @@ function streamerTick(now: number, elapsed: number) {
             if (myRun !== run || alive || farmPid !== checked) return;
             farmPid = 0;
             const own = ApplicationStreamingStore.getCurrentUserActiveStream();
-            if (own && restartLive(own, Date.now(), "The farm window closed.")) kick();
+            // Only the farm's own stream: by now it may be gone and the live one the user's.
+            if (own && startedKey && streamKey(own) === startedKey && restartLive(own, Date.now(), "The farm window closed.")) kick();
         }).finally(() => farmCheck = null);
     }
 
@@ -840,6 +936,8 @@ function streamerTick(now: number, elapsed: number) {
     const viewers = ApplicationStreamingStore.getViewerIds(stream).filter(id => id !== me);
     const watched = partner ? viewers.includes(partner) : viewers.length > 0;
     const reconnecting = !!stream.state && stream.state !== "ACTIVE";
+    // A window the user picked stops sending while it's minimized. That isn't a broken stream, so it isn't restarted.
+    const paused = stream.state === "PAUSED" && !isFarmSource();
     // The second account hosted here says when its picture is stuck, even though Discord still lists it as watching.
     const second = secondStatus();
     const pictureStuck = second.phase === "ready" && second.account?.id === partner && !!second.viewer && second.viewer.phase !== "watching";
@@ -848,9 +946,9 @@ function streamerTick(now: number, elapsed: number) {
 
     // Listed as live but never sending: Discord's error 2012 leaves a stream like this for good. The viewer side has
     // the same timer; without one here the farm would sit on "reconnecting" all night and count nothing.
-    if (ours && reconnecting) senderStuckSince ||= now;
+    if (ours && reconnecting && !paused) senderStuckSince ||= now;
     else senderStuckSince = 0;
-    if (senderStuckSince && now - senderStuckSince >= SENDER_STUCK_MS && restartLive(stream, now, "The stream never started sending.", true)) {
+    if (senderStuckSince && now - senderStuckSince >= SENDER_STUCK_MS && canRetry(now) && restartLive(stream, now, "The stream never started sending.", true)) {
         kick();
         return setStatus("starting", failNote(liveError));
     }
@@ -863,10 +961,22 @@ function streamerTick(now: number, elapsed: number) {
         && restartLive(stream, now, "Sending Discord this stream's time.")) {
         // A stalled stream may have already sent its report when its connection dropped, so nothing is expected from it.
         if (!stalled) expectReports(true);
+        // Streaming the screen because the farm window wouldn't open: the window gets one more try with each report.
+        if (!usingFarmWindow()) {
+            farmFails = FARM_FAILS_MAX - 1;
+            farmRetryAt = 0;
+        }
         kick();
         return setStatus("starting", liveError);
     }
 
+    // Nobody can watch a stream that isn't sending, so that's said before pointing at the other account.
+    if (paused && !secondWhy) return setStatus("waiting", "Live, but the window you're streaming is minimized. Open it so time counts.");
+    if (reconnecting && !secondWhy) {
+        return setStatus("waiting", watchedSinceReport > 0
+            ? "Live, but the stream is reconnecting. Time counts again once it's back."
+            : "Live, but the stream is still connecting. Time counts once it's up.");
+    }
     if (!watched) {
         if (secondWhy) return setStatus("waiting", withFallback(`Live, but nothing counts: ${secondWhy}`));
         const who = partner ? partnerName("your other account") : "someone";
@@ -884,9 +994,12 @@ function streamerTick(now: number, elapsed: number) {
     dropHits = 0;
     const watchers = viewers.length === 1 ? "1 viewer" : `${viewers.length} viewers`;
     // The counter only knows about the stream; whether Discord gets told is another matter, and that's the part that counts.
-    setStatus("counting", withFallback(trackingProblem(second.phase === "ready" ? second.tracking : null)
-        ? `Live and watched by ${watchers}, but some of your settings may stop Discord counting it.`
-        : `Live and watched by ${watchers}. Time is counting.`));
+    const tracking = second.phase === "ready" ? second.tracking : null;
+    const reportLost = reportMissing(trackingState()) || !!tracking && reportMissing(tracking, true);
+    setStatus("counting", withFallback(!ours && reportMs > 0 ? "Counting. The farm won't restart a stream you started yourself."
+        : reportLost ? `Live and watched by ${watchers}, but the last time report didn't reach Discord. See the plugin's settings.`
+            : trackingProblem(tracking) ? `Live and watched by ${watchers}, but a setting may stop Discord counting it. See the plugin's settings.`
+                : `Live and watched by ${watchers}. Time is counting.`));
 }
 
 // Where the streaming account is right now, if this account can be there too: a DM call with it, or a server voice
@@ -916,7 +1029,12 @@ function viewerTick(now: number, elapsed: number) {
     const partner = partnerId();
     if (!partner) return setStatus("setup", "Waiting for your main account to call this one.");
     if (partner === UserStore.getCurrentUser().id) return setStatus("setup", "This is the same account as the one that streams. Log into your other account here.");
-    if (!UserStore.getUser(partner)) return setStatus("setup", "Can't reach the account that streams yet. Hang up and call again from it.");
+    if (!UserStore.getUser(partner)) return setStatus("setup", "Waiting for your main account to call this one.");
+    // Offline, the stream only looks stuck, and closing and opening it again wouldn't help.
+    if (offline()) {
+        partnerGoneSince = stuckSince = 0;
+        return setStatus("waiting", OFFLINE_TEXT);
+    }
     const me = UserStore.getCurrentUser().id;
     const name = partnerName("the streaming account");
 
@@ -1137,11 +1255,11 @@ function userHungUp(text: string) {
 }
 
 // A hang-up from another window looks just like Discord's kick, so every rejoin can be called off.
-function offerStayHungUp(why: string) {
+function offerStayHungUp(why: string, wait: number) {
     const myRun = run;
     void showNotification({
         title: "Stream farm",
-        body: `${why} The farm joins it again soon. If you hung up yourself, click here to stay hung up.`,
+        body: `${why} The farm joins it again ${inAbout(wait)}. If you hung up yourself, click here to stay hung up.`,
         noPersist: true,
         onClick: () => {
             if (myRun === run && timer && inCall) userHungUp("The stream farm stays hung up. Press Call to start it again.");
@@ -1170,7 +1288,7 @@ function onVoiceSelect(action: { channelId?: string | null; }) {
         rejoinAt = now + wait;
         dropHits++;
         aloneSince = 0;
-        offerStayHungUp(why);
+        offerStayHungUp(why, wait);
         kick();
         return;
     }
@@ -1212,8 +1330,7 @@ const onUnload = (e: BeforeUnloadEvent) => {
 
 // Ends the Go Live and leaves the call this run started; anything the user started themselves stays.
 function teardown() {
-    const own = ApplicationStreamingStore.getCurrentUserActiveStream();
-    if (startedKey && own && streamKey(own) === startedKey) stopStream(startedKey, false);
+    endOwnStream();
     const joined = prof().joinedCall;
     if (joined && joinedHere(joined)) VoiceActions.disconnect();
     else if (watchedKey) closeStream(watchedKey, false);
@@ -1253,6 +1370,9 @@ export function startStreamFarm() {
     farmFails = farmRetryAt = notCountingSince = secondSlowSince = findsCheckedAt = 0;
     farmOpeningFor = -1;
     gatewayClosed = false;
+    dmFailed = false;
+    startedOwnWindow = true;
+    voiceState = "";
     downToastShown = false;
     missingFind = null;
     inCall = false;
@@ -1336,8 +1456,7 @@ export function refreshGoLive() {
     // Any Go Live still starting belongs to the old choice.
     run++;
     try {
-        const own = ApplicationStreamingStore.getCurrentUserActiveStream();
-        if (startedKey && own && streamKey(own) === startedKey) stopStream(startedKey, false);
+        endOwnStream();
     } catch (e) {
         logger.error("Couldn't end the old Go Live", e);
     }
@@ -1349,5 +1468,8 @@ export function refreshGoLive() {
     lastStartedKey = "";
     watchedSinceReport = liveSince = 0;
     lastStart = lastRestart = 0;
+    // Errors and failures of the old choice say nothing about the new one.
+    liveError = "";
+    liveFails = senderStuckSince = 0;
     kick();
 }
