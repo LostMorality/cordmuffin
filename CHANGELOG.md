@@ -7,6 +7,12 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 - GameTimeSpoof: **Add Random Games** now picks from every game Discord can detect. Games without a cover picture
   used to be skipped, even though the list already shows them with their icon instead.
+- StreamTimeFarmer: both accounts now stay muted and deafened in the farm's call, so joining a real call on top of it
+  can't feed sound back. Discord clears both whenever a stream starts, and the farm now sets them again instead of
+  assuming they stuck. The viewer-only **deafen** setting became one for both accounts and keeps your answer.
+- StreamTimeFarmer: the "your badge may not count" warning now stands down once Discord has actually accepted a
+  report, instead of going by NoTrack's switch alone. Discord's own two privacy settings still warn, since a report
+  it accepts can still be ignored.
 
 ## 2026-11-10
 
