@@ -3,6 +3,11 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-11
+
+- GameTimeSpoof: **Add Random Games** now picks from every game Discord can detect. Games without a cover picture
+  used to be skipped, even though the list already shows them with their icon instead.
+
 ## 2026-11-10
 
 - StreamTimeFarmer: a second account that isn't your friend yet no longer leaves the farm stuck in setup. It opens the
