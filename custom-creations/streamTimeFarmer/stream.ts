@@ -87,6 +87,8 @@ const PRESET_CUSTOM = 3;
 const HANG_UP_SAVE_MS = 5_000;
 // Right after Discord connects (startup, or a reconnect) it rejoins the old call and then drops it again by itself.
 const SETTLE_MS = 30_000;
+// Long enough for a mute or deafen to show up in the store before it is asked for again.
+const MUTE_RETRY_MS = 5_000;
 // A watched stream that stays paused this long is stuck, not just catching up, and gets reopened.
 const STUCK_MS = 20_000;
 // A broken Go Live is restarted at most this often, so a stream that keeps failing doesn't flap.
@@ -146,6 +148,7 @@ let lastSave = 0;
 let sessionMs = 0;
 let unsaved = 0;
 let mutedFor = "";
+let lastMuteTry = 0;
 let run = 0;
 let liveError = "";
 // When the farm's own stream stopped being ACTIVE, and how many starts have failed in a row.
@@ -396,20 +399,34 @@ function join(where: Target, now: number, startCall: boolean) {
     if (ring) CallActions.ring(where.id);
 }
 
-// Mute once per joined channel, so someone who unmutes on purpose isn't fought every few seconds. The viewer also
-// deafens: both accounts usually sit on one PC, so hearing the call would only risk feedback. Mute and deafen stick
-// after a call in Discord, so the farm remembers what it did and undoes it when it stops.
-function muteOnJoin(channelId: string, deafen: boolean) {
-    if (mutedFor === channelId) return;
-    mutedFor = channelId;
-    if (settings.store.muteMic && !MediaEngineStore.isSelfMute()) {
+// Both roles stay muted and deafened in the farm's call: the two accounts usually sit on one PC, and a real call
+// joined on top of the farm's would feed sound back both ways. Discord clears both flags whenever a Go Live starts,
+// which the farm does on every restart, so the state is checked on each tick instead of set once and trusted. Mute
+// and deafen stick after a call in Discord, so the farm remembers what it did and undoes it when it stops.
+function keepMuted(channelId: string) {
+    const wantMute = settings.store.muteMic;
+    const wantDeaf = settings.store.deafenBoth;
+    const needMute = wantMute && !MediaEngineStore.isSelfMute();
+    const needDeaf = wantDeaf && !MediaEngineStore.isSelfDeaf();
+    if (!needMute && !needDeaf) {
+        mutedFor = channelId;
+        return;
+    }
+    const now = Date.now();
+    // Deafening is a toggle, so asking again before the first answer shows up would undo it.
+    if (now - lastMuteTry < MUTE_RETRY_MS) return;
+    lastMuteTry = now;
+
+    if (needMute) {
         MuteActions.setSelfMute("default", true);
         setProf({ muted: true });
     }
-    if (deafen && settings.store.deafenViewer && !MediaEngineStore.isSelfDeaf()) {
+    if (needDeaf) {
         MuteActions.toggleSelfDeaf();
         setProf({ deafened: true });
     }
+    if (mutedFor === channelId) logger.info("The farm's mute in the call was cleared; setting it again");
+    else logger.info(`In the call ${wantMute ? "muted" : "left unmuted"} and ${wantDeaf ? "deafened" : "left undeafened"}`);
 }
 
 function undeafen() {
@@ -879,7 +896,7 @@ function streamerTick(now: number, elapsed: number) {
     }
     inCall = true;
     farmCall = where.id;
-    muteOnJoin(where.id, false);
+    keepMuted(where.id);
     const others = Object.keys(VoiceStateStore.getVoiceStatesForChannel(where.id) ?? {}).some(id => id !== me);
     aloneSince = others ? 0 : aloneSince || now;
 
@@ -1049,7 +1066,7 @@ function viewerTick(now: number, elapsed: number) {
     partnerGoneSince = 0;
     if (!joinedHere(where.id)) return join(where, now, false);
     if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
-    muteOnJoin(where.id, true);
+    keepMuted(where.id);
 
     if (!live || !stream) {
         stuckSince = 0;
