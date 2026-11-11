@@ -52,7 +52,7 @@ function agent() {
     const byProps = (...props: string[]) => { try { return Webpack.findByProps(...props); } catch { return null; } };
     const byCode = (...code: string[]) => { try { return Webpack.findByCode(...code); } catch { return null; } };
 
-    let config = { role: "off", partner: "", muteMic: true, deafenViewer: true };
+    let config = { role: "off", partner: "", muteMic: true, deafenBoth: true };
     let status = { phase: "off", detail: "", countedMs: 0, sessionMs: 0 };
     let timer: any = null;
     let lastTick = Date.now();
@@ -64,6 +64,7 @@ function agent() {
     let mutedFor = "";
     let muted = false;
     let deafened = false;
+    let lastMuteTry = 0;
     // Error id -> when it was acted on. Discord reuses one id per partner, so ids are dropped again once it clears.
     const handledErrors = new Map<string, number>();
     let decode = { since: 0, packets: 0, frames: 0, gpuLost: false, checking: false };
@@ -229,17 +230,27 @@ function agent() {
 
     // Muted once per channel, so someone who unmutes on purpose isn't fought every few seconds. It deafens too: both
     // accounts usually sit on one PC, and hearing the call back would only risk feedback.
-    function muteOnJoin(channelId: string) {
-        if (mutedFor === channelId) return;
-        mutedFor = channelId;
+    // Discord clears self-mute and self-deafen whenever a Go Live starts, so the state is checked on each tick
+    // instead of set once per channel and trusted.
+    function keepMuted(channelId: string) {
         const media = store("MediaEngineStore");
         const mute = byProps("setSelfMute", "toggleSelfDeaf");
         if (!media || !mute) return;
-        if (config.muteMic && !media.isSelfMute()) {
+        const needMute = config.muteMic && !media.isSelfMute();
+        const needDeaf = config.deafenBoth && !media.isSelfDeaf();
+        if (!needMute && !needDeaf) {
+            mutedFor = channelId;
+            return;
+        }
+        const now = Date.now();
+        // Deafening is a toggle, so asking again before the first answer shows up would undo it.
+        if (now - lastMuteTry < 5_000) return;
+        lastMuteTry = now;
+        if (needMute) {
             mute.setSelfMute("default", true);
             muted = true;
         }
-        if (config.deafenViewer && !media.isSelfDeaf()) {
+        if (needDeaf) {
             mute.toggleSelfDeaf();
             deafened = true;
         }
@@ -291,7 +302,7 @@ function agent() {
         partnerGoneSince = 0;
         if (!joinedHere(where.id)) return join(where, now);
         if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
-        muteOnJoin(where.id);
+        keepMuted(where.id);
 
         if (!live || !stream) {
             stuckSince = 0;
@@ -507,7 +518,7 @@ function agent() {
                 role: next?.role ?? "off",
                 partner: next?.partner ?? "",
                 muteMic: next?.muteMic !== false,
-                deafenViewer: next?.deafenViewer !== false
+                deafenBoth: next?.deafenBoth !== false
             };
             if (config.role === "viewer") start();
             else stop();
