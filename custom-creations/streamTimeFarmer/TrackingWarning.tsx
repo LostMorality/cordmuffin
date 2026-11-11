@@ -17,7 +17,7 @@ import { useProfile } from "./profile";
 import { allowSecondTracking, useSecondStatus } from "./secondAccount";
 import { nextReportMs } from "./stream";
 import { toast } from "./toast";
-import { allowTracking, ConsentStore, hasConsentStore, loadConsents, refreshStreamingBadge, reportMissing, streamingBadgeLabel, streamingBadgeMissing, streamingBadgeUnreadable, trackingState } from "./tracking";
+import { allowTracking, ConsentStore, hasConsentStore, loadConsents, refreshStreamingBadge, reportMissing, reportsGetThrough, streamingBadgeLabel, streamingBadgeMissing, streamingBadgeUnreadable, trackingState } from "./tracking";
 
 const cl = classNameFactory("vc-stf-");
 
@@ -73,14 +73,18 @@ function useTracking() {
     const ready = second.phase === "ready";
     const theirs = ready ? second.tracking : undefined;
 
+    // Reports this account and the second one are known to be getting through; see reportsGetThrough.
+    const mineSends = reportsGetThrough(mine);
+    const theirsSends = !!theirs && reportsGetThrough(theirs);
+
     const items: TrackingItem[] = [
-        { what: NO_TRACK_SWITCH, short: NO_TRACK_SHORT, who: "this account", want: "OFF", state: mine.blocked || mine.blockedAtStart ? "bad" : "ok", restart: !mine.blocked && mine.blockedAtStart },
+        { what: NO_TRACK_SWITCH, short: NO_TRACK_SHORT, who: "this account", want: "OFF", state: (mine.blocked || mine.blockedAtStart) && !mineSends ? "bad" : "ok", restart: !mine.blocked && mine.blockedAtStart && !mineSends },
         consentItem(USAGE_SWITCH, USAGE_SHORT, "this account", mine.usageData, true),
         consentItem(PERSONALIZE_SWITCH, PERSONALIZE_SHORT, "this account", mine.personalized, false)
     ];
     if (theirs) {
         items.push(
-            { what: NO_TRACK_SWITCH, short: NO_TRACK_SHORT, who: "second account", want: "OFF", state: theirs.blocked || theirs.blockedAtStart ? "bad" : "ok", restart: !theirs.blocked && theirs.blockedAtStart, maybe: true },
+            { what: NO_TRACK_SWITCH, short: NO_TRACK_SHORT, who: "second account", want: "OFF", state: (theirs.blocked || theirs.blockedAtStart) && !theirsSends ? "bad" : "ok", restart: !theirs.blocked && theirs.blockedAtStart && !theirsSends, maybe: true },
             consentItem(USAGE_SWITCH, USAGE_SHORT, "second account", theirs.usageData, true),
             consentItem(PERSONALIZE_SWITCH, PERSONALIZE_SHORT, "second account", theirs.personalized ?? null, true)
         );
@@ -89,8 +93,8 @@ function useTracking() {
     // Problems the button can't change: these are only pointed out.
     const notes: string[] = [];
     if (ready && !theirs) notes.push("Your second account's window didn't answer the check. Hang up and call again so it loads afresh.");
-    for (const name of mine.blockers) notes.push(`${name} may block the reports on your account. Turn it off in your plugins.`);
-    for (const name of theirs?.blockers ?? []) notes.push(`${name} may block the reports on your second account. Turn it off in its plugins.`);
+    if (!mineSends) for (const name of mine.blockers) notes.push(`${name} may block the reports on your account. Turn it off in your plugins.`);
+    if (!theirsSends) for (const name of theirs?.blockers ?? []) notes.push(`${name} may block the reports on your second account. Turn it off in its plugins.`);
     if (reportMissing(mine)) notes.push(missingReportNote("your account"));
     if (theirs && reportMissing(theirs, true)) notes.push(missingReportNote("your second account"));
 
