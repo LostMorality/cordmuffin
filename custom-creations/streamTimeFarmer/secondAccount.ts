@@ -173,7 +173,7 @@ const setUp = (streamerId: string, watch: boolean, presence: SecondPresence) => 
         role: watch ? "viewer" : "off",
         partner: streamerId,
         muteMic: Settings.plugins.StreamTimeFarmer.muteMic !== false,
-        deafenViewer: Settings.plugins.StreamTimeFarmer.deafenViewer !== false
+        deafenBoth: Settings.plugins.StreamTimeFarmer.deafenBoth !== false
     })});
     const want = ${JSON.stringify(presence)};
     let now = "", applied = false;
