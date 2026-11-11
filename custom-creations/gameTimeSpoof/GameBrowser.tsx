@@ -205,7 +205,7 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
                 </div>
                 <div className={cl("tabs")}>
                     {apps && (
-                        <Button size="small" variant="positive" onClick={() => openAddTime([], "random games", apps.filter(a => a.cover_image_hash))}>
+                        <Button size="small" variant="positive" onClick={() => openAddTime([], "random games", apps)}>
                             Add Random Games
                         </Button>
                     )}
