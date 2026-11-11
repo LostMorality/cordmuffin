@@ -85,7 +85,15 @@ export function trackingState(): TrackingState {
     return { blocked: noTrackBlocks(), blockedAtStart, usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
 }
 
-const trackingOk = (state: TrackingState) => !state.blocked && !state.blockedAtStart && state.usageData !== false && state.personalized !== false && !state.blockers.length;
+// A report Discord accepted since this page loaded proves this client still sends them. NoTrack's switch, its state
+// when Discord started and other blocking plugins only predict that it won't, so one accepted report answers all
+// three and the warning stands down. Discord's own privacy settings are not answered by it: Discord takes a report
+// and can still ignore what it was sent, which nothing here can see.
+export const reportsGetThrough = (state: TrackingState) => state.lastReportAt > state.loadedAt;
+
+const trackingOk = (state: TrackingState) =>
+    (reportsGetThrough(state) || !state.blocked && !state.blockedAtStart && !state.blockers.length)
+    && state.usageData !== false && state.personalized !== false;
 
 // Discord only loads the privacy settings when its Data & Privacy page opens (the login data has just some of them),
 // so they're fetched the same way, tried again until it works, and again every hour since Discord doesn't announce a
@@ -136,7 +144,8 @@ export async function allowTracking(): Promise<{ restart: boolean; }> {
         const res = await RestAPI.post({ url: CONSENT_URL, body: { grant, revoke: [] } });
         if (res?.body) FluxDispatcher.dispatch({ type: "UPDATE_CONSENTS", consents: { ...res.body } });
     }
-    return { restart: blockedAtStart };
+    // Reports already getting through mean NoTrack isn't in the way, so there's nothing a restart would change.
+    return { restart: blockedAtStart && !reportsGetThrough(trackingState()) };
 }
 
 // The settings above can look right while something else stops the reports, which is how 40 hours once went missing
