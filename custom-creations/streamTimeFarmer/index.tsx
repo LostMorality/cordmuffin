@@ -44,9 +44,9 @@ export const settings = definePluginSettings({
         default: false,
         onChange: () => syncKeepAwake()
     },
-    deafenViewer: {
+    deafenBoth: {
         type: OptionType.BOOLEAN,
-        description: "The viewer also deafens itself, so the two accounts can't feed sound back into each other. It's undone when the farm stops.",
+        description: "Both accounts deafen themselves in the farm's call, so a call inside a call can't feed sound back. It's undone when the farm stops.",
         default: true
     },
     quietSecondAccount: {
@@ -92,7 +92,7 @@ export const settings = definePluginSettings({
 
 // The stream farm used to be part of GameTimeSpoof. Its settings move over once, before plugins start, and if it was
 // in use there this plugin starts turned on, so the update doesn't switch it off.
-const MOVED: Record<string, string> = { streamMute: "muteMic", streamDeafen: "deafenViewer", streamWidget: "callWidget", streamProfiles: "profiles" };
+const MOVED: Record<string, string> = { streamMute: "muteMic", streamDeafen: "deafenBoth", streamWidget: "callWidget", streamProfiles: "profiles" };
 
 function moveFromGameTimeSpoof() {
     const { plugins } = SettingsStore.plain;
@@ -116,8 +116,18 @@ function moveFromGameTimeSpoof() {
     logger.info("Moved the stream farm's settings over from GameTimeSpoof");
 }
 
+// Deafening used to be the viewer's alone, so the old key keeps its answer when it becomes the one for both accounts.
+function renameDeafenSetting() {
+    const mine = SettingsStore.plain.plugins?.StreamTimeFarmer;
+    if (!mine || !Object.hasOwn(mine, "deafenViewer")) return;
+    if (!Object.hasOwn(mine, "deafenBoth")) mine.deafenBoth = mine.deafenViewer;
+    delete mine.deafenViewer;
+    SettingsStore.markAsChanged();
+}
+
 try {
     moveFromGameTimeSpoof();
+    renameDeafenSetting();
 } catch (e) {
     logger.error("Couldn't move the stream farm's settings over from GameTimeSpoof", e);
 }
