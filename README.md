@@ -732,12 +732,17 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 
 **What it does**
 - **Logs in your second account once** (QR code or email and password), then runs it hidden. Calls only ever go to that account.
-- **Call** starts a DM call. Your account goes live at 480p / 5 fps and the second account watches, muted and deafened.
+- **Call** starts a DM call. Your account goes live at 480p / 5 fps and the second account watches. Both accounts mute and deafen themselves, so a real call on top of the farm's can't feed sound back.
 - Fixes itself when either account drops or the stream breaks.
 - Can show your stream as "Streaming <game>" (optional).
 - Reports the time regularly (every hour by default), so a crash doesn't lose it all.
 - **AFK mode** for leaving it running for hours or days, at about half the CPU.
 - Checks your settings on both accounts and shows each one green or red.
+
+> [!NOTE]
+> **Coming soon: adding streaming time.** Right now the badge moves at real speed, an hour of streaming for an hour
+> of badge time. Adding the time directly through Discord's own reporting is next on the list, so the badge can move
+> without waiting out the clock. It isn't in this build yet and there's no date for it.
 
 > [!WARNING]
 > Discord doesn't allow automating accounts, so both accounts are at risk. Don't use one you can't afford to lose.
@@ -758,10 +763,10 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
    <img src="docs/stream-farm-login-warning.png" alt="The warning shown before logging in a second account" width="360">
 
 3. Press **Call** (in the settings or in the small call widget in the bottom-right corner).
-   - Your account calls the second one in DMs, mutes itself and goes live with its own small window.
+   - Your account calls the second one in DMs, mutes and deafens itself, and goes live with its own small window.
    - That window sits in the bottom-right corner behind everything, see-through and click-through, with no taskbar button. It shows only its name (or the game's cover), a ticking clock of how long it's been streaming and a moving bar.
    - You can pick the screen or another window instead. Only your second account sees it.
-   - The second account joins, mutes, deafens itself (so nothing can feed back) and watches.
+   - The second account joins, mutes and deafens itself too, and watches. Discord clears both whenever a stream starts, so the farm sets them again rather than assuming they stuck.
    - Prefer a server? Pick **A server voice channel** instead of the DM call.
 
 **Stopping and managing it**
@@ -814,6 +819,8 @@ StreamTimeFarmer checks all of them on both accounts (your second account's whil
 
 It also names other plugins that may block the reports, and warns when a report that should have gone out never reached Discord (an ad blocker or Pi-hole, say). Time streamed while they were blocking was never reported and can't be added back.
 
+Once Discord has actually accepted a report, those warnings stand down: a report getting through proves nothing on your PC is in the way, whatever the switches say. Discord's own two privacy settings keep warning either way, because Discord can accept a report and still decide to ignore it, and nothing on your PC can see that happen.
+
 <img src="docs/stream-farm-tracking.png" alt="The Streaming badge warning in StreamTimeFarmer's settings" width="440"> <img src="docs/stream-farm-widget-tracking.png" alt="The same warning in the call widget, here for the second account (placeholder account shown)" width="240">
 
 **Discord ending the call**
@@ -824,6 +831,10 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 
 - **Second account's online status** (default: leave as is): sets it to Online, Idle, Do Not Disturb or Invisible each time it starts.
   - It's that account's own Discord setting, so it changes everywhere it's logged in.
+- **Mute Mic** (on): mutes your mic when the farm joins the call. Unmuted again when the farm stops.
+- **Deafen both accounts** (on): both accounts deafen themselves in the farm's call, so joining a real call on top of it can't feed sound back either way. Undone when the farm stops.
+  - Discord clears mute and deafen every time a stream starts, so the farm checks them as it runs and sets them again.
+- **Call widget** (on): shows the small widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.
 - **Quiet Second Account** (on): keeps the second account's unreads off your taskbar badge and stops its desktop notifications.
 - **Mute Call Sounds** (on): silences Discord's call sounds while the farm runs, so restarts stay quiet on your PC: calling and ringing, Go Live starting and ending, joins and leaves, mute and deafen.
   - Real incoming calls ring silently too, but their popup still shows. Message sounds stay on.
@@ -836,7 +847,7 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 <details>
 <summary><b>Things to know</b></summary>
 
-- Discord only counts streaming with someone else in the call, and nobody has shown made-up stream time counting, so the farm streams for real.
+- Discord only counts streaming with someone else in the call, so the farm streams for real, an hour of badge time per hour. Adding time without waiting it out is being worked on; see **Coming soon** at the top of this section.
 - Discord only counts a stream's time when the stream ends, so a stream left running for days would count nothing until then. That's why **Report Every** restarts Go Live: a crash then only loses the time since the last report.
 - Quitting or reloading Discord sends the time so far as it closes. A crash, a kill or Discord's own relaunch still lose the time since the last report.
 - The widget and settings show when the last report was sent and Discord replied OK, when the next one goes out, and Discord's own count for the badge, which it updates on its own schedule and can go up or down.
