@@ -3,6 +3,16 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-13
+
+- QuestRunner: play quests for some games never moved off zero. Discord ignores certain program names outright
+  (launcher.exe, start_protected_game.exe and 23 more) and skips anything its game list marks as a launcher, so the
+  stand-in was running for a name Discord was never going to count. Fortnite, VRChat, Dead by Daylight, Space Marine II
+  and four others now pick a name Discord does count, and a game with no usable name says so instead of sitting at
+  zero for two minutes.
+- QuestRunner: direct heartbeats no longer send a closing report when a quest finishes. Discord's own client doesn't
+  send one there, only when you stop early, so now ours matches it.
+
 ## 2026-11-12
 
 - New plugin: OfficialCustomTypingIndicator. Set Discord's own Nitro custom typing indicator (3 emoji, an animation and a
