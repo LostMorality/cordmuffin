@@ -1,0 +1,120 @@
+/* Top right, so it never covers StreamTimeFarmer's call widget or GameTimeSpoof's box in the bottom-right corner. */
+.vc-ast-job {
+    position: fixed;
+    right: 16px;
+    top: 56px;
+    z-index: 2000;
+    width: 300px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--background-surface-higher, var(--background-floating));
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-high, 0 8px 24px rgb(0 0 0 / 40%));
+    color: var(--text-default, var(--text-normal));
+    font-size: 14px;
+}
+
+.vc-ast-job-small {
+    width: 240px;
+    padding: 8px 12px;
+}
+
+.vc-ast-job-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+}
+
+.vc-ast-job-title {
+    font-weight: 600;
+    color: var(--header-primary, var(--text-strong));
+}
+
+.vc-ast-job-toggle {
+    color: var(--interactive-icon-default, var(--interactive-normal));
+}
+
+.vc-ast-job-bar {
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--background-mod-strong);
+}
+
+.vc-ast-job-fill {
+    height: 100%;
+    background: var(--status-positive);
+    transition: width 0.3s ease;
+}
+
+.vc-ast-job-text {
+    color: var(--text-muted);
+    line-height: 1.35;
+}
+
+.vc-ast-job-result {
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-ast-job-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.vc-ast-notice {
+    margin-bottom: 12px;
+}
+
+.vc-ast-hours {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.vc-ast-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-ast-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vc-ast-log {
+    max-height: 260px;
+    overflow: auto;
+    font-size: 13px;
+}
+
+.vc-ast-log table {
+    border-collapse: collapse;
+}
+
+.vc-ast-log th,
+.vc-ast-log td {
+    padding: 2px 8px 2px 0;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.vc-ast-log th {
+    opacity: 0.7;
+}
+
+.vc-ast-ok {
+    color: var(--text-positive, var(--green-360));
+}
+
+.vc-ast-bad {
+    color: var(--text-danger, var(--red-400));
+}
