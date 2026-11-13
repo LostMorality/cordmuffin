@@ -11,6 +11,7 @@ import { Logger } from "@utils/Logger";
 import definePlugin, { OptionType } from "@utils/types";
 import { FluxDispatcher } from "@webpack/common";
 
+import { AddTimePanel, openAddStreamTime, startAddTime, stopAddTime } from "./addTime";
 import { enterAfk, exitAfk } from "./afk";
 import { mountCallWidget, unmountCallWidget } from "./CallWidget";
 import { startKeepAwake, stopKeepAwake, syncKeepAwake } from "./keepAwake";
@@ -82,6 +83,10 @@ export const settings = definePluginSettings({
         description: "The call widget is open, not minimized.",
         default: true,
         hidden: true
+    },
+    addTime: {
+        type: OptionType.COMPONENT,
+        component: () => <AddTimePanel />
     },
     profiles: {
         type: OptionType.CUSTOM,
@@ -194,6 +199,10 @@ export default definePlugin({
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
 
+    toolboxActions: {
+        "Add Streaming Time": () => openAddStreamTime()
+    },
+
     // Read by the streaming Discord when this one runs as its second account.
     streamFarmStatus: () => streamStatus(),
     configureStreamFarm: (patch: Partial<StreamProfile>) => changeStreamProfile(patch),
@@ -224,10 +233,12 @@ export default definePlugin({
         mountCallWidget();
         if (settings.store.afkMode) enterAfk();
         startKeepAwake();
+        startAddTime();
     },
 
     stop() {
         active = false;
+        stopAddTime();
         stopKeepAwake();
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", noteConnect);
         FluxDispatcher.unsubscribe("CONNECTION_OPEN", followAccount);
