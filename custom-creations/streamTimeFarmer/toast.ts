@@ -13,12 +13,13 @@ type ToastOptions = Parameters<typeof showToast>[0];
 // toast function directly. A toast is never worth crashing the farm over, so failures are swallowed.
 const discordToast: (options: ToastOptions) => void = findByCodeLazy("currentToastMap.get(", "toastKey");
 
+// Returns whether a toast was shown.
 export function toast(options: ToastOptions) {
-    try {
-        showToast(options);
-        return;
-    } catch { }
-    try {
-        discordToast(options);
-    } catch { }
+    for (const show of [showToast, discordToast]) {
+        try {
+            show(options);
+            return true;
+        } catch { }
+    }
+    return false;
 }
