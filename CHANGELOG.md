@@ -5,6 +5,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-13
 
+- CustomRPCShare: new plugin. Adds Export Presets and Import Presets to CustomRPC's settings, so you can share your
+  Rich Presence presets as a code or a .json file. Exports leave out anything about your account, imports are checked
+  field by field, and a preset with a name you already have is only overwritten if you say so.
 - StreamTimeFarmer: new **Add Streaming Time**. Type how many hours you want and it adds up to 12 hours of Streaming
   badge time every hour while the farm streams, instead of one hour per hour. Find it in StreamTimeFarmer's settings
   or Equicord's toolbox. It sends made-up stream reports, which Discord bans for, so only use it on an account you're
