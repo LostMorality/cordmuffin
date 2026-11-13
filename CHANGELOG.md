@@ -5,6 +5,10 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-13
 
+- StreamTimeFarmer: new **Add Streaming Time**. Type how many hours you want and it adds up to 12 hours of Streaming
+  badge time every hour while the farm streams, instead of one hour per hour. Find it in StreamTimeFarmer's settings
+  or Equicord's toolbox. It sends made-up stream reports, which Discord bans for, so only use it on an account you're
+  fine risking.
 - QuestRunner: play quests for some games never moved off zero. Discord ignores certain program names outright
   (launcher.exe, start_protected_game.exe and 23 more) and skips anything its game list marks as a launcher, so the
   stand-in was running for a name Discord was never going to count. Fortnite, VRChat, Dead by Daylight, Space Marine II
