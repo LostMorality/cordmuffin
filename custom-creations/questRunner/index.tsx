@@ -27,7 +27,7 @@ const sendHeartbeat: (opts: { questId: string; applicationId?: string; streamKey
 const enrollQuest: (questId: string, meta: Record<string, unknown>) => Promise<{ type: string; }> = findByCodeLazy('type:"QUESTS_ENROLL_BEGIN",');
 const getProxyTicket: (appId: string) => Promise<string> = findByCodeLazy(".expiresAt>", ".ticket;");
 
-const GameStore: { getDetectableGame(id: string): { thirdPartySkus?: { distributor: string; id?: string; }[]; } | null; } = findStoreLazy("GameStore");
+const GameStore: { getDetectableGame(id: string): { thirdPartySkus?: { distributor: string; id?: string; }[]; executables?: RawExecutable[]; } | null; } = findStoreLazy("GameStore");
 
 // Discord's own button, so the quest card button looks like the one it replaces.
 const DiscordButton = findComponentByCodeLazy<{
@@ -395,6 +395,46 @@ function stopAll() {
     void Native.stopAllGames();
 }
 
+interface RawExecutable { os?: string; name?: string; is_launcher?: boolean; isLauncher?: boolean; }
+
+// Discord throws some executables away before a quest can ever see them, so a stand-in named after
+// one is detected by nothing and the quest sits at zero until it times out. Two separate filters:
+// RunningGameStore drops anything whose path contains a name from /games/detectable/exclusions,
+// and the play-quest path skips any entry the games database flags as a launcher.
+const EXCLUDED_EXES = ["brocrashreporter.exe", "config.exe", "crashreportclient.exe", "crosshairx.exe", "dxsetup.exe",
+    "eaanticheat.gameservicelauncher.exe", "eaanticheat.installer.exe", "easyanticheat_setup.exe", "gamerangeroemsetup.exe",
+    "install.exe", "launcher.exe", "launcherpatcher.exe", "modlauncher.exe", "pbsetup.exe", "proxyinstallshield.exe",
+    "radiant_modtools.exe", "rockstar-games-launcher.exe", "sharex.exe", "start_protected_game.exe", "ue4prereqsetup_x64.exe",
+    "ueprereqsetup_x64.exe", "ui32.exe", "unitycrashhandler64.exe", "vrmonitor.exe", "wallpaper64.exe"];
+const EXCLUDED_EXE_PATTERN = /vcredist.*\.exe$/i;
+// Names that merely look secondary still work; they only lose ties.
+const SECONDARY_EXE = /launcher|setup|crash|helper/i;
+
+function exeExcluded(name: string): boolean {
+    const lower = name.toLowerCase();
+    return EXCLUDED_EXES.some(blocked => lower.includes(blocked)) || EXCLUDED_EXE_PATTERN.test(lower);
+}
+
+// Discord returns these in no particular order, so the pick is sorted: the same game always claims
+// the same binary instead of a different one each run.
+function pickExe(...sources: (RawExecutable[] | undefined)[]): string | null {
+    const launchers = new Set<string>();
+    const names: string[] = [];
+
+    for (const list of sources) {
+        for (const entry of list ?? []) {
+            if (entry?.os !== "win32" || typeof entry.name !== "string") continue;
+            const name = entry.name.replace(/^>/, "");
+            if (entry.is_launcher ?? entry.isLauncher) launchers.add(name.toLowerCase());
+            if (!names.includes(name)) names.push(name);
+        }
+    }
+
+    const usable = names.filter(name => !launchers.has(name.toLowerCase()) && !exeExcluded(name));
+    usable.sort((a, b) => Number(SECONDARY_EXE.test(a)) - Number(SECONDARY_EXE.test(b)) || a.localeCompare(b));
+    return usable[0] ?? null;
+}
+
 // Games with no PC executable in Discord's list (often brand-new releases) can still be detected
 // through their Epic SKU: Discord's native detector reads Epic's -epicapp launch argument.
 async function lookupExe(appId: string): Promise<GameLaunch> {
@@ -402,10 +442,10 @@ async function lookupExe(appId: string): Promise<GameLaunch> {
     if (cached) return cached;
 
     const res = await RestAPI.get({ url: "/applications/public", query: { application_ids: appId } });
-    const app = (res.body as { id: string; name: string; executables?: { os: string; name: string; }[]; third_party_skus?: { distributor: string; id?: string; }[]; }[])?.[0];
-    const exes = (app?.executables ?? []).filter(e => e.os === "win32").map(e => e.name.replace(/^>/, ""));
+    const app = (res.body as { id: string; name: string; executables?: RawExecutable[]; third_party_skus?: { distributor: string; id?: string; }[]; }[])?.[0];
     const name = app?.name ?? "Game";
-    let exe = exes.find(e => !/launcher|setup|crash|helper/i.test(e)) ?? exes[0] ?? null;
+    // The games database carries the launcher flag even when /applications/public leaves it out.
+    let exe = pickExe(app?.executables, GameStore.getDetectableGame(appId)?.executables);
     let args: string[] = [];
 
     const epicSku = (app?.third_party_skus ?? GameStore.getDetectableGame(appId)?.thirdPartySkus ?? []).find(s => s.distributor === "epic" && s.id)?.id;
@@ -538,22 +578,34 @@ async function runDirect(run: Run): Promise<boolean> {
         return false;
     }
 
-    while (!signal.aborted) {
-        await sendHeartbeat({ questId: run.questId, applicationId, streamKey, terminal: false });
-        const quest = QuestStore.getQuest(run.questId);
-        const progress = quest ? progressOf(quest, run.task) : 0;
-        run.note = `${Math.floor(progress / 60)}/${Math.round(run.task.target / 60)} min (direct)`;
-        run.progress = progress;
-        run.progressAt = Date.now();
+    let beats = 0;
+    let overshoot = 0;
 
-        if (!quest || quest.userStatus?.completedAt || progress >= run.task.target) {
-            await sendHeartbeat({ questId: run.questId, applicationId, streamKey, terminal: true });
-            return true;
+    try {
+        while (!signal.aborted) {
+            await sendHeartbeat({ questId: run.questId, applicationId, streamKey, terminal: false });
+            beats++;
+            const quest = QuestStore.getQuest(run.questId);
+            const progress = quest ? progressOf(quest, run.task) : 0;
+            run.note = `${Math.floor(progress / 60)}/${Math.round(run.task.target / 60)} min (direct)`;
+            run.progress = progress;
+            run.progressAt = Date.now();
+
+            // Discord's own client sends no closing beat for a quest that finished; it simply stops.
+            if (!quest || quest.userStatus?.completedAt) return true;
+            // Target reached but the server hasn't recorded it yet: a few more beats, then leave it
+            // to the usual re-check instead of beating on here.
+            if (progress >= run.task.target && ++overshoot > 3) return true;
+
+            const left = (run.task.target - progress) * 1000;
+            await sleep(left <= 0 ? jitter(4000, 7000) : left < HEARTBEAT_MS ? left + 1500 : HEARTBEAT_MS + jitter(0, 1500), signal);
         }
-
-        const left = (run.task.target - progress) * 1000;
-        await sleep(left < HEARTBEAT_MS ? left + 1500 : HEARTBEAT_MS + jitter(0, 1500), signal);
+    } catch (e) {
+        if (!signal.aborted) throw e;
     }
+
+    // Stopping early is the one case a real client does report, and it reports the quest alone.
+    if (beats) await sendHeartbeat({ questId: run.questId, terminal: true }).catch(() => { });
     return false;
 }
 
