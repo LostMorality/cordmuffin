@@ -42,7 +42,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). The folder na
 | Plugin | What it does |
 |---|---|
 | [Game Browser](#game-browser-gametimespoof) (GameTimeSpoof) ⚠ | Makes Discord think you're playing any detectable game, so your Game Time and Game Variety badges keep counting. |
-| [StreamTimeFarmer](#streamtimefarmer) | Earns Streaming badge time by streaming to a second account of yours, which runs in a hidden window. No second Discord install needed. |
+| [StreamTimeFarmer](#streamtimefarmer) ⚠ | Earns Streaming badge time by streaming to a second account of yours, which runs in a hidden window. **Add Streaming Time** adds up to 12 hours each hour. |
 | [QuestRunner](#questrunner) ⚠ | Does your Discord quests for you. You only come back to claim the reward. |
 | [PlatformSpoofer+](#platformspoofer) ⚠ | Pick whether people see you on phone, console, VR headset, web or desktop. |
 
@@ -783,14 +783,12 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 - Reports the time regularly (every hour by default), so a crash doesn't lose it all.
 - **AFK mode** for leaving it running for hours or days, at about half the CPU.
 - Checks your settings on both accounts and shows each one green or red.
+- **Add Streaming Time** (optional): adds badge time faster than real time, up to 12 hours for every hour the farm runs.
 
-> [!NOTE]
-> **Coming soon: adding streaming time.** Right now the badge moves at real speed, an hour of streaming for an hour
-> of badge time. Adding the time directly through Discord's own reporting is next on the list, so the badge can move
-> without waiting out the clock. It isn't in this build yet and there's no date for it.
-
-> [!WARNING]
+> [!CAUTION]
 > Discord doesn't allow automating accounts, so both accounts are at risk. Don't use one you can't afford to lose.
+> **Add Streaming Time** goes further: it sends Discord stream reports that claim more time than was really streamed.
+> That's a made-up report, the kind of thing Discord bans for. Only use it on an account you're fine risking.
 
 > [!IMPORTANT]
 > **Equicord blocks the Streaming badge by default.** StreamTimeFarmer shows what to change and has a **Fix these for me** button. Details under "Settings" below.
@@ -848,6 +846,35 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 </details>
 
 <details>
+<summary><b>Add Streaming Time</b></summary>
+
+Adds Streaming badge time faster than the clock: up to 12 hours of badge time for each hour the farm streams.
+
+<img src="docs/stream-farm-add-time.png" alt="The Add Streaming Time panel in StreamTimeFarmer's settings" width="440">
+
+**How to use it**
+1. Get the farm streaming first (see **How to use it** above), with its source on the farm's own window.
+2. Press **Add Streaming Time** in StreamTimeFarmer's settings, or in Equicord's toolbox.
+3. Type how many hours to add (1 to 9,999), check the summary under the box and press **Add Time**.
+
+A small box in the top-right corner then shows how far along it is, when the next send goes out and how long the rest takes, with a **Stop** button. Click its title to make it smaller.
+
+**How it works**
+- Discord adds up streaming time from the report your Discord sends when a stream ends. Once each hour, Add Streaming Time sends one of those reports for the farm's stream with its length raised to what's left of your total, up to just under 12 hours (Discord counts nothing for a report of 12 hours or more).
+- Sends go out between a few minutes past the hour and a few minutes before the next one, at most one per hour (UTC). 100 hours is 9 sends, so it takes about 7 to 9 hours; the window shows the exact time before you start.
+- Usually it sends the farm's last real report again, so the stream keeps running. When that report is over about 5 hours old, it ends the farm's stream instead, so a fresh report goes out, and the farm goes live again by itself.
+- Only reports of the farm's own window are changed. A stream of your screen, a window you picked or a Go Live you start yourself is never touched, and nothing is changed while no job is running.
+- Each send shows up on the badge about 1.5 to 3 hours after it goes out.
+
+**Things to know**
+- Keep Discord open. A job survives a restart and carries on where it stopped, and **Stop** keeps everything already sent.
+- It only works in the desktop app, and only for the account that started it.
+- Your second account has to be set up, and everything under **What the badge needs** below has to be right first, including **Use data to improve Discord** (only recommended for the farm itself). The window says what's missing.
+- The **Sends** list in the settings shows every send: when it went out, how long the stream really ran, what was added and whether Discord accepted it. **Clear log** empties it but keeps this hour's and last hour's rows, so a restart can't send twice in one hour.
+
+</details>
+
+<details>
 <summary><b>Settings</b></summary>
 
 **What the badge needs, on both accounts**
@@ -892,7 +919,7 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 <details>
 <summary><b>Things to know</b></summary>
 
-- Discord only counts streaming with someone else in the call, so the farm streams for real, an hour of badge time per hour. Adding time without waiting it out is being worked on; see **Coming soon** at the top of this section.
+- Discord only counts streaming with someone else in the call, so the farm streams for real, an hour of badge time per hour. **Add Streaming Time** (above) is the faster way.
 - Discord only counts a stream's time when the stream ends, so a stream left running for days would count nothing until then. That's why **Report Every** restarts Go Live: a crash then only loses the time since the last report.
 - Quitting or reloading Discord sends the time so far as it closes. A crash, a kill or Discord's own relaunch still lose the time since the last report.
 - The widget and settings show when the last report was sent and Discord replied OK, when the next one goes out, and Discord's own count for the badge, which it updates on its own schedule and can go up or down.
@@ -915,6 +942,7 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 - The first time that window opens, the plugin downloads Equicord's own released web build (about 3 MB), keeps it on your PC for 6 hours and fetches it again after that. So the second window always runs a current Equicord, and this plugin doesn't have to be built into it: the plugin sends the viewer half of the farm into the window itself. It works the same with the Cordmuffin installer or a self-built Equicord.
 - Nothing to install for the second window: it fetches its own Equicord.
 - If the download fails (no internet, GitHub blocked), the card says so and offers a **Try again** button.
+- **Add Streaming Time** connects to nothing new: it changes the length in your Discord's own stream report on its way to discord.com, or sends the farm's last real report again through Discord's own tracker. Its job, send log, hourly state and the last real report are saved in Equicord's local storage on your PC.
 
 </details>
 
