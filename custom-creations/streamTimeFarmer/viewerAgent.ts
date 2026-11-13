@@ -228,10 +228,9 @@ function agent() {
         byProps("selectVoiceChannel", "disconnect")?.selectVoiceChannel(where.id);
     }
 
-    // Muted once per channel, so someone who unmutes on purpose isn't fought every few seconds. It deafens too: both
-    // accounts usually sit on one PC, and hearing the call back would only risk feedback.
-    // Discord clears self-mute and self-deafen whenever a Go Live starts, so the state is checked on each tick
-    // instead of set once per channel and trusted.
+    // Stays muted and deafened in the call: the two accounts usually sit on one PC, and a real call joined on top of
+    // this one would feed sound back both ways. Discord clears both flags when a stream starts, so the state is
+    // checked on every tick rather than set once and trusted.
     function keepMuted(channelId: string) {
         const media = store("MediaEngineStore");
         const mute = byProps("setSelfMute", "toggleSelfDeaf");
