@@ -30,6 +30,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). The folder na
 | [ShrinkUploads](#shrinkuploads) | Shrinks pictures, GIFs, videos and audio to fit your upload limit, on your own computer. |
 | [ProfileImages](#profileimages) | One-click buttons to see profile pictures, banners and server icons full size. |
 | [PluginPresets](#pluginpresets) | Saves which plugins are on as presets you can switch between and share. |
+| [CustomRPCShare](#customrpcshare) | Export and import CustomRPC presets as a code or a .json file, to share your Rich Presence setups. |
 | [GreetStickerPicker+](#greetstickerpicker) | Pick any sticker for the "Wave to say hi!" button, in servers and in DMs. |
 | [HideClientBadges](#hideclientbadges) | Hides client mod badges, so profiles only show Discord's own. |
 | [BadgeTierViewer](#badgetierviewer) | Click any tier in Your Badges to see it in the big preview, locked or as it looks once unlocked. |
@@ -444,6 +445,40 @@ Save which plugins are on, along with their settings, as a named preset, and swi
 
 - An imported preset only turns on official Equicord and Vencord plugins you have, and applying it turns everything else off, your own userplugins and BetterDiscord plugins included. Other plugins in it are listed with a warning and are never turned on, even if the preset has them on. If you already have one of them on, it stays on. Plugins you don't have are listed as missing.
 - Imported settings go through the same checks, so a preset can't point your plugins at someone else's server. Settings the sharer's export left out keep your own values.
+
+</details>
+
+---
+
+### CustomRPCShare
+
+`customRPCShare` · Off by default
+
+**Connects to:** nothing. It reads and adds to the presets CustomRPC already saves inside Discord.
+
+Equicord's CustomRPC can save presets of your Rich Presence, but there was no way to hand one to a friend. This adds **Export Presets** and **Import Presets** buttons at the top of CustomRPC's settings (and on this plugin's own page), without changing Equicord's own files.
+
+<img src="docs/customrpc-share.png" alt="The Export and Import buttons above CustomRPC's presets" width="640">
+
+**What it does**
+- **Export Presets** gives you one preset or all of them as a code to copy (it starts with `RPC1.`) or a .json file.
+- **Import Presets** takes a code or a .json file, checks every field, and adds the presets to CustomRPC's list. Nothing is loaded until you pick one there.
+- CustomRPC itself doesn't have to be on to share presets.
+
+<details>
+<summary><b>What gets shared and what's checked</b></summary>
+
+- Only the fields you typed into the preset are shared: application ID and name, the two lines, links, images, buttons, party size and timestamps. CustomRPC's on/off switches are never in an export.
+- A field that contains your own user ID or looks like a Discord login token is left out, and the export window lists what it left out and why.
+
+  <img src="docs/customrpc-share-export.png" alt="Export, with the code ready to copy" width="360">
+
+- Imports go through the same limits CustomRPC's own boxes use (application ID shape, 128-character lines, 31-character button text, web links that start with http or https, Twitch or YouTube stream links, CustomRPC's own activity and timestamp choices). Anything that doesn't pass is skipped and listed; anything that isn't a CustomRPC field is ignored. Fields a shared preset doesn't have are saved empty, so loading it doesn't mix in your old buttons or images.
+- If a preset has the same name as one you already have, you choose: **Keep Both** saves it as "Name (2)", **Replace Same Names** overwrites yours. Nothing of yours is overwritten unless you click that.
+
+  <img src="docs/customrpc-share-import.png" alt="Import, with a name clash" width="360">
+
+- It also reads a raw CustomRPC preset or preset list (the `{ "name", "config" }` shape), so older shared setups work too.
 
 </details>
 
