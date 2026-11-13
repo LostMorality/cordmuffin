@@ -34,6 +34,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). The folder na
 | [HideClientBadges](#hideclientbadges) | Hides client mod badges, so profiles only show Discord's own. |
 | [BadgeTierViewer](#badgetierviewer) | Click any tier in Your Badges to see it in the big preview, locked or as it looks once unlocked. |
 | [TranslateItAll](#translateitall) | Translates messages with Google or Yandex Translate, no API key needed. |
+| [OfficialCustomTypingIndicator](#officialcustomtypingindicator) ⚠ | Set Discord's own Nitro custom typing indicator from desktop. Phone users see it without any plugin. |
 | [Discrub Loader](#discrub-loader) ⚠ | Opens Discrub, which exports, searches and cleans up your messages, inside Discord. |
 
 **Badges & quests**
@@ -581,6 +582,50 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 - translate.yandex.net: only with **Use Yandex Translate** on.
 - aiapi.serversmp.xyz: the Toki Pona translation service Translate+ uses, for Toki Pona and Sitelen Pona messages.
 - raw.githubusercontent.com: the Sitelen Pona and Shavian word lists from Translate+'s repo (no message text is sent).
+
+</details>
+
+---
+
+### OfficialCustomTypingIndicator
+
+`officialCustomTypingIndicator` · Off by default
+
+**Connects to:** nothing new. It only talks to Discord, through Discord's own connection.
+
+**This is Discord's own feature, not something the plugin made up.** Discord's [Custom Typing Indicator](https://support.discord.com/hc/en-us/articles/42962943077271-Custom-Typing-Indicator-FAQ) swaps "is typing…" for 3 emoji, an animation and a word like "is yapping…". It's a Nitro perk that Discord only lets you set up in the phone app so far. This plugin lets you set it from desktop, and it's saved on your Discord account just like setting it on your phone.
+
+<img src="docs/custom-typing-indicator.gif" alt="The typing bar showing three emoji waving and 'Muffin is yapping…'" width="376">
+
+**What it does**
+- Adds an editor to the plugin's settings: pick 3 emoji, an animation (None, Pulse, Ring or Wave) and a word, then click **Apply**.
+- **Everyone on an up-to-date Discord phone app sees your style, no plugin needed.** Discord shows it to them itself.
+- Desktop and web Discord don't draw anyone's style yet, so the plugin draws other people's styles for you too (you can turn that off).
+
+> [!CAUTION]
+> **Use at your own risk.** Discord only accepts this setting from its phone app, so on that one save the plugin says the request comes from the Android app. That's spoofing, which is against Discord's rules. Nothing else you do in Discord is changed.
+
+<details>
+<summary><b>How to use it</b></summary>
+
+<img src="docs/custom-typing-indicator-editor.png" alt="The editor with emoji slots, emoji search, animation and word choices" width="460">
+
+- Your first emoji pick fills all 3 slots, like on the phone. Click a slot and pick another emoji to swap it in. Search by name (`thumbs_up`, `+1`) or type an emoji in.
+- The preview at the top shows how others see you. You never see your own while you type; Discord doesn't show you your own typing.
+- **Surprise me** picks a random combo, **Reset** undoes what you haven't applied, **Remove** puts the normal dots back.
+- Discord sometimes asks for a captcha when you save. Solve it and the save goes through. Saving a lot in a short time makes it ask more often.
+
+</details>
+
+<details>
+<summary><b>What you need and who sees it</b></summary>
+
+- **Full Nitro.** Nitro Basic isn't enough, and Discord won't save it without Nitro.
+- **Your account in Discord's rollout.** Discord says every Nitro user gets it within a few weeks. If your phone app shows **Settings → App Settings → Typing Indicator**, you're in.
+- It only shows when you're the only one typing. With two or more people typing, everyone goes back to "is typing…".
+- In a server with **Use External Emoji** turned off, people there see the normal dots instead of emoji from other servers, but still see your word.
+- Discord's FAQ lists 7 words: yapping, venting, oversharing, barking, babbling, daydreaming, meowing. Discord's code has 5 more (purring, chirping, keysmashing, thinking, squeaking) that aren't announced yet, so some phones may not show those. **Surprise me** only uses the announced ones.
+- If saving says **"Discord didn't save it"** while you have full Nitro, Discord may want a newer app version than the plugin sends. [Open an issue](#issues) so it can be bumped.
 
 </details>
 
