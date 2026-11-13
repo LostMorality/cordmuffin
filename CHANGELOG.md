@@ -3,6 +3,12 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-12
+
+- New plugin: OfficialCustomTypingIndicator. Set Discord's own Nitro custom typing indicator (3 emoji, an animation and a
+  word like "is yapping…") from desktop. People on Discord's phone app see it without any plugin, and the plugin draws
+  other people's on desktop too.
+
 ## 2026-11-11
 
 - GameTimeSpoof: **Add Random Games** now picks from every game Discord can detect. Games without a cover picture
