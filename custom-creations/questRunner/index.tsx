@@ -924,9 +924,11 @@ function hasCardButton(quest: Quest | undefined): boolean {
     return !!quest.userStatus?.enrolledAt || picked.kind === "achievement";
 }
 
-// Replaces Discord's button on accepted quests QuestRunner can do; anything else keeps Discord's own button.
+// Replaces Discord's button on accepted quests QuestRunner can do, and on not-yet-accepted activity achievement
+// quests, whose only button (Launch Quest) would open the activity. Anything else keeps Discord's own button.
 function questButton(quest: Quest | undefined, size: string, accepted: boolean) {
-    if (!accepted || !quest || !hasCardButton(quest)) return null;
+    if (!quest || !hasCardButton(quest)) return null;
+    if (!accepted && pickTask(quest, true)?.kind !== "achievement") return null;
     return (
         <ErrorBoundary noop>
             <QuestCardButton quest={quest} size={size} />
