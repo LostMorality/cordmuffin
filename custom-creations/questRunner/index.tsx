@@ -27,7 +27,23 @@ const sendHeartbeat: (opts: { questId: string; applicationId?: string; streamKey
 const enrollQuest: (questId: string, meta: Record<string, unknown>) => Promise<{ type: string; }> = findByCodeLazy('type:"QUESTS_ENROLL_BEGIN",');
 const getProxyTicket: (appId: string) => Promise<string> = findByCodeLazy(".expiresAt>", ".ticket;");
 
-const GameStore: { getDetectableGame(id: string): { thirdPartySkus?: { distributor: string; id?: string; }[]; executables?: RawExecutable[]; } | null; } = findStoreLazy("GameStore");
+const GameStore: { getDetectableGame(id: string): { name?: string; thirdPartySkus?: { distributor: string; id?: string; }[]; executables?: RawExecutable[]; } | null; } = findStoreLazy("GameStore");
+
+// Recent activity on your profile is the "content inventory outbox": one entry per game, each with its own id.
+// Discord's own ... menu on a card deletes that entry, and these are the two calls behind it.
+const ContentInventoryOutboxStore: { getUserOutbox(id: string): { entries?: OutboxEntry[]; } | null; } = findStoreLazy("ContentInventoryOutboxStore");
+const fetchOutbox: (id: string, signal?: AbortSignal) => Promise<{ entries?: OutboxEntry[]; } | null> = findByCodeLazy('"CONTENT_INVENTORY_FETCH_OUTBOX_START",userId');
+const deleteOutboxEntry: (entry: OutboxEntry, userId: string, done?: () => void) => Promise<void> = findByCodeLazy('"CONTENT_INVENTORY_DELETE_OUTBOX_ENTRY_START"');
+
+interface OutboxEntry {
+    id: string;
+    extra?: { application_id?: string; game_name?: string; };
+}
+
+interface KeptGame {
+    id: string;
+    name: string;
+}
 
 // Discord's own button, so the quest card button looks like the one it replaces.
 const DiscordButton = findComponentByCodeLazy<{
@@ -127,6 +143,21 @@ const settings = definePluginSettings({
         description: "Finish activity achievement quests (the ones with a Launch Quest button) on their own. Gives the activity access to your account for a moment, then removes it.",
         default: false,
         onChange: () => scheduleEvaluate(),
+    },
+    clearActivity: {
+        type: OptionType.BOOLEAN,
+        description: "After a play quest finishes, take that game off Recent activity on your profile. Careful: this removes the game's whole entry, including real time you played it. Keep the games you want on your profile in the list below.",
+        default: false,
+    },
+    keepPanel: {
+        type: OptionType.COMPONENT,
+        component: () => <KeepPanel />,
+    },
+    keepGames: {
+        type: OptionType.CUSTOM,
+        description: "Games kept on your profile, chosen in the list above.",
+        hidden: true,
+        default: [] as KeptGame[],
     },
 });
 
@@ -268,7 +299,9 @@ function evaluate() {
         if (!picked || unsupported.has(quest.id) || achievementPosted.has(quest.id)) continue;
 
         if (!status?.enrolledAt) {
-            if (settings.store.autoEnroll && !hidden.has(quest.id) && now - (enrollFailedAt.get(quest.id) ?? 0) > ENROLL_RETRY_MS) toEnroll.push(quest);
+            // Pressing Complete accepts the quest too, so a quest hidden in Questify still runs when asked for.
+            const wanted = forced.has(quest.id) || (settings.store.autoEnroll && !hidden.has(quest.id));
+            if (wanted && now - (enrollFailedAt.get(quest.id) ?? 0) > ENROLL_RETRY_MS) toEnroll.push(quest);
             continue;
         }
 
@@ -377,6 +410,10 @@ function finishRun(run: Run, completed: boolean) {
         void Native.stopGame(run.appId);
     }
 
+    if (completed && run.kind === "game" && run.appId && settings.store.clearActivity && !isKept(run.appId)) {
+        void clearRecentActivity(run.appId, gameName(run.appId));
+    }
+
     if (completed) {
         forced.delete(run.questId);
         lastProblem.delete(run.questId);
@@ -457,6 +494,82 @@ async function lookupExe(appId: string): Promise<GameLaunch> {
     const info = { name, exe, args };
     appExeCache.set(appId, info);
     return info;
+}
+
+const keptGames = (): KeptGame[] => settings.store.keepGames ?? [];
+const isKept = (appId: string) => keptGames().some(g => g.id === appId);
+const gameName = (appId: string, fallback?: string) => GameStore.getDetectableGame(appId)?.name || fallback || `Game ${appId}`;
+
+function setKeptGames(list: KeptGame[]) {
+    const byId = new Map(list.filter(g => /^\d{17,20}$/.test(g.id)).map(g => [g.id, g] as const));
+    settings.store.keepGames = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function outboxEntries(): Promise<OutboxEntry[]> {
+    if (!userId) return [];
+    try {
+        return (await fetchOutbox(userId))?.entries ?? [];
+    } catch (e) {
+        logger.warn("couldn't read recent activity", e);
+        return ContentInventoryOutboxStore.getUserOutbox(userId)?.entries ?? [];
+    }
+}
+
+// Every game sitting on your Board: the games you like, your favourite one and the wishlist.
+async function boardGames(): Promise<KeptGame[]> {
+    const res = await RestAPI.get({ url: "/users/@me/widgets" });
+    const found = new Map<string, KeptGame>();
+
+    const take = (value: unknown) => {
+        for (const game of Array.isArray(value) ? value : [value]) {
+            if (!game || typeof game !== "object") continue;
+            const { id, name } = game as { id?: unknown; name?: unknown; };
+            if (typeof id === "string" && /^\d{17,20}$/.test(id)) {
+                found.set(id, { id, name: gameName(id, typeof name === "string" ? name : undefined) });
+            }
+        }
+    };
+
+    // The widget list has grown new shapes before, so this looks for games anywhere in the reply
+    // rather than at one fixed path.
+    const walk = (value: unknown, depth = 0) => {
+        if (depth > 6 || !value || typeof value !== "object") return;
+        if (Array.isArray(value)) return value.forEach(item => walk(item, depth + 1));
+        const node = value as Record<string, unknown>;
+        if (node.games != null) take(node.games);
+        if (node.game != null) take(node.game);
+        if (typeof node.application_id === "string") take({ id: node.application_id, name: node.application_name });
+        Object.values(node).forEach(item => walk(item, depth + 1));
+    };
+
+    walk(res.body);
+    return [...found.values()];
+}
+
+// Discord writes the play session to your profile a little after the quest completes, so this waits for the
+// entry to turn up instead of firing once and missing it.
+async function clearRecentActivity(appId: string, label: string) {
+    const mine = generation;
+
+    for (let tries = 0; tries < 6; tries++) {
+        await sleep(tries === 0 ? 5000 : 10_000);
+        if (generation !== mine || !userId || !settings.store.clearActivity || isKept(appId)) return;
+
+        const entry = (await outboxEntries()).find(e => e.extra?.application_id === appId);
+        if (!entry) continue;
+
+        await deleteOutboxEntry(entry, userId);
+        if ((await outboxEntries()).some(e => e.id === entry.id)) {
+            logger.warn(`${label}: Discord kept the recent activity entry`);
+            toast(`Couldn't take ${label} off Recent activity.`, "critical");
+        } else {
+            logger.info(`${label}: removed from recent activity`);
+            toast(`${label} is off your Recent activity.`, "success");
+        }
+        return;
+    }
+
+    logger.info(`${label}: nothing turned up on recent activity to remove`);
 }
 
 // Non-game apps (browsers, tools) show up in the non-game list but still count for play quests.
@@ -758,6 +871,10 @@ function cardState(quest: Quest) {
     const instant = picked.kind === "achievement";
 
     if (run) return { text: instant ? "Completing..." : `Completing (${clock(left)})`, running: true };
+    // Not accepted yet: our button accepts it, so it must not look like it is already waiting its turn.
+    if (!quest.userStatus?.enrolledAt) {
+        return forced.has(quest.id) ? { text: "Accepting...", running: true } : { text: "Accept and finish", running: false };
+    }
     if (!paused.has(quest.id) && pickTask(quest) && !unsupported.has(quest.id) && !achievementPosted.has(quest.id)) {
         const retrying = Date.now() - (failedAt.get(quest.id) ?? 0) < RETRY_MS;
         return { text: retrying ? "Trying again soon" : "Queued", running: true };
@@ -785,7 +902,13 @@ function QuestCardButton({ quest, size }: { quest: Quest; size: string; }) {
 
 function hasCardButton(quest: Quest | undefined): boolean {
     if (!started || !quest || questifyFinisherOn() || QuestStore.isQuestAccessSuspended) return false;
-    return !!quest.userStatus?.enrolledAt && !quest.userStatus.completedAt && isLive(quest) && !!pickTask(quest, true);
+    if (quest.userStatus?.completedAt || !isLive(quest)) return false;
+
+    const picked = pickTask(quest, true);
+    if (!picked) return false;
+    // Activity achievement quests have no plain Accept button: Discord's "Launch Quest" opens the activity as
+    // well, which this never needs. Our button takes its place and accepts the quest without opening anything.
+    return !!quest.userStatus?.enrolledAt || picked.kind === "achievement";
 }
 
 // Replaces Discord's button on accepted quests QuestRunner can do; anything else keeps Discord's own button.
@@ -829,6 +952,69 @@ function waitingQuests() {
         else out.push(`${name}: waiting for its turn`);
     }
     return out;
+}
+
+function KeepPanel() {
+    const [busy, setBusy] = React.useState(false);
+    const [recent, setRecent] = React.useState<KeptGame[] | null>(null);
+    const [, redraw] = React.useReducer((n: number) => n + 1, 0);
+    const kept = keptGames();
+
+    React.useEffect(() => {
+        void outboxEntries().then(entries => setRecent(entries.flatMap(entry => {
+            const id = entry.extra?.application_id;
+            return id ? [{ id, name: gameName(id, entry.extra?.game_name) }] : [];
+        })), () => setRecent([]));
+    }, []);
+
+    const save = (list: KeptGame[]) => {
+        setKeptGames(list);
+        redraw();
+    };
+
+    const addBoard = async () => {
+        setBusy(true);
+        try {
+            const found = await boardGames();
+            save([...keptGames(), ...found]);
+            toast(found.length ? `Keeping ${found.length} game${found.length === 1 ? "" : "s"} from your Board.` : "No games on your Board.", found.length ? "success" : "critical");
+        } catch (e) {
+            logger.error("couldn't read the Board", e);
+            toast("Couldn't read your Board.", "critical");
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const addable = (recent ?? []).filter(game => !kept.some(k => k.id === game.id));
+
+    return (
+        <Card>
+            <Heading tag="h4">Games to keep on your profile</Heading>
+            <Paragraph>These stay on Recent activity even after a quest finishes for them. While the setting above is on, every other game a quest finishes comes off.</Paragraph>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>
+                <Button size="small" disabled={busy} onClick={addBoard}>Add Board games</Button>
+                {kept.length ? <Button size="small" variant="secondary" onClick={() => save([])}>Clear the list</Button> : null}
+            </div>
+            {kept.length
+                ? kept.map(game => (
+                    <Paragraph key={game.id}>
+                        {game.name} <Button size="small" variant="secondary" onClick={() => save(kept.filter(k => k.id !== game.id))}>Remove</Button>
+                    </Paragraph>
+                ))
+                : <Paragraph>Nothing kept yet.</Paragraph>}
+            {addable.length
+                ? <>
+                    <Heading tag="h4">On your Recent activity now</Heading>
+                    {addable.map(game => (
+                        <Paragraph key={game.id}>
+                            {game.name} <Button size="small" variant="secondary" onClick={() => save([...kept, game])}>Keep</Button>
+                        </Paragraph>
+                    ))}
+                </>
+                : null}
+        </Card>
+    );
 }
 
 function StatusPanel() {
