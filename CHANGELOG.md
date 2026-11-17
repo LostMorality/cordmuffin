@@ -3,6 +3,18 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
+## 2026-11-17
+
+- QuestRunner: new **Clear Recent activity**, off by default. When a play quest finishes, the game comes off Recent
+  activity on your profile. It only takes the session the quest made: if Discord's entry starts before the quest did,
+  it stays, because Discord deletes a whole entry or nothing and that one holds time you really played.
+- QuestRunner: new list of games to keep on your profile, under that setting. **Add Board games** fills it in one press
+  with every game already on your Board, and each game on your Recent activity has a Keep button next to it. Games on
+  the list are never touched.
+- QuestRunner: quests with a **Launch Quest** button no longer make you open the activity to accept them. Our Complete
+  button only appeared once a quest was accepted, and for those quests Discord's Launch Quest was the only way to
+  accept, which opened the activity for nothing. The card now offers **Accept and finish** straight away.
+
 ## 2026-11-13
 
 - CustomRPCShare: new plugin. Adds Export Presets and Import Presets to CustomRPC's settings, so you can share your
