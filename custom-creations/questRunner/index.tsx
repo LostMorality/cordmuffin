@@ -37,6 +37,7 @@ const deleteOutboxEntry: (entry: OutboxEntry, userId: string, done?: () => void)
 
 interface OutboxEntry {
     id: string;
+    started_at?: string;
     extra?: { application_id?: string; game_name?: string; };
 }
 
@@ -84,6 +85,7 @@ interface Run {
     progress: number;
     // When progress was last known; null while it isn't moving yet (a stand-in game not detected).
     progressAt: number | null;
+    startedAt: number;
 }
 
 const settings = definePluginSettings({
@@ -146,7 +148,7 @@ const settings = definePluginSettings({
     },
     clearActivity: {
         type: OptionType.BOOLEAN,
-        description: "After a play quest finishes, take that game off Recent activity on your profile. Careful: this removes the game's whole entry, including real time you played it. Keep the games you want on your profile in the list below.",
+        description: "After a play quest finishes, take that game off Recent activity on your profile. Only the session the quest made: if the entry starts before the quest did, it stays, because Discord would take your real play time with it. Games in the list below are never touched.",
         default: false,
     },
     keepPanel: {
@@ -355,7 +357,7 @@ async function enrollAll(quests: Quest[]) {
 function startRun(quest: Quest, task: Task, kind: RunKind) {
     const run: Run = {
         questId: quest.id, name: questName(quest), kind, task, appIds: [], note: "Starting", abort: new AbortController(),
-        progress: progressOf(quest, task), progressAt: null,
+        progress: progressOf(quest, task), progressAt: null, startedAt: Date.now(),
     };
     const active = [...runs.values()];
 
@@ -410,8 +412,9 @@ function finishRun(run: Run, completed: boolean) {
         void Native.stopGame(run.appId);
     }
 
-    if (completed && run.kind === "game" && run.appId && settings.store.clearActivity && !isKept(run.appId)) {
-        void clearRecentActivity(run.appId, gameName(run.appId));
+    // Play quests both ways: a stand-in game, and the direct kind for quests with no game to run.
+    if (completed && (run.kind === "game" || run.kind === "direct") && run.appId && settings.store.clearActivity && !isKept(run.appId)) {
+        void clearRecentActivity(run.appId, gameName(run.appId), run.startedAt);
     }
 
     if (completed) {
@@ -496,6 +499,9 @@ async function lookupExe(appId: string): Promise<GameLaunch> {
     return info;
 }
 
+// How far before a quest an entry may begin and still count as the stand-in's own session.
+const SESSION_GRACE_MS = 120_000;
+
 const keptGames = (): KeptGame[] => settings.store.keepGames ?? [];
 const isKept = (appId: string) => keptGames().some(g => g.id === appId);
 const gameName = (appId: string, fallback?: string) => GameStore.getDetectableGame(appId)?.name || fallback || `Game ${appId}`;
@@ -515,40 +521,38 @@ async function outboxEntries(): Promise<OutboxEntry[]> {
     }
 }
 
-// Every game sitting on your Board: the games you like, your favourite one and the wishlist.
+// Every game sitting on your Board: the games you like and your favourite one.
+// The board is read off your own profile. /users/@me/widgets is the route that saves it and refuses a read.
 async function boardGames(): Promise<KeptGame[]> {
-    const res = await RestAPI.get({ url: "/users/@me/widgets" });
+    if (!userId) return [];
+
     const found = new Map<string, KeptGame>();
+    const add = (id: unknown) => {
+        if (typeof id === "string" && /^\d{17,20}$/.test(id) && !found.has(id)) found.set(id, { id, name: gameName(id) });
+    };
 
-    const take = (value: unknown) => {
-        for (const game of Array.isArray(value) ? value : [value]) {
-            if (!game || typeof game !== "object") continue;
-            const { id, name } = game as { id?: unknown; name?: unknown; };
-            if (typeof id === "string" && /^\d{17,20}$/.test(id)) {
-                found.set(id, { id, name: gameName(id, typeof name === "string" ? name : undefined) });
-            }
+    const res = await RestAPI.get({ url: `/users/${userId}/profile`, query: { with_mutual_guilds: false } });
+    const { widgets } = (res.body ?? {}) as { widgets?: unknown; };
+
+    // Widgets arrive nested under "data" from the API and flattened from the store, with the game id spelled
+    // either way, so both are accepted rather than one fixed path.
+    for (const widget of Array.isArray(widgets) ? widgets : []) {
+        const data = (widget as { data?: unknown; })?.data ?? widget;
+        const games = (data as { games?: unknown; })?.games;
+        for (const game of Array.isArray(games) ? games : []) {
+            const entry = game as { game_id?: unknown; gameId?: unknown; };
+            add(entry?.game_id ?? entry?.gameId);
         }
-    };
+    }
 
-    // The widget list has grown new shapes before, so this looks for games anywhere in the reply
-    // rather than at one fixed path.
-    const walk = (value: unknown, depth = 0) => {
-        if (depth > 6 || !value || typeof value !== "object") return;
-        if (Array.isArray(value)) return value.forEach(item => walk(item, depth + 1));
-        const node = value as Record<string, unknown>;
-        if (node.games != null) take(node.games);
-        if (node.game != null) take(node.game);
-        if (typeof node.application_id === "string") take({ id: node.application_id, name: node.application_name });
-        Object.values(node).forEach(item => walk(item, depth + 1));
-    };
-
-    walk(res.body);
+    // Your wishlist is deliberately left out: those ids belong to Discord's store, not to applications, so they
+    // could never match the game a quest names.
     return [...found.values()];
 }
 
 // Discord writes the play session to your profile a little after the quest completes, so this waits for the
 // entry to turn up instead of firing once and missing it.
-async function clearRecentActivity(appId: string, label: string) {
+async function clearRecentActivity(appId: string, label: string, since: number) {
     const mine = generation;
 
     for (let tries = 0; tries < 6; tries++) {
@@ -557,6 +561,15 @@ async function clearRecentActivity(appId: string, label: string) {
 
         const entry = (await outboxEntries()).find(e => e.extra?.application_id === appId);
         if (!entry) continue;
+
+        // One entry is one unbroken session. If it began before the quest did, it holds time you really played,
+        // and Discord deletes the whole entry or nothing, so this leaves it alone and says so.
+        const began = Date.parse(entry.started_at ?? "");
+        if (Number.isFinite(began) && began < since - SESSION_GRACE_MS) {
+            logger.info(`${label}: left on recent activity, the entry starts before the quest did`);
+            toast(`Left ${label} on Recent activity: you really played it in that session.`, "critical");
+            return;
+        }
 
         await deleteOutboxEntry(entry, userId);
         if ((await outboxEntries()).some(e => e.id === entry.id)) {
@@ -991,7 +1004,7 @@ function KeepPanel() {
     return (
         <Card>
             <Heading tag="h4">Games to keep on your profile</Heading>
-            <Paragraph>These stay on Recent activity even after a quest finishes for them. While the setting above is on, every other game a quest finishes comes off.</Paragraph>
+            <Paragraph>These stay on Recent activity even after a quest finishes for them. While the setting above is on, every other game a quest finishes comes off. Add Board games keeps every game already shown on your profile: the ones you like and your favourite.</Paragraph>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>
                 <Button size="small" disabled={busy} onClick={addBoard}>Add Board games</Button>
                 {kept.length ? <Button size="small" variant="secondary" onClick={() => save([])}>Clear the list</Button> : null}
