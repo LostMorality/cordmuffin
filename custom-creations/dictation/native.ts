@@ -102,7 +102,8 @@ interface Engine {
 }
 
 let download: { label: string; received: number; total: number; } | null = null;
-let installing: Promise<void> | null = null;
+const installing = new Map<string, Promise<void>>();
+let installQueue: Promise<void> = Promise.resolve();
 let speech: Engine | null = null;
 let grammar: Engine | null = null;
 let gpuVendors: Promise<number[]> | null = null;
@@ -187,7 +188,10 @@ async function fetchArchive(url: string, label: string, dir: string, into = ROOT
 export function install(_: IpcMainInvokeEvent, what: string) {
     if (what !== "grammar") assertSpeech(what);
 
-    installing ??= (async () => {
+    const running = installing.get(what);
+    if (running) return running;
+
+    const job = installQueue.catch(() => { }).then(async () => {
         mkdirSync(ROOT, { recursive: true });
         try {
             if (what === "grammar") {
@@ -212,11 +216,13 @@ export function install(_: IpcMainInvokeEvent, what: string) {
             }
         } finally {
             download = null;
-            installing = null;
+            installing.delete(what);
         }
-    })();
+    });
 
-    return installing;
+    installing.set(what, job);
+    installQueue = job;
+    return job;
 }
 
 function freePort() {
