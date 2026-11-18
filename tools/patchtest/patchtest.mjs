@@ -20,6 +20,8 @@ const USAGE = `usage:
 options:
   --equicord <dir>  Equicord source folder (default: found from the plugin path, or EQUICORD_DIR)
   --port <n>        Discord's debug port (default: read from Discord, then 9222; or CDP_PORT)
+  --page <n|text>   which Discord page to use: its number in the list, or part of its URL (default:
+                    the one with the most Equicord plugins on)
   --keymap <file>   hashed-key -> name JSON for --keys (default: key_map.json next to this script)
   --show            print the code around each match and the replaced result
   --context <n>     characters of context for --show (default 120)
@@ -28,7 +30,7 @@ options:
                     reused between runs) and print the result; a path ending in .js runs that file`;
 
 function parseArgs(argv) {
-    const opts = { port: null, equicord: null, keymap: null, show: false, verbose: false, context: 120, keys: null, eval: null, target: null };
+    const opts = { port: null, page: null, equicord: null, keymap: null, show: false, verbose: false, context: 120, keys: null, eval: null, target: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const value = () => {
@@ -36,6 +38,7 @@ function parseArgs(argv) {
             return argv[++i];
         };
         if (a === "--port") opts.port = value();
+        else if (a === "--page") opts.page = value();
         else if (a === "--equicord") opts.equicord = value();
         else if (a === "--keymap") opts.keymap = value();
         else if (a === "--show") opts.show = true;
@@ -292,25 +295,73 @@ function candidatePorts(port) {
     return [...new Set(ports)];
 }
 
-async function connectDiscord(port) {
-    const ports = candidatePorts(port);
-    let page;
+// Runs inside Discord: how many Equicord plugins are on, or -1 where Equicord isn't loaded.
+const ENABLED_PLUGINS = "(() => { try { const s = Vencord.Settings.plugins; return Object.keys(Vencord.Plugins.plugins).filter(n => s[n]?.enabled).length; } catch { return -1; } })()";
+
+const withTimeout = (promise, ms, what) => Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} timed out`)), ms).unref()),
+]);
+
+const pageLabel = t => `"${t.title || "untitled"}"`;
+const isPopout = t => /^https:\/\/[^/]+\/(popout|overlay)/.test(t.url);
+
+async function connectDiscord(opts) {
+    const ports = candidatePorts(opts.port);
+    let pages = [];
     for (const p of ports) {
         try {
             const targets = await (await fetch(`http://127.0.0.1:${p}/json`, { signal: AbortSignal.timeout(3000) })).json();
-            const pages = targets.filter(t => t.type === "page" && /^https:\/\/([\w-]+\.)*discord\.com\//.test(t.url));
-            // Popouts and the overlay are discord.com pages too, but only the main window has Equicord's webpack.
-            page = pages.find(t => !/^https:\/\/[^/]+\/(popout|overlay)/.test(t.url)) ?? pages[0];
-            if (page) break;
+            pages = targets.filter(t => t.type === "page" && /^https:\/\/([\w-]+\.)*discord\.com\//.test(t.url));
+            if (pages.length) break;
         } catch { }
     }
-    if (!page) throw new Error(`no Discord page on debug port ${ports.join(" / ")}; start Discord with --remote-debugging-port=9222 (see README)`);
+    if (!pages.length) throw new Error(`no Discord page on debug port ${ports.join(" / ")}; start Discord with --remote-debugging-port=9222 (see README)`);
+    const list = () => pages.map((t, i) => `${i} ${pageLabel(t)}`).join(", ");
 
+    let page, client;
+    if (opts.page != null) {
+        page = /^\d+$/.test(opts.page) ? pages[Number(opts.page)] : pages.find(t => t.url.includes(opts.page));
+        if (!page) throw new Error(`no Discord page matches --page ${opts.page}; open pages: ${list()}`);
+        client = await openPage(page);
+    } else if (pages.length === 1) {
+        page = pages[0];
+        client = await openPage(page);
+    } else {
+        // StreamTimeFarmer's hidden second account, popouts and the overlay are discord.com pages too. The main
+        // window is the one with the most plugins on; on a tie, one that isn't a popout or the overlay wins.
+        const ordered = [...pages].sort((a, b) => isPopout(a) - isPopout(b));
+        let best = -Infinity;
+        for (const t of ordered) {
+            let c;
+            try {
+                c = await openPage(t);
+                const n = Number(await withTimeout(c.evaluate(ENABLED_PLUGINS), 3000, "reading the page"));
+                if (n > best) {
+                    client?.close();
+                    [best, page, client, c] = [n, t, c, null];
+                }
+            } catch { } finally {
+                c?.close();
+            }
+        }
+        if (!client) throw new Error(`couldn't open any Discord page (${list()}); pick one with --page`);
+    }
+    console.error(`page: ${pageLabel(page)}`);
+    return client;
+}
+
+async function openPage(page) {
     const ws = new WebSocket(page.webSocketDebuggerUrl);
-    await new Promise((res, rej) => {
-        ws.onopen = res;
-        ws.onerror = () => rej(new Error("could not open the CDP websocket"));
-    });
+    try {
+        await withTimeout(new Promise((res, rej) => {
+            ws.onopen = res;
+            ws.onerror = () => rej(new Error("could not open the CDP websocket"));
+        }), 5000, "opening the CDP websocket");
+    } catch (e) {
+        ws.close();
+        throw e;
+    }
 
     let nextId = 1;
     const pending = new Map();
@@ -514,7 +565,7 @@ function printTable(rows) {
 async function runEval(code, opts) {
     const file = resolve(code);
     if (extname(code) === ".js" && existsSync(file)) code = readFileSync(file, "utf8");
-    const discord = await connectDiscord(opts.port);
+    const discord = await connectDiscord(opts);
     try {
         // replMode is what Discord's own console uses: top-level await, and redeclaring let/const is allowed.
         const value = await discord.evaluate(code, { replMode: true, userGesture: true });
@@ -558,7 +609,7 @@ async function main() {
         ? { type: "string", value: p.find }
         : { type: "regex", source: p.find.source, flags: p.find.flags });
 
-    const discord = await connectDiscord(opts.port);
+    const discord = await connectDiscord(opts);
     try {
         const found = await discord.evaluate(call(remoteFindModules, finds));
         if (found.error) throw new Error(found.error);
