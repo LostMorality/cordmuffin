@@ -62,6 +62,7 @@ const DETECT_TIMEOUT_MS = 120_000;
 const LOST_TIMEOUT_MS = 90_000;
 const RETRY_MS = 5 * 60_000;
 const ENROLL_RETRY_MS = 30 * 60_000;
+const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 type TaskType = "WATCH_VIDEO" | "WATCH_VIDEO_ON_MOBILE" | "PLAY_ON_DESKTOP" | "PLAY_ON_DESKTOP_V2" | "PLAY_ON_XBOX" | "PLAY_ON_PLAYSTATION"
     | "STREAM_ON_DESKTOP" | "PLAY_ACTIVITY" | "ACHIEVEMENT_IN_ACTIVITY" | "ACHIEVEMENT_IN_GAME";
@@ -182,6 +183,7 @@ const appExeCache = new Map<string, GameLaunch>();
 const forced = new Set<string>();
 const paused = new Set<string>();
 let evaluateTimer: ReturnType<typeof setTimeout> | null = null;
+let evaluateDue = 0;
 let enrolling = false;
 let warnedSuspended = false;
 let started = false;
@@ -236,6 +238,11 @@ function toast(text: string, variant: "default" | "success" | "critical" = "defa
     notify(text, variant);
 }
 
+// Discord's REST calls reject with the raw response ({ status, body }) and its flux errors carry status too.
+function rateLimited(e: unknown): boolean {
+    return (e as { status?: number; } | null | undefined)?.status === 429 || String(e).includes("429");
+}
+
 function problem(run: Run, text: string, once = true) {
     run.note = text;
     lastProblem.set(run.questId, text);
@@ -251,9 +258,13 @@ function onPlaySettingChange() {
     scheduleEvaluate();
 }
 
+// A later request never pushes back one already due sooner, so a long wait (an enrollment hold) can't swallow a retry.
 function scheduleEvaluate(delay = 750) {
     if (!started) return;
+    const due = Date.now() + delay;
+    if (evaluateTimer && evaluateDue <= due) return;
     if (evaluateTimer) clearTimeout(evaluateTimer);
+    evaluateDue = due;
     evaluateTimer = setTimeout(evaluate, delay);
 }
 
@@ -322,11 +333,16 @@ function evaluate() {
 async function enrollAll(quests: Quest[]) {
     enrolling = true;
     const run = generation;
+    let wait: number | undefined;
     try {
         for (const [i, quest] of quests.entries()) {
             if (!started || run !== generation) return;
             const blockedUntil = QuestStore.questEnrollmentBlockedUntil;
-            if (blockedUntil && new Date(blockedUntil).getTime() > Date.now()) return;
+            const blockedFor = blockedUntil ? new Date(blockedUntil).getTime() - Date.now() : 0;
+            if (blockedFor > 0) {
+                wait = Math.min(blockedFor + 1000, MAX_TIMEOUT_MS);
+                return;
+            }
 
             let result: { type: string; } | undefined;
             try {
@@ -350,7 +366,7 @@ async function enrollAll(quests: Quest[]) {
         }
     } finally {
         enrolling = false;
-        if (run === generation) scheduleEvaluate();
+        if (run === generation) scheduleEvaluate(wait);
     }
 }
 
@@ -395,7 +411,7 @@ function startRun(quest: Quest, task: Task, kind: RunKind) {
     }, e => {
         if (run.abort.signal.aborted) return;
         logger.error(`${run.name} failed`, e);
-        if (String(e).includes("429")) problem(run, "Discord is rate limiting quest progress. Trying again in 5 minutes.");
+        if (rateLimited(e)) problem(run, "Discord is rate limiting quest progress. Trying again in 5 minutes.");
         if (run.kind === "achievement") forced.delete(run.questId);
         failedAt.set(run.questId, Date.now());
         finishRun(run, false);
@@ -507,7 +523,7 @@ const isKept = (appId: string) => keptGames().some(g => g.id === appId);
 const gameName = (appId: string, fallback?: string) => GameStore.getDetectableGame(appId)?.name || fallback || `Game ${appId}`;
 
 function setKeptGames(list: KeptGame[]) {
-    const byId = new Map(list.filter(g => /^\d{17,20}$/.test(g.id)).map(g => [g.id, g] as const));
+    const byId = new Map(list.filter(g => /^\d{17,20}$/.test(g.id)).map(g => [g.id, { id: g.id, name: g.name }] as const));
     settings.store.keepGames = [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -1162,7 +1178,7 @@ export default definePlugin({
             find: "QUEST_HOME_TILE_FOOTER,",
             predicate: () => settings.store.cardButtons && !questifyFinisherOn(),
             replacement: {
-                match: /(?=\(\i===\i\.\i\.ENROLLED\|\|\i===\i\.\i\.INCOMPLETE\)&&.{0,100}?\(0,\i\.\i\)\((\i)\)\?\(0,\i\.jsx\)\("div",\{className:\i\.\i,children:\(0,\i\.jsx\)\(\i,\{quest:\1,content:)/,
+                match: /(?=\(\i===\i\.\i\.ENROLLED\|\|\i===\i\.\i\.INCOMPLETE\)&&.{0,100}?\(0,\i\.\i\)\((\i)\)\?\(0,\i\.jsx\)\("div",\{className:.{0,60}?,children:\(0,\i\.jsx\)\(\i,\{quest:\1,content:)/,
                 replace: "!$self.hasCardButton($1)&&"
             }
         },
@@ -1186,6 +1202,10 @@ export default definePlugin({
         QUESTS_FETCH_CURRENT_QUESTS_SUCCESS: () => scheduleEvaluate(),
         QUESTS_ENROLL_SUCCESS: () => scheduleEvaluate(),
         QUESTS_SEND_HEARTBEAT_SUCCESS: () => scheduleEvaluate(),
+        QUESTS_SEND_HEARTBEAT_FAILURE: ({ questId, error }: { questId: string; error?: unknown; }) => {
+            const run = runs.get(questId);
+            if (run && rateLimited(error)) problem(run, "Discord is rate limiting quest progress.");
+        },
     },
 
     start() {
@@ -1201,6 +1221,7 @@ export default definePlugin({
         started = false;
         QuestStore.removeChangeListener(onStoreChange);
         if (evaluateTimer) clearTimeout(evaluateTimer);
+        evaluateTimer = null;
         stopAll();
     },
 });
