@@ -74,10 +74,16 @@ const pluginNames: Record<string, string> = {
     streamtimefarmer: "StreamTimeFarmer",
     dictation: "Dictation",
     cordmuffinupdater: "CordmuffinUpdater",
+    badgetierviewer: "BadgeTierViewer",
+    customrpcshare: "CustomRPCShare",
+    greetstickerpickerplus: "GreetStickerPicker+",
+    officialcustomtypingindicator: "OfficialCustomTypingIndicator",
+    platformspooferplus: "PlatformSpoofer+",
+    shrinkuploads: "ShrinkUploads",
 };
 const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
 // Every plugin in custom-creations/, so changelog lines about one can be hidden from people who don't have it.
-const cordmuffinPlugins = ["cordmuffinUpdater", "dictation", "discrubLoader", "gameTimeSpoof", "hideClientBadges", "muffinshelf", "pluginPresets", "profileImages", "questRunner", "ransom", "streamTimeFarmer", "translateItAll"];
+const cordmuffinPlugins = ["badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
@@ -310,8 +316,10 @@ function relevant(sections: ChangelogSection[], installed: string[]) {
         .map(s => ({
             ...s,
             items: s.items.filter(item => {
-                const subject = /^([^:]{1,40}):\s/.exec(item)?.[1].trim().toLowerCase();
-                return !subject || !known.has(subject) || have.has(subject);
+                const m = /^([^:]{1,40}):\s+(.*)/s.exec(item);
+                const subject = m?.[1].trim().toLowerCase();
+                // "X: new plugin." announces X, so it shows for people who don't have X yet.
+                return !subject || !known.has(subject) || have.has(subject) || /^new plugin\b/i.test(m?.[2] ?? "");
             }),
         }))
         .filter(s => s.items.length);
@@ -471,9 +479,9 @@ function UpdaterPage() {
                 are in %LOCALAPPDATA%\Cordmuffin\update.log.
             </Paragraph>
             <Paragraph color="text-subtle">
-                It talks to GitHub (api.github.com, codeload.github.com, and github.com for new installer releases),
-                including the repos your Muffinshelf plugins came from, plus nodejs.org and registry.npmjs.org while it
-                builds.
+                It talks to GitHub (api.github.com, codeload.github.com, and github.com and
+                release-assets.githubusercontent.com for new installer releases), including the repos your Muffinshelf
+                plugins came from, plus nodejs.org and registry.npmjs.org while it builds.
             </Paragraph>
         </SettingsTab>
     );
