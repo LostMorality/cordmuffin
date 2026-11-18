@@ -5,6 +5,9 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 
 ## 2026-11-17
 
+- StreamTimeFarmer: works with NoTrack's **Allow Badge Tracking** (on by default), which lets stream reports through
+  while the rest of Discord's tracking stays blocked. The badge warning no longer goes red for NoTrack's defaults, and
+  **Fix these for me** turns that switch on instead of turning off NoTrack's whole analytics block.
 - QuestRunner: new **Clear Recent activity**, off by default. When a play quest finishes, the game comes off Recent
   activity on your profile. It only takes the session the quest made: if Discord's entry starts before the quest did,
   it stays, because Discord deletes a whole entry or nothing and that one holds time you really played.
@@ -14,6 +17,29 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - QuestRunner: quests with a **Launch Quest** button no longer make you open the activity to accept them. Our Complete
   button only appeared once a quest was accepted, and for those quests Discord's Launch Quest was the only way to
   accept, which opened the activity for nothing. The card now offers **Accept and finish** straight away.
+- QuestRunner: Quest Home tiles show the QuestRunner button again after Discord's latest update.
+- QuestRunner: when Discord rate-limits quest progress you now get a warning, also for quests run with direct
+  heartbeats. Before, it never showed. While Discord has quest accepting on hold, QuestRunner waits for
+  the hold to end instead of checking again every second.
+- OfficialCustomTypingIndicator: fixed for Discord's latest update. Discord desktop has started drawing custom typing
+  styles itself for some people. Where it does, the plugin steps aside so the emoji and the word never show twice.
+  Where Discord still shows the plain dots and "is typing", the plugin draws other people's styles as before.
+- GameTimeSpoof: spoofed games are counted once, whatever NoTrack is set to. Discord's own game heartbeat counted them
+  too while its reports got through, so spoofed time could count twice. GameTimeSpoof now needs a restart to turn on
+  or off.
+- GameTimeSpoof: **Report real games** now only sends anything when NoTrack really blocks Discord's game reports:
+  **Disable Analytics** on and **Allow Badge Tracking** off.
+  With NoTrack's defaults Discord counts real games itself, so they're no longer counted twice. A change to either
+  NoTrack switch counts after a restart, same as NoTrack.
+- StreamTimeFarmer: the stream report watch no longer pushes other plugins' network hooks aside when it starts, or
+  wipes them out when it stops (HideClientBadges, or the farm's own Add Streaming Time).
+- Dictation: two downloads can no longer cross. Asking for the grammar model while a speech model is downloading now
+  waits its turn and then really downloads it, instead of saying "done" with nothing downloaded. A download you
+  confirm after you've started dictating, or after another download started, is skipped.
+- CordmuffinUpdater: lines here about BadgeTierViewer, CustomRPCShare, GreetStickerPicker+,
+  OfficialCustomTypingIndicator, PlatformSpoofer+ and ShrinkUploads now only show for people who have that plugin.
+  Lines that announce a new plugin still show for everyone. Its list of places it connects to now includes
+  release-assets.githubusercontent.com, where GitHub sends installer downloads.
 
 ## 2026-11-13
 
