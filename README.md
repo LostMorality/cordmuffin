@@ -89,7 +89,7 @@ It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need ad
 
 `cordmuffinUpdater` · Added by the installer · On by default
 
-**Connects to:** api.github.com, codeload.github.com and github.com (including the repos your Muffinshelf plugins came from), plus nodejs.org and registry.npmjs.org while an update builds. Its files live in `%LOCALAPPDATA%\Cordmuffin`, listed under [What the installer downloads and changes](#what-the-installer-downloads-and-changes).
+**Connects to:** api.github.com, codeload.github.com and github.com (including the repos your Muffinshelf plugins came from), release-assets.githubusercontent.com for new installer releases, plus nodejs.org and registry.npmjs.org while an update builds. Its files live in `%LOCALAPPDATA%\Cordmuffin`, listed under [What the installer downloads and changes](#what-the-installer-downloads-and-changes).
 
 Keeps the cordmuffin plugins, your Muffinshelf plugins and the installer up to date.
 
@@ -141,7 +141,7 @@ When an update is ready, you get a notification, or with **Automatically update*
 
 ### What the installer downloads and changes
 
-- **Downloads from:** nodejs.org, api.github.com, codeload.github.com, github.com, registry.npmjs.org
+- **Downloads from:** nodejs.org, api.github.com, codeload.github.com, github.com, release-assets.githubusercontent.com, registry.npmjs.org
 - **Changes:** Discord's `resources` folder, `%LOCALAPPDATA%\Cordmuffin`, Equicord's theme settings (only if you added themes)
 - **Uploads:** nothing. Nothing is uploaded anywhere.
 
@@ -151,7 +151,7 @@ When an update is ready, you get a notification, or with **Automatically update*
 **It downloads from these places:**
 - nodejs.org: Node.js, which is needed to build Equicord. It's kept in `%LOCALAPPDATA%\Cordmuffin` and isn't installed on your PC.
 - api.github.com and codeload.github.com: Equicord's source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
-- github.com: newer releases of the installer itself, when CordmuffinUpdater finds one.
+- github.com and release-assets.githubusercontent.com: newer releases of the installer itself, when CordmuffinUpdater finds one. GitHub sends the download on from github.com to release-assets.githubusercontent.com.
 - registry.npmjs.org: pnpm and the packages Equicord needs to build (Equicord's own `pnpm-lock.yaml` decides which).
 
 **It changes these on your PC:**
@@ -250,7 +250,7 @@ Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk,
 - The shortcut is Alt+D by default. Change it in the plugin's settings. It works while Discord is focused.
 - Turn the live text off if you don't want it.
 - Speech model: on first use it downloads a speech engine and model that suit your PC: [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard, on stronger PCs, or the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) on older ones. You can choose either one yourself.
-- Fix Grammar uses Qwen3 4B (or Qwen2.5 1.5B on PCs with under 8 GB of memory), and runs on your graphics card when it has room, or on the processor otherwise. Each fix takes well under a second on a graphics card and about a second on a modern processor.
+- Fix Grammar uses Qwen3 4B, or the smaller Qwen2.5 1.5B on PCs with under 8 GB of memory, or with fewer than 8 processor threads and no NVIDIA or AMD graphics card (Apple Silicon Macs count as having one). It runs on your graphics card when it has room, or on the processor otherwise. Each fix takes well under a second on a graphics card and about a second on a modern processor.
 
 </details>
 
@@ -635,7 +635,7 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 **What it does**
 - Adds an editor to the plugin's settings: pick 3 emoji, an animation (None, Pulse, Ring or Wave) and a word, then click **Apply**.
 - **Everyone on an up-to-date Discord phone app sees your style, no plugin needed.** Discord shows it to them itself.
-- Desktop and web Discord don't draw anyone's style yet, so the plugin draws other people's styles for you too (you can turn that off).
+- Discord is starting to draw these styles on desktop too, turning it on for some people at a time. Until yours does, the plugin draws other people's styles for you (you can turn that off). Where Discord already draws a style itself, the plugin steps aside so you never see it twice.
 
 > [!CAUTION]
 > **Use at your own risk.** Discord only accepts this setting from its phone app, so on that one save the plugin says the request comes from the Android app. That's spoofing, which is against Discord's rules. Nothing else you do in Discord is changed.
@@ -745,7 +745,7 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 - **Rotation** cycles through your favorites or random games on a timer.
 - **Add Time** and **Add Random Games** add play time to one game, all your favorites, or any number of random games (or all of them).
 - The badge tracker shows your real badge ranks and when your added time should be counted.
-- Real games count too, even with Equicord's NoTrack blocking Discord's own reports.
+- Real games count too, even when Equicord's NoTrack blocks Discord's own game reports. Spoofed and real games are each counted once, whatever NoTrack is set to.
 
 > [!IMPORTANT]
 > Turn on both "Use data" options in User Settings → Data & Privacy, or Discord ignores the play time and your badges won't move. Details under "What it needs" below.
@@ -777,15 +777,17 @@ Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a 
 - **Turn off other tracking blockers while adding time.** DoNotTrack, NoTrack add-ons, ad blockers and Pi-hole can stop the play-time reports from reaching Discord.
   - The Game Browser and the **Add Time** window warn you when one of these plugins is on, and a blocked run stops right away and says so.
   - Turn the blocker off, or let Discord's `/science` address through.
-- **NoTrack doesn't matter here.** GameTimeSpoof works with NoTrack's "block analytics" option on or off, since it sends its own play-time reports and real games are counted once either way.
-  - If you also use StreamTimeFarmer, that option has to be off, because it blocks the Streaming badge (see [StreamTimeFarmer](#streamtimefarmer)).
+- **NoTrack doesn't matter here.** GameTimeSpoof works with any NoTrack setup. It sends its own play-time reports for spoofed games, and Discord's own game reports never include them, so they're counted once.
+  - Real games are counted once too. NoTrack's **Disable Analytics** ("Block Discord's tracking analytics") only stops Discord's game reports when its **Allow Badge Tracking** ("Still send the events needed for badges...") is off. Both are on by default. Then GameTimeSpoof reports real games itself; otherwise Discord does.
+  - Like NoTrack, it goes by the switches Discord started with, so a change to either one counts after a restart.
+  - StreamTimeFarmer needs **Allow Badge Tracking** on too (or **Disable Analytics** off), the same as NoTrack's defaults (see [StreamTimeFarmer](#streamtimefarmer)).
 - **Keep "Share your detected activities with others" on** (User Settings → Activity Privacy) if you want people to see the game you spoof.
   - Play time still counts with it off, but nobody sees the game.
   - DoNotTrack's **Stop Process Monitor** option turns this off by itself. The Game Browser warns you when it's off and has a **Turn On** button.
 
 **Settings**
 
-- **Report real games** (on): while Discord's analytics are blocked (by NoTrack or similar), Discord stops counting games you really play, so GameTimeSpoof reports them itself. Turn it off to send nothing for real games.
+- **Report real games** (on): while NoTrack's **Disable Analytics** is on and its **Allow Badge Tracking** is off, Discord stops counting games you really play, so GameTimeSpoof reports them itself. With NoTrack's defaults Discord still counts them, and this sends nothing. Turn it off to never send anything for real games.
 
 </details>
 
@@ -914,15 +916,15 @@ A small box in the top-right corner then shows how far along it is, when the nex
 
 **What the badge needs, on both accounts**
 
-Discord adds up streaming time from the report your Discord sends when a stream ends. Equicord's NoTrack plugin ("Block Discord's tracking analytics", on by default) throws that report away, so no stream counts, farmed or real.
+Discord adds up streaming time from the report your Discord sends when a stream ends. Equicord's NoTrack plugin can throw that report away, and then no stream counts, farmed or real. NoTrack's **Disable Analytics** ("Block Discord's tracking analytics", on by default) blocks it unless NoTrack's **Allow Badge Tracking** ("Still send the events needed for badges...", also on by default) is on too, which lets only the badge reports through.
 
-- NoTrack's **Block Discord's tracking analytics** must be **off** (then restart Discord).
+- NoTrack: **Allow Badge Tracking** on (NoTrack's default), or **Disable Analytics** off. Then restart Discord.
 - Data & Privacy → **Use data to personalize my Discord experience** must be **on** (Discord's own badge article asks for this one).
 - Data & Privacy → **Use data to improve Discord** should be **on** (recommended; it's not known whether Discord ignores reports without it).
 
 StreamTimeFarmer checks all of them on both accounts (your second account's while it's in a call) and shows each one in green when it's right and red when it isn't, in its settings and in the corner call widget (the minimized widget gets a red ring).
 
-**Fix these for me** changes what's red after a confirm box that lists every change. If your NoTrack changed, it then asks to restart Discord (NoTrack keeps blocking until you do), and the second account's hidden Discord reloads and rejoins the call by itself.
+**Fix these for me** changes what's red after a confirm box that lists every change. For NoTrack it turns **Allow Badge Tracking** on, so the rest of Discord's tracking stays blocked (on an older NoTrack without that switch it turns **Disable Analytics** off instead). If your NoTrack changed, it then asks to restart Discord (NoTrack keeps blocking until you do), and the second account's hidden Discord reloads and rejoins the call by itself.
 
 It also names other plugins that may block the reports, and warns when a report that should have gone out never reached Discord (an ad blocker or Pi-hole, say). Time streamed while they were blocking was never reported and can't be added back.
 
@@ -1128,7 +1130,7 @@ A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and i
 - If time runs out, Discord stays broken until you revive with all your gold (at least 1,000). Give up and you get the DOORS death screen with the Guiding Light and its music, then an overview of your run.
 - Like the gold in DOORS drawers, a small pile of loose gold turns up somewhere in Discord now and then. Taking it brings Ransom sooner.
 - Sometimes a small spooky item hides in a DM or server channel when you open it. Click it to collect it. Losing a ransom can take up to 3 hidden items.
-- The Ransom panel is in the Equicord toolbox (**Open Ransom**), and you can revive from there. The toolbox also has **Try a challenge** and **Drop some gold**.
+- The Ransom panel is in the Equicord toolbox (**Open Ransom**) and behind the Ransom button in the top bar. The revive card comes up by itself when time runs out; to bring it back, click your gold total next to that button. The toolbox also has **Try a challenge** and **Drop some gold**.
 
 | <img src="docs/ransom-sign.png" alt="The stop sign" width="360"><br>The stop sign | <img src="docs/ransom-encrypted.png" alt="Discord encrypted, with the ransom window and its timer" width="360"><br>Discord encrypted, with the ransom window and its timer |
 |---|---|
@@ -1162,7 +1164,7 @@ A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and i
 <details>
 <summary><b>Privacy, connections and files</b></summary>
 
-**What it talks to:** static.wikitide.net, the DOORS wiki's files (Ransom's sprites, pop-ups, sounds and music), only while **Doors Assets** is on (it's on by default). With it off, or if a download fails, plain stand-ins are used.
+**What it talks to:** static.wikitide.net, the DOORS wiki's files (Ransom's sprites, pop-ups, sounds and music), only while **Doors Assets** is on (it's on by default). With it off, or if a download fails, Ransom's face doesn't show and it doesn't wander around at all. The stop sign, gold, Honey Pot, revive heart and skull get plain drawn stand-ins.
 
 **Where files go:** `%APPDATA%\discord\RansomPlugin` (the downloaded DOORS files). Your gold, items and scores stay inside Discord.
 
