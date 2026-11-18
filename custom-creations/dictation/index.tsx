@@ -134,7 +134,6 @@ type Phase = "idle" | "downloading" | "recording" | "working";
 
 // Audio is checked in 16 ms frames to tell talking apart from background sound.
 const FRAME = 256;
-const FRAME_SEC = FRAME / SAMPLE_RATE;
 const LOUD_DB = -35;
 const QUIET_DB = -52;
 const ABOVE_FLOOR_DB = 15;
@@ -217,7 +216,7 @@ function confirm(title: string, body: string, confirmText: string) {
 }
 
 async function download(what: "cohere" | "parakeet" | "grammar", title: string, body: string, doneText: string) {
-    if (phase !== "idle" || !await confirm(title, body, "Download")) return false;
+    if (phase !== "idle" || !await confirm(title, body, "Download") || phase !== "idle") return false;
 
     // The download keeps going if the plugin stops, but a stopped plugin stays quiet about it.
     const gen = generation;
