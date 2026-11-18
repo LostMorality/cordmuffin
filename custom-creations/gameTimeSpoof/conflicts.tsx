@@ -15,8 +15,9 @@ const cl = classNameFactory("vc-gts-");
 
 const ShowCurrentGame = getUserSettingLazy<boolean>("status", "showCurrentGame")!;
 
-// NoTrack's analytics switch only takes effect after a restart, so the value Discord started with is the one in force.
-export const analyticsBlocked = Settings.plugins.NoTrack?.disableAnalytics !== false;
+// NoTrack's switches only take effect after a restart, so the values Discord started with are the ones in force.
+// Its badge tracking option (on by default) lets Discord's own game reports through even while analytics are blocked.
+export const analyticsBlocked = Settings.plugins.NoTrack?.disableAnalytics !== false && Settings.plugins.NoTrack?.allowBadgeTracking === false;
 
 const BLOCKER = /(do[\s_-]*not|dont|no|anti|stop)[\s_-]*track|tracking|analytics|telemetry/i;
 
