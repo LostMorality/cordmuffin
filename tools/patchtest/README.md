@@ -48,6 +48,12 @@ patchtest finds the port on its own. It reads the port Discord saves in its data
 
 Keep the port local and close Discord when you're done testing. Anything on your PC that can reach that port can control Discord.
 
+### More than one Discord page
+
+Discord can have several pages on the port: popouts, the overlay, or StreamTimeFarmer's hidden window for your second account. patchtest asks each one how many Equicord plugins it has turned on (read-only) and uses the one with the most, which is your main window. It prints the page it picked by its title (`page: "..."`, on stderr, so `--eval` output stays clean).
+
+If it picks the wrong one, pass `--page` with the page's number or part of its URL (`--page 1`, `--page quest-home`). A `--page` that matches nothing lists the open pages and their numbers.
+
 ## Run it
 
 Windows, from a terminal (`run.bat` checks for Node first; double-clicking it shows the help):
@@ -71,6 +77,7 @@ You can give it a plugin folder, its `index.ts(x)`, or a JSON file of patches.
 | `--verbose` | lists the module ids each find hit |
 | `--equicord <dir>` | Equicord source folder, if it isn't found on its own |
 | `--port <n>` | Discord's debug port |
+| `--page <n or text>` | which Discord page to read: its number in the list, or part of its URL. See below |
 | `--keys <NAME or hash> ...` | turns a Discord text-key name like `DEAFEN` into the hash Discord uses. Turning a hash back into a name needs a key map, see below |
 | `--keymap <file>` | JSON of `{"hash": "NAME"}` for `--keys` (default: `key_map.json` next to the script) |
 | `--eval <code or file.js>` | runs JavaScript inside Discord and prints what it returns, see below |
