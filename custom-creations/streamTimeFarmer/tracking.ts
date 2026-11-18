@@ -9,11 +9,12 @@ import { Settings } from "@api/Settings";
 import { findStoreLazy } from "@webpack";
 import { FluxDispatcher, RestAPI, UserStore } from "@webpack/common";
 
-// Discord adds up the Streaming badge from the report each Discord sends when a stream ends. Equicord's NoTrack (its
-// "Block Discord's tracking analytics" switch, on by default) stops those reports. Discord's badge article names "Use
-// data to personalize my Discord experience" as required. The client sends reports whatever "Use data to improve Discord"
-// says, and whether Discord's servers ignore them when it's off isn't known, so it's only recommended. Each account has
-// its own of all three, since the second account runs its own Equicord.
+// Discord adds up the Streaming badge from the report each Discord sends when a stream ends. Equicord's NoTrack stops
+// those reports while its "Disable Analytics" is on, unless its "Allow Badge Tracking" (on by default) lets them
+// through. Discord's badge article names "Use data to personalize my Discord experience" as required. The client sends
+// reports whatever "Use data to improve Discord" says, and whether Discord's servers ignore them when it's off isn't
+// known, so it's only recommended. Each account has its own NoTrack and privacy settings, since the second account runs
+// its own Equicord.
 // Other tracking blockers can stop the reports too, so what really gets sent is watched as well.
 
 export const ConsentStore = findStoreLazy("ConsentStore");
@@ -35,9 +36,16 @@ export function hasConsentStore() {
     }
 }
 
-const noTrackBlocks = () => Settings.plugins.NoTrack?.disableAnalytics !== false;
-// NoTrack swaps Discord's reporting out while Discord loads, so turning its switch off only works after a restart.
+// NoTrack's "Allow Badge Tracking" keeps Discord's own reporting while "Disable Analytics" is on and lets through only
+// the stream and game events badges count (a stream report as the streamer, never as a viewer). A NoTrack without
+// that switch blocks everything while "Disable Analytics" is on.
+const hasBadgeSwitch = () => !!plugins.NoTrack?.settings?.def && "allowBadgeTracking" in plugins.NoTrack.settings.def;
+const analyticsOff = () => Settings.plugins.NoTrack?.disableAnalytics !== false;
+const badgeOnly = () => analyticsOff() && hasBadgeSwitch() && Settings.plugins.NoTrack?.allowBadgeTracking !== false;
+const noTrackBlocks = () => analyticsOff() && !badgeOnly();
+// NoTrack picks how Discord reports while Discord loads, so either switch only takes effect after a restart.
 const blockedAtStart = noTrackBlocks();
+const badgeOnlyAtStart = badgeOnly();
 const loadedAt = Date.now();
 
 const BLOCKER = /(do[\s_-]*not|dont|no|anti|stop)[\s_-]*track|tracking|analytics|telemetry/i;
@@ -56,10 +64,14 @@ function trackingBlockers() {
 }
 
 export interface TrackingState {
-    // NoTrack's switch is on.
+    // NoTrack's switches are set to block stream reports.
     blocked: boolean;
     // NoTrack was blocking when Discord started, so it still is until a restart.
     blockedAtStart: boolean;
+    // NoTrack let only badge events through when Discord started: the streamer's report goes out, a viewer's doesn't.
+    badgeOnlyAtStart?: boolean;
+    // NoTrack has "Allow Badge Tracking", so the fix can keep the rest of the analytics blocked.
+    badgeSwitch?: boolean;
     // "Use data to improve Discord", or null while Discord hasn't said yet.
     usageData: boolean | null;
     // "Use data to personalize my Discord experience", or null while Discord hasn't said yet.
@@ -82,7 +94,7 @@ export function trackingState(): TrackingState {
         if (consents?.[USAGE]) usageData = consents[USAGE].consented === true;
         if (consents?.[PERSONALIZE]) personalized = consents[PERSONALIZE].consented === true;
     } catch { }
-    return { blocked: noTrackBlocks(), blockedAtStart, usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
+    return { blocked: noTrackBlocks(), blockedAtStart, badgeOnlyAtStart, badgeSwitch: hasBadgeSwitch(), usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
 }
 
 // A report Discord accepted since this page loaded proves this client still sends them. NoTrack's switch, its state
@@ -136,7 +148,13 @@ export function stopConsents() {
 
 // Turns them all on for this account, the same way Discord's own privacy settings do. Says whether Discord has to restart.
 export async function allowTracking(): Promise<{ restart: boolean; }> {
-    if (Settings.plugins.NoTrack) Settings.plugins.NoTrack.disableAnalytics = false;
+    const noTrack = Settings.plugins.NoTrack;
+    // NoTrack's "Allow Badge Tracking" when it has one, so the rest of Discord's analytics stays blocked, otherwise its
+    // "Disable Analytics".
+    if (noTrack && noTrackBlocks()) {
+        if (hasBadgeSwitch()) noTrack.allowBadgeTracking = true;
+        else noTrack.disableAnalytics = false;
+    }
     await loadConsents();
     const { usageData, personalized } = trackingState();
     const grant = [...usageData === true ? [] : [USAGE], ...personalized === true ? [] : [PERSONALIZE]];
@@ -144,6 +162,7 @@ export async function allowTracking(): Promise<{ restart: boolean; }> {
         const res = await RestAPI.post({ url: CONSENT_URL, body: { grant, revoke: [] } });
         if (res?.body) FluxDispatcher.dispatch({ type: "UPDATE_CONSENTS", consents: { ...res.body } });
     }
+    // Either switch only applies after a restart, so one is needed exactly when NoTrack was blocking at startup.
     // Reports already getting through mean NoTrack isn't in the way, so there's nothing a restart would change.
     return { restart: blockedAtStart && !reportsGetThrough(trackingState()) };
 }
@@ -165,12 +184,11 @@ export function onReport(listener: (at: number, report: StreamReport) => void) {
     return () => void reportListeners.delete(listener);
 }
 
-const originalOpen = XMLHttpRequest.prototype.open;
-const originalSend = XMLHttpRequest.prototype.send;
-const originalFetch = window.fetch;
 const scienceRequests = new WeakSet<XMLHttpRequest>();
 const scienceUrl = /\/science\b/;
 let watching = false;
+// Bumped on every start, so a wrapper left inside another plugin's chain after a stop stays a pass-through for good.
+let watchRun = 0;
 let partnerId = () => "";
 export function watchReportsFrom(partner: () => string) {
     partnerId = partner;
@@ -198,42 +216,82 @@ function reportAccepted(report: StreamReport) {
     for (const listener of reportListeners) listener(lastReportAt, report);
 }
 
+type Fn = (...args: any[]) => any;
+
+interface WatchSlot {
+    read(): Fn | undefined;
+    write(fn: Fn): void;
+    wrap(prev: Fn, run: number): Fn;
+    prev?: Fn;
+    mine?: Fn;
+}
+
+const live = (run: number) => watching && run === watchRun;
+
+// Each slot wraps whatever is there when the watch starts, so wrappers other plugins installed before it keep running.
+const watchSlots: WatchSlot[] = [
+    {
+        read: () => XMLHttpRequest.prototype.open,
+        write: fn => void (XMLHttpRequest.prototype.open = fn as typeof XMLHttpRequest.prototype.open),
+        wrap: (prev, run) => function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]) {
+            if (live(run) && scienceUrl.test(String(url))) scienceRequests.add(this);
+            return prev.call(this, method, url, ...rest);
+        }
+    },
+    {
+        read: () => XMLHttpRequest.prototype.send,
+        write: fn => void (XMLHttpRequest.prototype.send = fn as typeof XMLHttpRequest.prototype.send),
+        wrap: (prev, run) => function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
+            const report = live(run) && scienceRequests.has(this) ? streamReportIn(body) : null;
+            if (report) {
+                this.addEventListener("load", () => {
+                    if (this.status >= 200 && this.status < 300) reportAccepted(report);
+                });
+            }
+            return prev.call(this, body);
+        }
+    },
+    // Reports still queued when the page is hidden or closing go out through fetch instead.
+    {
+        read: () => window.fetch,
+        write: fn => void (window.fetch = fn as typeof window.fetch),
+        wrap: (prev, run) => function (input: RequestInfo | URL, init?: RequestInit) {
+            const result: Promise<Response> = prev.call(window, input, init);
+            if (!live(run)) return result;
+            const url = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
+            const report = scienceUrl.test(String(url)) ? streamReportIn(init?.body) : null;
+            if (report) {
+                Promise.resolve(result).then(res => {
+                    if (res.ok) reportAccepted(report);
+                }, () => { });
+            }
+            return result;
+        }
+    }
+];
+
 export function startReportWatch() {
     if (watching) return;
     watching = true;
-    XMLHttpRequest.prototype.open = function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: any[]) {
-        if (scienceUrl.test(String(url))) scienceRequests.add(this);
-        return (originalOpen as any).call(this, method, url, ...rest);
-    } as typeof XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
-        const report = scienceRequests.has(this) ? streamReportIn(body) : null;
-        if (report) {
-            this.addEventListener("load", () => {
-                if (this.status >= 200 && this.status < 300) reportAccepted(report);
-            });
-        }
-        return originalSend.call(this, body);
-    };
-    // Reports still queued when the page is hidden or closing go out through fetch instead.
-    window.fetch = function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
-        const result = originalFetch.call(window, input, init);
-        const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
-        const report = scienceUrl.test(url) ? streamReportIn(init?.body) : null;
-        if (report) {
-            result.then(res => {
-                if (res.ok) reportAccepted(report);
-            }, () => { });
-        }
-        return result;
-    } as typeof window.fetch;
+    const run = ++watchRun;
+    for (const s of watchSlots) {
+        const current = s.read();
+        if (!current) continue;
+        s.prev = current;
+        s.mine = s.wrap(current, run);
+        s.write(s.mine);
+    }
 }
 
+// Only a slot still holding this watch's own wrapper is put back; one something else has wrapped over since stays in
+// that chain, and `live` makes it a pass-through.
 export function stopReportWatch() {
     if (!watching) return;
     watching = false;
-    XMLHttpRequest.prototype.open = originalOpen;
-    XMLHttpRequest.prototype.send = originalSend;
-    window.fetch = originalFetch;
+    for (const s of watchSlots) {
+        if (s.mine && s.prev && s.read() === s.mine) s.write(s.prev);
+        s.prev = s.mine = undefined;
+    }
     // Nothing can see a report from here on, so it can't be called missing either.
     reportExpectedAt = secondReportExpectedAt = 0;
 }
@@ -252,6 +310,8 @@ export function expectReports(fromSecond: boolean) {
 // True when a report that should have gone out by now didn't reach Discord.
 export function reportMissing(state: TrackingState, isSecond = false) {
     const expected = isSecond ? secondReportExpectedAt : reportExpectedAt;
+    // The second account only sends a viewer's report, which NoTrack's badge-only mode drops on purpose.
+    if (isSecond && state.badgeOnlyAtStart) return false;
     if (!expected || reportExpectedFor !== UserStore.getCurrentUser()?.id || Date.now() - expected < REPORT_WAIT_MS) return false;
     return state.loadedAt < expected && state.lastReportAt < expected;
 }
