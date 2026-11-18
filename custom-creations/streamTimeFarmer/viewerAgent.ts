@@ -61,7 +61,6 @@ function agent() {
     let stuckSince = 0;
     let partnerGoneSince = 0;
     let joinedCall = "";
-    let mutedFor = "";
     let muted = false;
     let deafened = false;
     let lastMuteTry = 0;
@@ -231,16 +230,13 @@ function agent() {
     // Stays muted and deafened in the call: the two accounts usually sit on one PC, and a real call joined on top of
     // this one would feed sound back both ways. Discord clears both flags when a stream starts, so the state is
     // checked on every tick rather than set once and trusted.
-    function keepMuted(channelId: string) {
+    function keepMuted() {
         const media = store("MediaEngineStore");
         const mute = byProps("setSelfMute", "toggleSelfDeaf");
         if (!media || !mute) return;
         const needMute = config.muteMic && !media.isSelfMute();
         const needDeaf = config.deafenBoth && !media.isSelfDeaf();
-        if (!needMute && !needDeaf) {
-            mutedFor = channelId;
-            return;
-        }
+        if (!needMute && !needDeaf) return;
         const now = Date.now();
         // Deafening is a toggle, so asking again before the first answer shows up would undo it.
         if (now - lastMuteTry < 5_000) return;
@@ -271,7 +267,6 @@ function agent() {
         if (now - partnerGoneSince < LEAVE_AFTER_MS) return;
         byProps("selectVoiceChannel", "disconnect")?.disconnect();
         joinedCall = "";
-        mutedFor = "";
         undo();
     }
 
@@ -301,7 +296,7 @@ function agent() {
         partnerGoneSince = 0;
         if (!joinedHere(where.id)) return join(where, now);
         if (voiceDead(now)) return setStatus("joining", "The call's connection dropped. Joining it again...");
-        keepMuted(where.id);
+        keepMuted();
 
         if (!live || !stream) {
             stuckSince = 0;
@@ -383,7 +378,6 @@ function agent() {
         timer = null;
         if (joinedCall && joinedHere(joinedCall)) byProps("selectVoiceChannel", "disconnect")?.disconnect();
         joinedCall = "";
-        mutedFor = "";
         pictureReopens = lastPictureReopen = 0;
         undo();
         setStatus("off", "");
@@ -401,9 +395,15 @@ function agent() {
     const BLOCKER = /(do[\s_-]*not|dont|no|anti|stop)[\s_-]*track|tracking|analytics|telemetry/i;
 
     const loadedAt = Date.now();
-    const noTrackBlocks = () => V.Settings?.plugins?.NoTrack?.disableAnalytics !== false;
-    // NoTrack swaps Discord's reporting out while the page loads, so turning it off only takes effect on a reload.
+    // NoTrack blocks the reports while "Disable Analytics" is on, unless its "Allow Badge Tracking" lets the badge
+    // events through (only a streamer's report, so this account's viewer report still stays home then).
+    const hasBadgeSwitch = () => !!V.Plugins?.plugins?.NoTrack?.settings?.def && "allowBadgeTracking" in V.Plugins.plugins.NoTrack.settings.def;
+    const analyticsOff = () => V.Settings?.plugins?.NoTrack?.disableAnalytics !== false;
+    const badgeOnly = () => analyticsOff() && hasBadgeSwitch() && V.Settings?.plugins?.NoTrack?.allowBadgeTracking !== false;
+    const noTrackBlocks = () => analyticsOff() && !badgeOnly();
+    // NoTrack picks how Discord reports while the page loads, so either switch only takes effect on a reload.
     const blockedAtStart = noTrackBlocks();
+    const badgeOnlyAtStart = badgeOnly();
     let lastReportAt = 0;
 
     const pluginOn = (name: string) => {
@@ -443,11 +443,16 @@ function agent() {
             if (consents?.[USAGE]) usageData = consents[USAGE].consented === true;
             if (consents?.[PERSONALIZE]) personalized = consents[PERSONALIZE].consented === true;
         } catch { /* a build without the consent store answers "couldn't check" */ }
-        return { blocked: noTrackBlocks(), blockedAtStart, usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
+        return { blocked: noTrackBlocks(), blockedAtStart, badgeOnlyAtStart, badgeSwitch: hasBadgeSwitch(), usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
     }
 
     async function allowTracking() {
-        if (V.Settings?.plugins?.NoTrack) V.Settings.plugins.NoTrack.disableAnalytics = false;
+        const noTrack = V.Settings?.plugins?.NoTrack;
+        // "Allow Badge Tracking" keeps the rest of the analytics blocked, so it's used whenever NoTrack has it.
+        if (noTrack && noTrackBlocks()) {
+            if (hasBadgeSwitch()) noTrack.allowBadgeTracking = true;
+            else noTrack.disableAnalytics = false;
+        }
         await loadConsents();
         const { usageData, personalized } = trackingState();
         const grant = [...usageData === true ? [] : [USAGE], ...personalized === true ? [] : [PERSONALIZE]];
