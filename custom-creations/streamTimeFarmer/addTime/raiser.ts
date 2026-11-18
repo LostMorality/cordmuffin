@@ -180,9 +180,11 @@ type Fn = (...args: any[]) => any;
 interface Slot {
     read(): Fn | undefined;
     write(fn: Fn): void;
-    wrap(prev: Fn): Fn;
+    wrap(prev: Fn, acts: () => boolean): Fn;
     prev?: Fn;
     mine?: Fn;
+    // Bumped each time this slot is wrapped again, so only its newest wrapper acts.
+    gen: number;
 }
 
 let live = false;
@@ -192,16 +194,18 @@ const slots: Slot[] = [
     {
         read: () => XMLHttpRequest.prototype.open,
         write: fn => void (XMLHttpRequest.prototype.open = fn as typeof XMLHttpRequest.prototype.open),
-        wrap: prev => function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]) {
-            if (isScience(url)) scienceXhrs.add(this);
+        gen: 0,
+        wrap: (prev, acts) => function (this: XMLHttpRequest, method: string, url: string | URL, ...rest: unknown[]) {
+            if (acts() && isScience(url)) scienceXhrs.add(this);
             return prev.call(this, method, url, ...rest);
         }
     },
     {
         read: () => XMLHttpRequest.prototype.send,
         write: fn => void (XMLHttpRequest.prototype.send = fn as typeof XMLHttpRequest.prototype.send),
-        wrap: prev => function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
-            if (!live || typeof body !== "string" || !scienceXhrs.has(this)) return prev.call(this, body);
+        gen: 0,
+        wrap: (prev, acts) => function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
+            if (!acts() || typeof body !== "string" || !scienceXhrs.has(this)) return prev.call(this, body);
             const res = safeEdit(body);
             const { claim } = res;
             if (!claim) return prev.call(this, res.body);
@@ -217,8 +221,9 @@ const slots: Slot[] = [
     {
         read: () => window.fetch,
         write: fn => void (window.fetch = fn as typeof window.fetch),
-        wrap: prev => function (input: RequestInfo | URL, init?: RequestInit) {
-            if (!live || typeof init?.body !== "string" || !isScience(input)) return prev.call(window, input, init);
+        gen: 0,
+        wrap: (prev, acts) => function (input: RequestInfo | URL, init?: RequestInit) {
+            if (!acts() || typeof init?.body !== "string" || !isScience(input)) return prev.call(window, input, init);
             const { body, claim } = safeEdit(init.body);
             if (!claim) return prev.call(window, input, init);
             let result: Promise<Response>;
@@ -235,8 +240,9 @@ const slots: Slot[] = [
     {
         read: () => typeof navigator.sendBeacon === "function" ? navigator.sendBeacon : undefined,
         write: fn => void (navigator.sendBeacon = fn as typeof navigator.sendBeacon),
-        wrap: prev => function (url: string | URL, data?: BodyInit | null) {
-            if (!live || typeof data !== "string" || !isScience(url)) return prev.call(navigator, url, data);
+        gen: 0,
+        wrap: (prev, acts) => function (url: string | URL, data?: BodyInit | null) {
+            if (!acts() || typeof data !== "string" || !isScience(url)) return prev.call(navigator, url, data);
             const { body, claim } = safeEdit(data);
             let queued = false;
             try {
@@ -249,26 +255,32 @@ const slots: Slot[] = [
     }
 ];
 
-// Safe to call repeatedly: re-wraps only a slot something else replaced since (StreamTimeFarmer's report watch
-// restores and re-wraps the same functions and calls its own saved originals, which would bypass this one).
+// Safe to call repeatedly: re-wraps only a slot something else has wrapped over since. StreamTimeFarmer's report
+// watch chains onto whatever is installed when it starts, so starting after this one it calls through to it rather
+// than bypassing it; the slot only looks replaced, and hooksInPlace() can't see this wrapper further down the chain.
+// Wrapping again then leaves the older wrapper inside (newest -> watch -> older -> native), so each wrap takes the
+// slot's next generation and only the newest one acts; every older one is a plain pass-through for good.
 export function installHooks() {
     live = true;
     for (const s of slots) {
         const current = s.read();
         if (!current || s.mine && current === s.mine) continue;
+        const gen = ++s.gen;
         s.prev = current;
-        s.mine = s.wrap(current);
+        s.mine = s.wrap(current, () => live && s.gen === gen);
         s.write(s.mine);
     }
 }
 
 export const hooksInPlace = () => slots.every(s => !s.read() || s.read() === s.mine);
 
-// A wrapper something else has since wrapped over can't be taken out of that chain; `live` makes it a pass-through.
+// A wrapper something else has since wrapped over can't be taken out of that chain; bumping the generation makes it a
+// pass-through, so a later installHooks() wrapping again never leaves two of them acting.
 export function removeHooks() {
     live = false;
     for (const s of slots) {
         if (s.mine && s.prev && s.read() === s.mine) s.write(s.prev);
         s.prev = s.mine = undefined;
+        s.gen++;
     }
 }
