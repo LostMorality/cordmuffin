@@ -90,7 +90,7 @@ export const settings = definePluginSettings({
     },
     reportRealGames: {
         type: OptionType.BOOLEAN,
-        description: "While Discord's analytics are blocked (by NoTrack or similar), Discord stops counting the games you really play. This reports them itself so their time still counts. Turn it off to send nothing for real games.",
+        description: "While NoTrack blocks Discord's analytics with its badge tracking option off, Discord stops counting the games you really play. This reports them itself so their time still counts. Turn it off to send nothing for real games.",
         default: true,
         onChange: () => updateRealTracking()
     }
@@ -199,6 +199,8 @@ function makeFakeGame(app: DetectableApp, index: number): FakeGame {
     };
 }
 
+const withoutFakes = (games: RunningGame[]) => games.filter(g => !isFakePid(g.pid));
+
 function withFakes(games: RunningGame[] = []) {
     const fakeIds = new Set(fakeGames.map(g => g.id));
     return [...games.filter(g => !isFakePid(g.pid) && (!g.id || !fakeIds.has(g.id))), ...fakeGames];
@@ -250,7 +252,7 @@ function dispatchChange(added: RunningGame[], removed: RunningGame[]) {
         type: "RUNNING_GAMES_CHANGE",
         added,
         removed,
-        games: original ? RunningGameStore.getRunningGames() : RunningGameStore.getRunningGames().filter(g => !isFakePid(g.pid)),
+        games: original ? RunningGameStore.getRunningGames() : withoutFakes(RunningGameStore.getRunningGames()),
         __gameTimeSpoof: true
     });
 }
@@ -368,7 +370,7 @@ function restart() {
     apply();
 }
 
-// Real games are only reported while Discord's own analytics are blocked, and only if the user wants it.
+// Real games are only reported while Discord's own game reports are blocked, and only if the user wants it.
 function updateRealTracking() {
     const on = active && analyticsBlocked && settings.store.reportRealGames;
     if (on === trackRealPlay) return;
@@ -383,6 +385,19 @@ export default definePlugin({
     tags: ["Activity", "Fun"],
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     settings,
+
+    // Spoofed games are reported by tick() alone, so Discord's own heartbeats must never include them.
+    patches: [
+        {
+            find: "processSessionChanges(){",
+            replacement: {
+                match: /(processSessionChanges\(\){let \i=)(\i\.\i\.getRunningGames\(\))/,
+                replace: "$1$self.withoutFakes($2)"
+            }
+        }
+    ],
+
+    withoutFakes,
 
     settingsAboutComponent: () => (
         <>
