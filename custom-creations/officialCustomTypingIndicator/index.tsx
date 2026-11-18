@@ -289,19 +289,20 @@ export default definePlugin({
             group: true,
             replacement: [
                 {
-                    match: /(?<=\.length>0&&!1!==\i&&)(\(\i\?.{0,80}?dotRadius:3\.5,themed:!0\}\)\))/,
-                    replace: "$self.renderDots(arguments[0],$1)"
+                    match: /(?<=\.length>0&&!1!==\i&&\(null!=(\i)&&.{0,80}?:)(\i\?\(0,\i\.jsx\)\(\i,\{\}\):\(0,\i\.jsx\)\(\i\.\i,\{className:\i\.\i,dotRadius:3\.5,themed:!0\}\))/,
+                    replace: "$self.renderDots(arguments[0],$2,$1)"
                 },
                 {
-                    match: /(1===\i\.length\?\i=)(\i\.\i\.format\(\i\.\i#{intl::ONE_USER_TYPING},\{a:\i\}\))/,
+                    match: /(1===\i\.length\?\i=null!=\i\?.{0,120}?:)(\i\.\i\.format\(\i\.\i#{intl::ONE_USER_TYPING},\{a:\i\}\))/,
                     replace: "$1$self.oneUserText(arguments[0],$2)"
                 }
             ]
         }
     ],
 
-    renderDots(props: TypingProps, dots: ReactNode) {
+    renderDots(props: TypingProps, dots: ReactNode, discordConfig?: unknown) {
         try {
+            if (discordConfig != null) return dots;
             const found = styleFor(props);
             if (!found || found.style.emojis.length !== 3) return dots;
             if (!emojisAllowed(found.style, found.channel, found.userId)) return dots;
