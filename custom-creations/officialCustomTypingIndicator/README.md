@@ -9,7 +9,7 @@ Set your typing indicator from desktop: 3 emoji, an animation, and a word like "
 ## Who sees it
 
 - **People on an up-to-date Discord phone app see your style without any plugin.** Discord shows it to them itself. It's still rolling out, so a few people may see the normal dots for a little while.
-- **Desktop and web Discord don't show it yet.** They get your style from Discord but still draw the plain dots. Desktop users with this plugin see it too.
+- **Desktop and web Discord are starting to show it.** Discord is turning it on for desktop bit by bit. Where Discord already draws the style itself, the plugin steps aside so you never see it twice. Where it still draws the plain dots, desktop users with this plugin see the style anyway.
 - **You never see your own while you type.** Discord doesn't show you your own typing. The preview in the plugin settings shows how it looks to others.
 - It only shows when you're the only one typing. Once two or more people are typing, everyone goes back to "is typing…". That's Discord's rule.
 - In a server with **Use External Emoji** turned off, people there see the normal dots instead of emoji from other servers. They still see your word.
