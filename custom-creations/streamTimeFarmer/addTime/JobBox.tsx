@@ -7,11 +7,11 @@
 import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { classNameFactory } from "@utils/css";
-import { createRoot, useEffect, useState } from "@webpack/common";
-import type { CSSProperties } from "react";
+import { createRoot, useEffect, useRef, useState } from "@webpack/common";
+import type { CSSProperties, PointerEvent } from "react";
 import type { Root } from "react-dom/client";
 
-import { useLayout } from "../layout";
+import { settings } from "..";
 import { currentUserId } from "../profile";
 import { formatWait, hoursText, sendsLeft, sendsTotal, sentSeconds, stopJob, type StreamJob, useJob } from "./job";
 import { finishAt, firstSlot, plan } from "./scheduler";
@@ -46,87 +46,141 @@ export function showsHere(j: StreamJob | null): j is StreamJob {
     return j != null && IS_DISCORD_DESKTOP && currentUserId() === j.userId;
 }
 
-// The narrowest right-hand column (member list, DM profile) the box still fits in, at its smaller width plus margins.
-const MIN_SIDE_COLUMN = 256;
-
-interface Place {
-    style: CSSProperties;
-    inChat: boolean;
+interface Spot {
+    right: number;
+    top: number;
 }
 
-// Floating cards that live in the bottom-right corner, over the same column: StreamTimeFarmer's call widget,
-// GameTimeSpoof's box and Discord's own picture-in-picture stream preview. None of them moves because of this box,
-// so stacking above them can't make them chase each other.
-const BOTTOM_CARDS = '.vc-stf-call-widget, .vc-gts-job, [class*="pictureInPictureWindow_"]';
-const GAP = 8;
-// The open box's height, for when it isn't on screen to measure.
-const BOX_HEIGHT = 192;
-
-// Where the column's own content stops: the bottom of its main scroller, which is above a footer like the DM
-// profile's "View Full Profile" button. The column's bottom when it has no scroller.
-function contentBottom(column: Element | undefined, fallback: number) {
-    let best: DOMRect | null = null;
-    for (const el of column?.querySelectorAll('[class*="scroller"]') ?? []) {
-        const r = el.getBoundingClientRect();
-        if (r.height > (best?.height ?? 0)) best = r;
-    }
-    return best ? Math.min(fallback, best.bottom) : fallback;
+interface Size {
+    w: number;
+    h: number;
 }
 
-// Top-right corner of the chat, below the channel header so its buttons stay free, when nothing sits right of the
-// chat; it starts small there. When a column sits right of the chat (member list, DM profile, threads) the box goes at
-// the bottom of that column instead, narrowed to fit: its top holds the DM profile's banner (ProfileImages' buttons,
-// Discord's own) and the start of the member list. It stays above the column's footer and above the corner cards when
-// there's room for it. Without a chat on screen it keeps the stylesheet's spot.
-function anchor(): Place | null {
-    const chatEl = document.querySelector('[class*="chatContent_"]');
-    const chat = chatEl?.getBoundingClientRect();
-    if (!chatEl || !chat || chat.width < 360) return null;
-    const side = Math.round(window.innerWidth - chat.right);
-    if (side < MIN_SIDE_COLUMN) {
-        // 40 clears Discord's 32 px bar at the top of the messages (unread / Mark As Read, topic pill).
-        return { style: { top: Math.round(chat.top) + 40, right: Math.max(8, side + 16) }, inChat: true };
-    }
-
-    const column = [...chatEl.parentElement?.children ?? []].find(c => {
-        const r = c.getBoundingClientRect();
-        return c !== chatEl && r.width > 0 && r.left >= chat.right - 1;
-    });
-    // A side panel outside the chat's parent (thread or forum post) has its own text box at the bottom: keep to its top.
-    if (!column) return { style: { top: Math.round(chat.top) + GAP, right: GAP, maxWidth: side - 2 * GAP }, inChat: false };
-    const top = (column?.getBoundingClientRect().top ?? chat.top) + GAP;
-    let limit = contentBottom(column, Math.min(chat.bottom, window.innerHeight)) - GAP;
-    const height = document.querySelector<HTMLElement>(".vc-ast-job")?.offsetHeight || BOX_HEIGHT;
-    const right = window.innerWidth - GAP, left = chat.right;
-    for (const el of document.querySelectorAll(BOTTOM_CARDS)) {
-        const r = el.getBoundingClientRect();
-        if (!r.width || !r.height || r.right <= left || r.left >= right || r.top >= limit + GAP) continue;
-        // A tall open call widget on a short window can leave too little room above it; then the box keeps the
-        // content's bottom and the two overlap, rather than the box climbing back over the banner.
-        if (r.top - GAP - top >= height) limit = Math.min(limit, r.top - GAP);
-    }
-    return { style: { top: "auto", bottom: Math.round(window.innerHeight - limit), right: GAP, maxWidth: side - 2 * GAP }, inChat: false };
+interface Drag {
+    id: number;
+    x: number;
+    y: number;
+    from: Spot;
+    moved: boolean;
+    // Where the box was last drawn, which is what gets saved: never the release or cancel event's own coordinates.
+    shown: Spot | null;
 }
 
+// The stylesheet's top-right spot, used until the box is dragged somewhere else.
+const DEFAULT_SPOT: Spot = { right: 16, top: 56 };
+// A press that moves less than this is a click (show or hide the details), not a drag.
+const DRAG_THRESHOLD = 4;
+// The gap kept between the box and the window's edges.
+const EDGE = 8;
+
+// Kept fully inside the window, so a smaller window or an opened box never pushes it out of reach.
+function clamp(spot: Spot, size: Size): Spot {
+    return {
+        right: Math.round(Math.min(Math.max(spot.right, EDGE), Math.max(EDGE, window.innerWidth - size.w - EDGE))),
+        top: Math.round(Math.min(Math.max(spot.top, EDGE), Math.max(EDGE, window.innerHeight - size.h - EDGE)))
+    };
+}
+
+// The box stays where it is: top right, or wherever it was dragged to by its title bar, the same way Discord's stream
+// preview is moved. The spot and its size are remembered across restarts.
 function JobCard() {
     const j = useJob();
-    const place = useLayout(anchor, null);
+    const shown = showsHere(j);
+    const { jobBoxSpot: saved, jobBoxSmall: small } = settings.use(["jobBoxSpot", "jobBoxSmall"]);
+    const [el, setEl] = useState<HTMLDivElement | null>(null);
+    const [size, setSize] = useState<Size>({ w: 240, h: 44 });
+    const drag = useRef<Drag | null>(null);
+    const [live, setLive] = useState<Spot | null>(null);
     const [, rerender] = useState(0);
-    // Until the user picks a size it follows the spot: small when it has to sit over the chat.
-    const [picked, setSmall] = useState<boolean | null>(null);
-    const small = picked ?? place?.inChat ?? false;
     useEffect(() => {
         const id = setInterval(() => rerender(n => n + 1), REFRESH_MS);
-        return () => clearInterval(id);
+        const onResize = () => rerender(n => n + 1);
+        window.addEventListener("resize", onResize);
+        return () => {
+            clearInterval(id);
+            window.removeEventListener("resize", onResize);
+        };
     }, []);
-    if (!showsHere(j)) return null;
+    // Its real size, measured whenever it changes (shown, opened or closed, text wrapping), so it's kept inside the
+    // window from the first frame on.
+    useEffect(() => {
+        if (!el) return;
+        const measure = () => setSize(s => s.w === el.offsetWidth && s.h === el.offsetHeight ? s : { w: el.offsetWidth, h: el.offsetHeight });
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        measure();
+        return () => observer.disconnect();
+    }, [el]);
+    // A drag the box vanished in the middle of (the job ended) doesn't carry over to the next one.
+    useEffect(() => {
+        if (shown) return;
+        drag.current = null;
+        setLive(null);
+    }, [shown]);
+    if (!shown) return null;
 
     const percent = Math.floor(sentSeconds(j) / j.total * 100);
     const { next, left } = waitLines(j);
+    const spot = live ?? clamp(saved ?? DEFAULT_SPOT, size);
+    const style: CSSProperties = { right: spot.right, top: spot.top };
+
+    const toggle = () => void (settings.store.jobBoxSmall = !small);
+    const finish = (d: Drag, save: boolean) => {
+        drag.current = null;
+        if (d.moved) {
+            if (save && d.shown) settings.store.jobBoxSpot = d.shown;
+            setLive(null);
+        }
+    };
+    const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+        if (e.button !== 0 || drag.current || !el) return;
+        const r = el.getBoundingClientRect();
+        drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, from: { right: window.innerWidth - r.right, top: r.top }, moved: false, shown: null };
+        e.currentTarget.setPointerCapture(e.pointerId);
+    };
+    const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+        const d = drag.current;
+        if (!d || d.id !== e.pointerId) return;
+        // The button was let go somewhere this box never heard about.
+        if (e.buttons === 0) return finish(d, true);
+        const dx = e.clientX - d.x, dy = e.clientY - d.y;
+        if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        d.moved = true;
+        d.shown = clamp({ right: d.from.right - dx, top: d.from.top + dy }, size);
+        setLive(d.shown);
+    };
+    const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+        const d = drag.current;
+        if (!d || d.id !== e.pointerId) return;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        finish(d, true);
+        if (!d.moved) toggle();
+    };
+    // Cancelled by the system, or capture lost another way (alt-tab, a modal opening): keep where it was last drawn.
+    const onPointerLost = (e: PointerEvent<HTMLDivElement>) => {
+        const d = drag.current;
+        if (d && d.id === e.pointerId) finish(d, true);
+    };
 
     return (
-        <div className={cl("job", small && "job-small")} style={place?.style} role="status">
-            <div className={cl("job-head")} onClick={() => setSmall(!small)} title={small ? "Show details" : "Make smaller"}>
+        <div ref={setEl} className={cl("job", small && "job-small")} style={style} role="status">
+            <div
+                className={cl("job-head", live && "job-dragging")}
+                role="button"
+                tabIndex={0}
+                aria-expanded={!small}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerLost}
+                onLostPointerCapture={onPointerLost}
+                onKeyDown={e => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    toggle();
+                }}
+                title={`Drag to move. Click to ${small ? "show details" : "make smaller"}.`}
+            >
                 <span className={cl("job-title")}>{small ? `Adding streaming time · ${percent}%` : "Adding streaming time"}</span>
                 <span className={cl("job-toggle")}>{small ? "▴" : "▾"}</span>
             </div>
