@@ -3,8 +3,195 @@
 What changed in cordmuffin's plugins and the installer, newest first. The Cordmuffin Updater page in Discord shows
 the lines that are new for you. A line that starts with a plugin's name only shows for people who have that plugin.
 
-## 2026-11-17
+## 2026-11-18
 
+- StreamTimeFarmer: Equicord loads again on a fresh install. The plugin read Equicord's plugin list before it existed,
+  which stopped all of Equicord from starting for anyone whose NoTrack blocks analytics (the default).
+- NoQuestsOnStartup: new plugin. Stops Discord's quest campaign from opening the Quests page every time Discord starts.
+- BadgeTierViewer: works again after Discord's November badge window update. Clicking a tier, the lock, the eye button
+  and the "Needs ..." line were all switched off by it. Picking a tier also works on a badge that just levelled up, and
+  the lock circle is see-through again.
+- BadgeTierViewer: badges you don't own look like Discord's own until you click a tier, instead of showing the tier
+  name, rarity and a lock straight away. Picking a tier no longer scrolls the big preview flush against the top. A long
+  locked-tier status no longer leaves a stray • at the start of the wrapped line.
+- CordmuffinUpdater: clicking the "updated" notification now asks before restarting Discord. A failed automatic update
+  tries again an hour later, and a half-finished update is rebuilt on the next check even with Equicord updates off.
+  Shorter labels on the settings page and real plugin names in notifications.
+- CustomRPCShare: presets without an application name are skipped instead of blanking your presence when loaded. Export
+  and import notices now tell privacy removals apart from fields that failed CustomRPC's checks. Code boxes use
+  Discord's own styling, long preset names fit on one chip line, hidden text-direction characters are stripped from
+  names, and **Replace Same Names** looks different from **Keep Both**. **Copy Code** uses the plugin's toast fallback
+  and reports copy errors, and oversized files are rejected before they are read.
+- CustomRPCShare: **Replace Same Names** is now a solid red button so it can't be mistaken for Cancel. Export and import
+  no longer list the left-out fields of a preset that was skipped entirely.
+- Dictation: the right-click menu checkboxes now update when clicked. A stuck speech engine no longer leaves the mic
+  stuck on working, and switching speech model mid-dictation no longer drops text. The live text respects **Add
+  Punctuation** and moves with the chat box. The shortcut needs Ctrl, Alt or Meta (Shift can be added on top) or an F
+  key, and its button stays short. Grammar fixing keeps number ranges like 5–10 and fixes short sentences better.
+  Downloads check free disk space first, and notices are shorter so they no longer cover the chat bar.
+- Dictation: switching the speech model back and forth while it's still starting no longer fails; the last pick wins. A
+  speech engine that stops taking connections shows a plain message and is restarted on the next try. The Speech Model
+  description is the same grey as the others.
+- DiscrubLoader: with the plugin off, its settings buttons are greyed out. Before, Open Discrub kept asking to reload,
+  and Check now could load Discrub while the plugin was off.
+- DiscrubLoader: **Ask each time** really asks every time. Discrub's start screen no longer counts down into your last
+  pick.
+- DiscrubLoader: **Stay on this version** no longer checks the Chrome Web Store in the background.
+- DiscrubLoader: **Not now** on an update is remembered. That version isn't offered again on every start (Check now
+  still offers it).
+- DiscrubLoader: the reason for an automatic roll-back stays in settings instead of vanishing after the next update
+  check, and it's only shown once.
+- DiscrubLoader: shorter setting names, settings text sized like the rest of the page, and turning the plugin off puts
+  the Inbox button area back the way it was.
+- DiscrubLoader: while the plugin is off, Open Discrub and the status buttons turn grey and show a not-allowed cursor
+  instead of looking clickable. Installing or updating to a version you'd skipped with **Not now** clears that skip.
+- GameTimeSpoof: **Stop** on a game now also turns rotation off. Before, rotation brought a game back at its next
+  switch. Random rotation picks from every detectable game, like Add Random Games, and starts right away when no game is
+  set. Picking favorites rotation with no favorites now says so. If Discord's game list won't load, you get one notice
+  instead of one every minute. The Game Browser no longer jumps around while you search, and the Add Time switch is now
+  called **Only unplayed games**.
+- GameTimeSpoof: clicking a game cover shows an error if Discord's game page fails to load, where before nothing
+  happened. A slow first load shows "Loading the game page…".
+- GreetStickerPicker+: right-click opens the sticker picker straight away after Discord starts. Before, it only worked
+  once you had opened the sticker tab in the chat bar. The message menu no longer pops up on top of the picker.
+- GreetStickerPicker+: only the wave button reacts now, not the empty space next to it, so clicking beside it no longer
+  sends your default sticker.
+- GreetStickerPicker+: sticker lists use Discord's own rules, so Nitro Basic shows other servers' stickers, and channels
+  that block outside stickers no longer list ones that would fail. A default sticker that can't be sent here shows a
+  message instead.
+- GreetStickerPicker+: Lottie welcome stickers (Wumpus, Nelly, Clyde, Doggo, Peach) get thumbnails. The picker window no
+  longer gets a second scrollbar, search tells you when it hides results, and Greet mode now also applies to a welcome
+  default sticker. Rate limits show a message.
+- GreetStickerPicker+: the picker no longer reopens with your last sticker search.
+- HideClientBadges: **Hide Nitro Boost** now also works in the badge window you get when you click someone's badge.
+  Turning **Block Donor Lists** on while Equicord is downloading the lists no longer lets them back in for 30 minutes,
+  and the block also catches the list addresses with extra bits on the end. The profile patch holds up better against
+  Discord updates.
+- HideClientBadges: the badge window hides Nitro and boost badges whatever form Discord sends their id in, and **Hide
+  All** also hides plugin badges that have no picture of their own.
+- Muffinshelf: BetterDiscord store cards show their pictures again. Discord was blocking them; images that still can't
+  load are hidden instead of leaving an empty box.
+- Muffinshelf: BetterDiscord plugins that use BdApi's Text component no longer crash. Plugin settings windows with sized
+  modals open at the size the plugin asked for.
+- Muffinshelf: a BetterDiscord plugin's slash command whose name is already taken no longer stops the plugin and hides
+  it as broken. The command gets the plugin's name in front instead. Command results only ever show as a local bot
+  message, never as a message sent from your account.
+- Muffinshelf: turning off a BetterDiscord plugin, turning off **Run BD plugins** or pressing **Reload all** now removes
+  everything the plugin changed, including old-style monkeyPatch patches and injectCSS styles, and puts Discord's own
+  modules back the way they were.
+- Muffinshelf: Equicord plugins from a GitHub repo only offer an update when their own folder changed, not after any
+  commit to the repo. Plugins installed before this may offer one update first.
+- Muffinshelf: the parts of Discord that BetterDiscord plugins ask for are remembered in a way that survives Discord
+  updates better, and old entries Discord dropped are cleared after two weeks.
+- Muffinshelf: rebuilds back up only the Equicord build Discord loads, not the whole dist folder, so they start sooner.
+- Muffinshelf: the BetterDiscord switches, Remove and Reload all are locked while an install or rebuild runs. Switches
+  in the Installed and Sources tabs line up with their buttons, and shorter labels fit their boxes (**Run BD plugins**,
+  **Won't work here**).
+- Muffinshelf: errors that used to vanish silently (a plugin's settings panel failing to open, folders that can't be
+  read) now show a message.
+- Muffinshelf: BDFDB settings windows (the library's own and those of BDFDB plugins like SpellCheck) get their left
+  padding back, and their buttons no longer wrap. Discord removed the window styles BDFDB still looks for. Their buttons
+  widen to fit the label, and text and number boxes look like Discord's. Number arrows sit inside their box, and each
+  row shows its full label on the left with the switch on the right. Notes under a label are smaller, muted and no
+  longer cut off, and rows have a small gap between them.
+- Muffinshelf: the list of turned-on BetterDiscord plugins keeps the plugin folder's order, so turning one off and on no
+  longer moves it. BD slash commands named after Discord's own (shrug, me, tts, spoiler...) get the plugin's name in
+  front instead of showing twice. The "Won't work" note has proper punctuation. When Equicord turns a command down for
+  another reason, the real reason is logged. A BD plugin only gets ZeresPluginLibrary, BDFDB or XenoLib when its code
+  really uses one; a changelog that just mentions it no longer pulls it in. A library that's turned off or removed is
+  hidden from other plugins until it's back on, removing one names the plugins that use it, and installing a plugin
+  turns its library back on if needed.
+- OfficialCustomTypingIndicator: **Show Others** off now really gives plain dots everywhere, also where Discord draws
+  styles itself. The word ("is yapping…") now shows in your Discord language. In the typing bar inside the channel, the
+  emoji now line up with the message avatars like Discord's own.
+- OfficialCustomTypingIndicator: turning **Show Others** on or off updates a typing bar that's already showing right
+  away. The editor's word buttons use Discord's own translated text.
+- PlatformSpoofer+: asks before switching platform while you're in a call, since the reconnect drops the call and any
+  stream. Picking Desktop on the desktop app no longer reconnects or skips fast connect, and turning the plugin off only
+  reconnects when you were spoofed. /platform now goes away when you turn the plugin off, the warning's Turn it on
+  button is red again, and the check panel says when the plugin is off instead of showing a red mismatch. The quick
+  button's icon follows the platform Discord really shows, Desktop on the desktop app counts as your real platform,
+  **Reconnect now** only shows when it would change something, and Console no longer sends the desktop app's browser
+  details.
+- PluginPresets: the export and import code boxes keep Discord's dark textarea look again, and rows and chips use the
+  current theme colours. The BetterDiscord list is ignored while Muffinshelf is off (no longer saved, exported or
+  rewritten, and no pointless restart). Renaming to a name another preset already uses is blocked. Applying a preset now
+  skips any setting the plugin's own settings page would refuse (out of range, no longer a choice, fails the plugin's
+  check) and lists these in Preview. Number IDs (BIGINT settings) are restored as numbers. Big .json files are no longer
+  cut short in the import box, a damaged or cut-off code gets its own error, and the import labels now say "has on" and
+  "never turned on".
+- ProfileImages: the square View Avatar and View Banner buttons next to Message on the full profile are back after
+  Discord's update. If they ever break again, the full profile keeps its Avatar button on the banner instead of losing
+  it.
+- ProfileImages: the Icon and Banner buttons on server banners can be clicked again. Before, the channel list sat on top
+  of them. They now hide while the channel list is scrolled.
+- ProfileImages: the copied banner colour now matches the profile you are looking at (server or main), and is no longer
+  the grey shown while a banner loads.
+- ProfileImages: an equipped profile effect (smoke, crows and so on) no longer draws over the Avatar and Banner pills.
+  The colour pill shows the hex in lower case, the same as the tooltip and what gets copied.
+- QuestRunner: **Accept and finish** no longer hangs on "Accepting..." when Discord refuses the quest (for example, a
+  closed captcha). You get a warning, and pressing again really tries again.
+- QuestRunner: skipping the video player now only says the video is being watched once Discord has accepted the quest.
+  If Discord doesn't accept it, you're told to press Accept again.
+- QuestRunner: Complete on a play quest that has no game to run no longer switches to direct heartbeats behind your back
+  while that setting is off.
+- QuestRunner: direct-heartbeat quests stop and try again later when Discord keeps refusing the heartbeats, instead of
+  beating until the quest expires.
+- QuestRunner: **Clear Recent activity** now also covers quests done with direct heartbeats. It never touches a game you
+  were already playing, and it handles two quests for the same game.
+- QuestRunner: Questify's finisher only counts as on while Questify isn't paused or fully disabled.
+- QuestRunner: tidier settings page. Kept games sit on one line with their button, and the explanation has space between
+  paragraphs.
+- QuestRunner: when Discord cancels the accept on a video quest whose player was skipped, the "Discord didn't accept"
+  warning shows right away instead of after 2 minutes.
+- Ransom: the "paid" sound downloads again (the DOORS wiki moved the file), and the DOORS files and your EasterEgg files
+  are read from your own Discord's folder again (PTB and Canary were using the stable one).
+- Ransom: **Reset scores** asks first and no longer takes your gold. **Forget all finds** asks first too. The Scores tab
+  updates while it's open.
+- Ransom: while Discord is encrypted or broken only the message box is locked, settings and windows stay readable, and
+  the broken state is much lighter on your PC.
+- Ransom: **Calm Effects** also slows the static on the caught and time's-up screens. Hidden items no longer get
+  scrambled.
+- Ransom: **Drop some gold** says why when it can't drop one, and gold you drop by hand stays when Loose Gold is off.
+  Turning Hidden items or Loose Gold off now clears them right away.
+- Ransom: items are never hidden in forums or other chats without messages, and **Hide an item here** says so.
+- Ransom: changing how often challenges happen takes effect at once, within the range you picked. Ransom's face and
+  loose gold no longer draw over Discord's windows. Discord stays light while it's wrecked: the scrambled text only
+  looks at parts of the page that changed, and the falling-apart effect re-measures the screen every few seconds instead
+  of every tick.
+- ShrinkUploads: turning it off now stops it right away. Animated pictures and code .ts files are left alone. Cover-art
+  videos shrink properly. A full message no longer loses a shrunk file (press **Add**). Files keep their place in the
+  list. The progress panel sits above the message box. The Shrink button is gone on tiny files. Shorter setting names,
+  and the ffmpeg path no longer shows your user folder.
+- ShrinkUploads: the progress box no longer covers StreamTimeFarmer's boxes. Your own ffmpeg only counts if the file is
+  named exactly ffmpeg (ffmpeg.exe on Windows), and that is checked before anything runs. The panel also stops at the
+  top of the chat instead of growing over the channel header. Shrunk files go back to their own spot in the message,
+  even when several shrink at once, one fails or the plugin is turned off mid-shrink. The Shrink window no longer says
+  "1024 MB is left" in an almost empty message, and it shows your real per-file limit when only small files are there.
+- StreamTimeFarmer: the farm window now starts from a script file instead of a command line antivirus programs flag. Its
+  game cover loads in the background, so a slow download can no longer freeze its clock.
+- StreamTimeFarmer: where the farm window can't run, a DM call streams your screen and a server channel streams nothing.
+  It no longer picks a random open window.
+- StreamTimeFarmer: pop-up messages that can't show as a toast now come up as a notification instead of disappearing.
+- StreamTimeFarmer: the Add Streaming Time box no longer covers the channel header's buttons, and the call widget moves
+  out from under Discord's stream preview. Turning Quiet Second Account off now works right away. Disabling the plugin
+  no longer removes other plugins' sound hooks.
+- StreamTimeFarmer: turning **Quiet Second Account** off brings the second account's desktop notifications back straight
+  away. The Add Streaming Time box sits at the bottom of the member list or DM profile, so it no longer covers messages
+  or the profile banner; with no side column it starts small, below Discord's unread bar. It also stays above Discord's
+  picture-in-picture stream preview.
+- TranslateItAll: Translate now works on forwarded messages, component (v2) bot messages and search results. It shows
+  "Translating..." and ignores double clicks, and errors no longer say "translated from English". Long Chinese,
+  Japanese, Korean or Cyrillic messages no longer fail on Google. Yandex falls back to Google for languages it lacks
+  (Traditional Chinese stayed Simplified before). The Toki Pona, Sitelen Pona and Shavian switches no longer ask for a
+  restart, short Toki Pona is caught better, Shavian keeps line breaks and its dictionary is downloaded once per
+  session. Translations hide after the message is edited, and Dismiss clears every copy.
+- TranslateItAll: no more crash on forwarded messages without a copy of the original. Long messages translated with
+  Google keep the space where they were split. Yandex errors only suggest restarting Discord when Yandex couldn't be
+  reached at all.
+
+## 2026-11-17
+ A translated forward shows its translation once, inside the forward box.
 - StreamTimeFarmer: works with NoTrack's **Allow Badge Tracking** (on by default), which lets stream reports through
   while the rest of Discord's tracking stays blocked. The badge warning no longer goes red for NoTrack's defaults, and
   **Fix these for me** turns that switch on instead of turning off NoTrack's whole analytics block.
@@ -241,7 +428,8 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - Updater: changelog lines about one plugin now only show for people who have that plugin, for every cordmuffin plugin.
 - Updater: an update that doesn't need a restart no longer hides that an earlier one still does.
 - Dictation: the speech and grammar engines are no longer shut down by the idle timer while they're still working.
-- Dictation: turning on Fix Grammar while dictating now tells you to finish first instead of switching itself back off.
+- Dictation: turning on Fix Grammar while dictating now tells you to finish first instead of silently switching itself
+  back off.
 - Dictation: turning the plugin off mid-transcription no longer shows an error or types the text anyway.
 - Dictation: Dictation's items no longer show up in Discord's own mic menu after its menu is closed by clicking away.
 - DiscrubLoader: turning the plugin off right after a Discrub update can no longer roll it back or reload it.
@@ -264,7 +452,7 @@ the lines that are new for you. A line that starts with a plugin's name only sho
 - PluginPresets: presets only save and restore settings you can change yourself, so applying an older preset no longer
   rolls back plugins' own data (like Muffinshelf install records or GameTimeSpoof's tracking).
 - PluginPresets: BetterDiscord files with unusual names stay in saved presets, deleted ones are skipped without asking
-  for a restart, and a failed save, rename or delete shows an error.
+  for a restart (while Muffinshelf is running; when it's off, presets leave its list alone), and a failed save, rename or delete shows an error.
 - QuestRunner: turning on direct heartbeats now retries play quests that failed for lack of a PC game, and turning it
   off stops the ones already using them.
 - QuestRunner: activity achievement quests are no longer re-authorized every 5 minutes while waiting for Discord.
