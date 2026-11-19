@@ -1,12 +1,13 @@
-/* Top right, so it never covers StreamTimeFarmer's call widget or GameTimeSpoof's box in the bottom-right corner.
-   JobBox moves it: onto the bottom of the column right of the chat (member list, DM profile), above that column's
-   footer and those corner cards, so it covers neither messages nor the profile banner; with no such column it sits
-   small in the chat's top corner. Under Discord's popouts and modals (their layer is 1002). */
+/* Top right by default, clear of StreamTimeFarmer's call widget and GameTimeSpoof's box in the bottom-right corner.
+   It never moves on its own; drag it by its title bar and JobBox remembers the spot. Under Discord's popouts and
+   modals (their layer is 1002). */
 .vc-ast-job {
     position: fixed;
     right: 16px;
     top: 56px;
     z-index: 1000;
+    /* Over Discord's title bar, a press still reaches the box instead of moving the window. */
+    -webkit-app-region: no-drag;
     box-sizing: border-box;
     width: 300px;
     display: flex;
@@ -30,8 +31,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    cursor: pointer;
+    cursor: grab;
     user-select: none;
+    touch-action: none;
+}
+
+.vc-ast-job-dragging {
+    cursor: grabbing;
 }
 
 .vc-ast-job-title {
