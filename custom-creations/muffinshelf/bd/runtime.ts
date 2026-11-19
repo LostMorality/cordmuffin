@@ -6,13 +6,14 @@
 
 import { Logger } from "@utils/Logger";
 
+import { libraryGlobals } from "../libraries";
 import { Native, setBroken, settings } from "../settings";
-import { BdApi, dataCache, DOM } from "./api";
+import { BdApi, dataCache, DOM, removeStylesOf } from "./api";
 import { clearCommands, Commands } from "./extras";
 import { applyFixes } from "./fixes";
 import { Buffer, clearFiles, compatProblem, loadFiles, nodeRequire, processShim } from "./node";
-import { unpatchAll } from "./patcher";
-import { clearWaits, makeExportsWritable, unhookExports } from "./webpack";
+import { unpatchAll, unpatchEverything, unpatchOwner } from "./patcher";
+import { clearWaits, makeExportsWritable, pruneDeclarationFinds, unhookExports } from "./webpack";
 
 const logger = new Logger("Muffinshelf");
 
@@ -34,6 +35,8 @@ export interface BdPlugin {
     enabled: boolean;
     running: boolean;
     error?: string;
+    /** A library's globals, taken off window while it's off so plugins loaded later don't find a stopped library. */
+    hiddenGlobals?: Record<string, unknown>;
 }
 
 export const info = { bdFolder: "", bdDataFolder: "" };
@@ -49,6 +52,13 @@ export function subscribe(listener: () => void) {
 }
 
 const emit = () => listeners.forEach(l => l());
+
+// Kept in the plugin folder's (sorted) order, so turning a plugin off and on again doesn't move it in the list.
+function saveEnabled(files: string[]) {
+    const next = [...new Set(files)].sort();
+    const current = settings.store.bdEnabled;
+    if (next.length !== current.length || next.some((f, i) => f !== current[i])) settings.store.bdEnabled = next;
+}
 
 export const getAll = () => [...plugins.values()];
 
@@ -102,6 +112,23 @@ function compile(file: string, code: string, meta: BdMeta) {
     return exported;
 }
 
+function hideGlobals(plugin: BdPlugin) {
+    const w = window as any;
+    for (const key of libraryGlobals(plugin.file)) {
+        if (!Object.hasOwn(w, key)) continue;
+        (plugin.hiddenGlobals ??= {})[key] = w[key];
+        delete w[key];
+    }
+}
+
+function showGlobals(plugin: BdPlugin) {
+    const w = window as any;
+    for (const [key, value] of Object.entries(plugin.hiddenGlobals ?? {})) {
+        if (!Object.hasOwn(w, key)) w[key] = value;
+    }
+    plugin.hiddenGlobals = undefined;
+}
+
 function fail(plugin: BdPlugin, what: string, e: unknown) {
     plugin.error = errorText(e);
     logger.error(`${plugin.meta.name} ${what}`, e);
@@ -109,6 +136,9 @@ function fail(plugin: BdPlugin, what: string, e: unknown) {
 }
 
 function load(file: string, code: string) {
+    // Never two copies of one file running, even when an install and a reload overlap.
+    const previous = plugins.get(file);
+    if (previous) stop(previous);
     const meta = parseMeta(code, file);
     // BetterDiscord hands plugins these along with the header fields.
     meta.id ??= meta.name;
@@ -125,9 +155,11 @@ function load(file: string, code: string) {
         setBroken(meta.name, null);
     } catch (e) {
         fail(plugin, "couldn't load", e);
+        hideGlobals(plugin);
         return plugin;
     }
     if (plugin.enabled) start(plugin);
+    else hideGlobals(plugin);
     return plugin;
 }
 
@@ -137,6 +169,7 @@ function errorText(e: unknown) {
 
 function start(plugin: BdPlugin) {
     if (plugin.running || !plugin.instance) return;
+    showGlobals(plugin);
     try {
         plugin.instance.start?.();
         plugin.running = true;
@@ -144,10 +177,21 @@ function start(plugin: BdPlugin) {
         setBroken(plugin.meta.name, null);
     } catch (e) {
         fail(plugin, "failed to start", e);
-        unpatchAll(plugin.meta.name);
-        DOM.removeStyle(plugin.meta.name);
-        Commands.unregisterAll(plugin.meta.name);
+        cleanUp(plugin);
+        hideGlobals(plugin);
     }
+}
+
+// Patches and styles go by the plugin's name and by its file, so ones added under another caller name or a
+// legacy injectCSS id (BdApi.monkeyPatch, for one) don't outlive the plugin.
+function cleanUp(plugin: BdPlugin) {
+    const others = new Set(getAll().filter(p => p.file !== plugin.file).map(p => p.meta.name));
+    others.delete(plugin.meta.name);
+    unpatchAll(plugin.meta.name);
+    unpatchOwner(plugin.file, others);
+    DOM.removeStyle(plugin.meta.name);
+    removeStylesOf(plugin.file, others);
+    Commands.unregisterAll(plugin.meta.name);
 }
 
 function stop(plugin: BdPlugin) {
@@ -157,9 +201,8 @@ function stop(plugin: BdPlugin) {
     } catch (e) {
         logger.error(`${plugin.meta.name} failed to stop`, e);
     }
-    unpatchAll(plugin.meta.name);
-    DOM.removeStyle(plugin.meta.name);
-    Commands.unregisterAll(plugin.meta.name);
+    cleanUp(plugin);
+    hideGlobals(plugin);
     plugin.running = false;
 }
 
@@ -203,8 +246,9 @@ export async function startRuntime() {
         Object.assign(dataCache, data);
         (window as any).BdApi = BdApi;
         const present = new Set(files.map(f => f.file));
-        if (settings.store.bdEnabled.some(f => !present.has(f))) settings.store.bdEnabled = settings.store.bdEnabled.filter(f => present.has(f));
+        saveEnabled(settings.store.bdEnabled.filter(f => present.has(f)));
         for (const { file, code } of files) load(file, code);
+        pruneDeclarationFinds();
     } catch (e) {
         logger.error("BetterDiscord runtime failed to start", e);
         if (run === generation) started = false;
@@ -216,6 +260,8 @@ export function stopRuntime() {
     generation++;
     for (const plugin of plugins.values()) stop(plugin);
     plugins.clear();
+    // Anything a plugin patched outside its own name and file (a library patching for another plugin, say).
+    unpatchEverything();
     clearWaits();
     clearFiles();
     clearCommands();
@@ -230,34 +276,41 @@ export function setEnabled(idOrName: string, enabled: boolean) {
     const plugin = find(idOrName);
     if (!plugin) return;
     const list = settings.store.bdEnabled.filter(f => f !== plugin.file);
-    settings.store.bdEnabled = enabled ? [...list, plugin.file] : list;
+    saveEnabled(enabled ? [...list, plugin.file] : list);
     plugin.enabled = enabled;
     if (enabled) start(plugin);
     else stop(plugin);
     emit();
 }
 
+// Turns a plugin file on whether or not the runtime is running.
+export function enableBd(file: string) {
+    if (settings.store.bdEnabled.includes(file)) return;
+    if (plugins.has(file)) setEnabled(file, true);
+    else saveEnabled([...settings.store.bdEnabled, file]);
+}
+
 export function reload(idOrName: string) {
     const plugin = find(idOrName);
     if (!plugin) return;
-    stop(plugin);
     load(plugin.file, plugin.code);
     emit();
 }
 
 export async function installBd(file: string, code: string, enable = true) {
     await Native.writeBdPlugin(file, code);
-    if (enable && !settings.store.bdEnabled.includes(file)) settings.store.bdEnabled = [...settings.store.bdEnabled, file];
+    if (enable && !settings.store.bdEnabled.includes(file)) saveEnabled([...settings.store.bdEnabled, file]);
     if (!started) return;
-    const old = plugins.get(file);
-    if (old) stop(old);
     load(file, code);
     emit();
 }
 
 export async function removeBd(file: string) {
     const plugin = plugins.get(file);
-    if (plugin) stop(plugin);
+    if (plugin) {
+        stop(plugin);
+        hideGlobals(plugin);
+    }
     plugins.delete(file);
     settings.store.bdEnabled = settings.store.bdEnabled.filter(f => f !== file);
     await Native.removeBdPlugin(file);
