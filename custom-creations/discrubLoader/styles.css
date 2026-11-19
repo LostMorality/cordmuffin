@@ -3,6 +3,14 @@
     display: none !important;
 }
 
+/* Same size as the setting descriptions above it. */
+.vc-discrub-panel,
+.vc-discrub-panel dt,
+.vc-discrub-panel dd {
+    font-size: 14px;
+    line-height: 1.28571;
+}
+
 .vc-discrub-status {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -24,8 +32,29 @@
     margin-bottom: 10px;
 }
 
+.vc-discrub-off {
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+
+.vc-discrub-btn-off {
+    display: inline-flex;
+    cursor: not-allowed;
+}
+
+.vc-discrub-btn-off .vc-btn-base:disabled {
+    color: var(--text-muted);
+}
+
 .vc-discrub-buttons {
     display: flex;
     flex-wrap: wrap;
+    gap: 8px;
+}
+
+.vc-discrub-about {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     gap: 8px;
 }
