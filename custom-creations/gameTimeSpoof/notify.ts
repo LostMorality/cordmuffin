@@ -5,23 +5,41 @@
  */
 
 import { showNotification } from "@api/Notifications";
-import { findByCodeLazy } from "@webpack";
-import { showToast } from "@webpack/common";
+import { Logger } from "@utils/Logger";
+import type { ToastData } from "@vencord/discord-types";
+import { filters, find } from "@webpack";
 
-type ToastOptions = Parameters<typeof showToast>[0];
+const logger = new Logger("GameTimeSpoof");
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: (options: ToastOptions) => void = findByCodeLazy("currentToastMap.get(", "toastKey");
+// Equicord's showToast never throws when its lookup breaks, it only logs, so a lost toast looks like a shown one.
+// Looking Discord's toast function up here means a missing one falls back to a notification instead of vanishing.
+const TOASTER_FILTERS = [
+    filters.byCode(".currentToastMap.get(", "setState"),
+    filters.byCode("currentToastMap.get(", "toastKey")
+];
 
-function toast(options: ToastOptions) {
-    for (const show of [showToast, discordToast]) {
-        try {
-            show(options);
-            return true;
-        } catch { }
+let toaster: ((data: ToastData) => void) | null = null;
+
+function findToaster() {
+    if (toaster) return toaster;
+    for (const filter of TOASTER_FILTERS) {
+        const found = find(filter, { isIndirect: true });
+        if (typeof found === "function") return toaster = found;
     }
-    return false;
+    return null;
+}
+
+// A failed toast must never break what the plugin was doing.
+function toast(options: ToastData) {
+    try {
+        const show = findToaster();
+        if (!show) return false;
+        show(options);
+        return true;
+    } catch (e) {
+        logger.warn("Couldn't show a toast", e);
+        return false;
+    }
 }
 
 // Discord's toasts cut text off after about two lines, so longer messages go to a notification that shows all of it.
