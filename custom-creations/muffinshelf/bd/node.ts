@@ -318,13 +318,15 @@ export const https = {
             callback = options;
             options = {};
         }
-        const emitter = new EventEmitter();
+        const emitter = new EventEmitter() as EventEmitter & { statusCode?: number; statusMessage?: string; headers?: Record<string, string>; };
         callback?.(emitter);
         Net.fetch(url, { headers: options?.headers })
             .then(async res => {
                 const body = Buffer.from(new Uint8Array(await res.arrayBuffer()));
                 const headers: Record<string, string> = {};
                 res.headers.forEach((v, k) => headers[k] = v);
+                // BetterDiscord only passes these to "end"; Node-style code reads them off the response, so both work.
+                Object.assign(emitter, { statusCode: res.status, statusMessage: res.statusText, headers });
                 emitter.emit("data", body);
                 emitter.emit("end", { statusCode: res.status, statusMessage: res.statusText, headers });
             })
@@ -776,7 +778,7 @@ export const electronShim = {
         },
         showItemInFolder(path: string) {
             const rel = relOf(path);
-            if (rel !== null) queue.then(() => Native.bdShowPath(rel, true));
+            if (rel !== null) queue.then(() => Native.bdShowPath(rel, true)).catch(e => logger.error("Couldn't show a file from the BetterDiscord plugins folder", e));
         },
     },
     clipboard: {
