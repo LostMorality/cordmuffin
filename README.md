@@ -1224,7 +1224,8 @@ Adds Streaming badge time faster than the clock: up to 12 hours of badge time fo
 A small box in the top-right corner then shows:
 - How far along it is.
 - When the next send goes out and how long the rest takes.
-- A **Stop** button. Click the box's title to make it smaller.
+- A **Stop** button. Click the box's title to make it bigger or smaller.
+- It stays where it is. Drag it by its title to move it anywhere, and it remembers the spot and size.
 
 **How it works**
 - Discord adds up streaming time from the report your Discord sends when a stream ends.
