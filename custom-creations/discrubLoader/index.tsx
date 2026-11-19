@@ -7,7 +7,6 @@
 import "./styles.css";
 
 import { HeaderBarButton } from "@api/HeaderBar";
-import { Button } from "@components/Button";
 import { Paragraph } from "@components/Paragraph";
 import { Logger } from "@utils/Logger";
 import definePlugin from "@utils/types";
@@ -16,7 +15,7 @@ import type { ReactNode } from "react";
 
 import type { Status } from "./native";
 import { notify } from "./notify";
-import { actions, getStatus, Native, setStatus, settings } from "./settings";
+import { actions, getStatus, isRunning, Native, PluginButton, setRunning, setStatus, settings } from "./settings";
 
 const logger = new Logger("DiscrubLoader");
 
@@ -24,11 +23,11 @@ const FIRST_CHECK = 20_000;
 const CHECK_EVERY = 6 * 60 * 60_000;
 const START_GRACE = 30_000;
 const DISCRUB_BUTTON = "discrub-floating-button";
+const TOOLBAR_STYLES = ["display", "flex-direction", "align-items", "justify-content"];
 
 let firstTimer: ReturnType<typeof setTimeout> | undefined;
 let repeatTimer: ReturnType<typeof setInterval> | undefined;
 let startPoll: ReturnType<typeof setInterval> | undefined;
-let running = false;
 let checking = false;
 
 function BroomIcon({ width = 24, height = 24, className }: { width?: number; height?: number; className?: string; }) {
@@ -60,33 +59,40 @@ function ask(title: string, body: ReactNode, confirmText: string, cancelText = "
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 
+function refreshStatus() {
+    Native?.getStatus().then(setStatus).catch(() => { });
+}
+
 async function reloadDiscord(reason: string) {
+    if (!isRunning() || !Native) return;
     const yes = await ask(
         "Reload Discord?",
         <Paragraph>{reason} Discord needs to reload for Discrub to start. If you're in a call you'll drop out for a few seconds.</Paragraph>,
         "Reload now",
         "Later",
     );
-    if (!yes) return;
+    if (!yes || !isRunning()) return;
     try {
         setStatus(await Native.applyStaged());
     } catch (e) {
-        Native.getStatus().then(setStatus).catch(() => { });
+        refreshStatus();
         return void notify(errorText(e), "critical");
     }
     location.reload();
 }
 
 async function install(version: string) {
+    if (!Native) return;
     notify(`Downloading Discrub v${version} and checking it...`);
     try {
         const before = getStatus()?.installed;
         const status = setStatus(await Native.install(version));
+        if (!isRunning()) return;
         if (!before) return void reloadDiscord(`Discrub v${status.installed} is installed and checked.`);
         notify(`Discrub v${version} is downloaded and checked. Click here to use it now, or it starts with Discord next time.`, "success",
             () => void reloadDiscord(`Discrub v${version} is ready.`));
     } catch (e) {
-        setStatus(await Native.getStatus());
+        refreshStatus();
         notify(errorText(e), "critical");
     }
 }
@@ -101,13 +107,18 @@ async function offerUpdate(from: string, to: string) {
         `Update to v${to}`,
     );
     if (yes) await install(to);
+    else Native?.decline(to).then(setStatus).catch(e => logger.warn("Couldn't remember the skipped update", e));
 }
 
 async function check(manual: boolean) {
-    if (checking) return;
+    if (checking || !isRunning() || !Native) return;
+    const mode = settings.store.updateMode;
+    // "Stay on this version" means no background traffic at all; only "Check now" contacts the store.
+    if (mode === "pinned" && !manual) return;
     checking = true;
     try {
         const status = setStatus(await Native.checkLatest());
+        if (!isRunning()) return;
         if (status.lastError || !status.latest) {
             if (manual) notify(status.lastError ?? "Couldn't reach the Chrome Web Store.", "critical");
             return;
@@ -122,10 +133,8 @@ async function check(manual: boolean) {
             if (manual) notify(status.staged ? `v${status.staged} is waiting for a reload.` : `Discrub v${newest} is the newest.`, "success");
             return;
         }
-        if (!manual && status.bad.includes(latest)) return;
+        if (!manual && (status.bad.includes(latest) || (mode === "ask" && status.declined === latest))) return;
 
-        const mode = settings.store.updateMode;
-        if (mode === "pinned" && !manual) return;
         if (mode === "auto" && !manual) await install(latest);
         else await offerUpdate(newest, latest);
     } catch (e) {
@@ -137,6 +146,7 @@ async function check(manual: boolean) {
 }
 
 async function offerInstall(latest?: string) {
+    if (!Native) return;
     if (!latest) {
         const status = setStatus(await Native.checkLatest());
         if (!status.latest) return void notify(status.lastError ?? "Couldn't reach the Chrome Web Store.", "critical");
@@ -151,37 +161,59 @@ async function offerInstall(latest?: string) {
         </>,
         `Download v${latest}`,
     );
-    if (yes) await install(latest);
+    if (yes && isRunning()) await install(latest);
 }
 
 async function openDiscrub() {
-    const status = setStatus(await Native.getStatus());
-    if (!status.installed) return offerInstall(status.latest ?? undefined);
-    const button = document.getElementById(DISCRUB_BUTTON);
-    if (!status.loaded || !button) return reloadDiscord(status.staged ? `Discrub v${status.staged} is ready.` : "Discrub is installed but not running in this window yet.");
+    if (!isRunning() || !Native) return;
+    try {
+        const status = setStatus(await Native.getStatus());
+        if (!status.installed) return await offerInstall(status.latest ?? undefined);
+        const button = document.getElementById(DISCRUB_BUTTON);
+        if (!status.loaded || !button) return await reloadDiscord(status.staged ? `Discrub v${status.staged} is ready.` : "Discrub is installed but not running in this window yet.");
 
-    button.click();
-    const view = settings.store.startWith;
-    if (view === "web" || view === "classic") {
-        Native.chooseView(view).catch(e => logger.warn("Couldn't pick the version on Discrub's start screen", e));
+        button.click();
+        const view = settings.store.startWith;
+        if (view === "ask" || view === "web" || view === "classic") {
+            Native.chooseView(view).catch(e => logger.warn("Couldn't set up Discrub's start screen", e));
+        }
+    } catch (e) {
+        logger.error("Couldn't open Discrub", e);
+        notify(errorText(e), "critical");
     }
+}
+
+// Discrub turns the toolbar slot it joins into a reversed flex row and doesn't undo that when it's unloaded.
+function findToolbarSlot() {
+    return document.getElementById(DISCRUB_BUTTON)?.parentElement
+        ?? document.querySelector('[aria-label="Inbox"]')?.parentElement
+        ?? document.querySelector('[aria-label="Help"]')?.parentElement
+        ?? null;
+}
+
+function restoreToolbar(slot: HTMLElement | null) {
+    document.getElementById(DISCRUB_BUTTON)?.remove();
+    if (slot?.style.flexDirection !== "row-reverse") return;
+    for (const prop of TOOLBAR_STYLES) slot.style.removeProperty(prop);
 }
 
 // After an update, Discrub's content script adds its button within a few seconds. No button means the new version is broken.
 function watchStart(status: Status) {
-    if (!status.justUpdated || !status.loaded) return;
+    if (!status.justUpdated || !status.loaded || !Native) return;
+    const native = Native;
     const started = Date.now();
     clearInterval(startPoll);
     startPoll = setInterval(async () => {
-        if (!running) return void clearInterval(startPoll);
+        if (!isRunning()) return void clearInterval(startPoll);
         if (document.getElementById(DISCRUB_BUTTON)) {
             clearInterval(startPoll);
-            setStatus(await Native.confirmStarted());
+            native.confirmStarted().then(setStatus).catch(e => logger.warn("Couldn't confirm Discrub started", e));
         } else if (Date.now() - started > START_GRACE) {
             clearInterval(startPoll);
             try {
-                const back = setStatus(await Native.rollback("its button never showed up"));
-                if (running) void reloadDiscord(back.lastError ?? `Went back to Discrub v${back.installed}.`);
+                const back = setStatus(await native.rollback("its button never showed up"));
+                native.markNoticeShown().then(setStatus).catch(() => { });
+                if (isRunning()) void reloadDiscord(back.notice ?? `Went back to Discrub v${back.installed}.`);
             } catch (e) {
                 notify(`Discrub v${status.justUpdated} didn't start, and there's no older copy to go back to. ${errorText(e)}`, "critical");
             }
@@ -190,21 +222,27 @@ function watchStart(status: Status) {
 }
 
 actions.checkNow = () => check(true);
-actions.applyUpdate = () => reloadDiscord(`Discrub v${getStatus()?.staged} is ready.`);
+actions.applyUpdate = async () => {
+    const staged = getStatus()?.staged;
+    if (staged) await reloadDiscord(`Discrub v${staged} is ready.`);
+};
 
 export default definePlugin({
     name: "DiscrubLoader",
     description: "Opens Discrub (message export and cleanup by Prather Bytecraft) inside Discord, loaded straight from its official build and checked against GitHub. Unofficial.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
+    // Needs the desktop app's native side to load an extension.
+    hidden: !IS_DISCORD_DESKTOP,
     settings,
 
     settingsAboutComponent: () => (
-        <>
-            <Button onClick={() => void openDiscrub()}>Open Discrub</Button>
+        <div className="vc-discrub-about">
+            <PluginButton off={!isRunning()} onClick={() => void openDiscrub()}>Open Discrub</PluginButton>
             <Paragraph>
                 Discrub also opens from the broom at the top of Discord. Discrub itself is made by Prather Bytecraft (github.com/pratherbytecraft/discrub); this plugin only downloads their official build and runs it unchanged.
             </Paragraph>
-        </>
+            {!isRunning() && <Paragraph className="vc-discrub-off">Turn the plugin on to open Discrub.</Paragraph>}
+        </div>
     ),
 
     headerBarButton: {
@@ -213,23 +251,35 @@ export default definePlugin({
     },
 
     async start() {
-        running = true;
+        if (!Native) return void logger.error("Discrub Loader only works in the Discord desktop app.");
+        setRunning(true);
         try {
             const status = setStatus(await Native.start());
-            if (status.lastError?.includes("Went back")) notify(status.lastError, "critical");
+            if (status.notice && !status.noticeShown) {
+                notify(status.notice, "critical");
+                Native.markNoticeShown().then(setStatus).catch(() => { });
+            }
             watchStart(status);
         } catch (e) {
             logger.error("Couldn't start", e);
         }
+        if (!isRunning()) return;
         firstTimer = setTimeout(() => void check(false), FIRST_CHECK);
         repeatTimer = setInterval(() => void check(false), CHECK_EVERY);
     },
 
     stop() {
-        running = false;
+        setRunning(false);
         clearInterval(startPoll);
         clearTimeout(firstTimer);
         clearInterval(repeatTimer);
-        Native.stop().then(setStatus).catch(() => { });
+        if (!Native) return;
+        const slot = findToolbarSlot();
+        Native.stop()
+            .then(status => {
+                setStatus(status);
+                restoreToolbar(slot);
+            })
+            .catch(e => logger.warn("Couldn't unload Discrub", e));
     },
 });
