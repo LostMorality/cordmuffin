@@ -11,6 +11,8 @@ export const cl = classNameFactory("eq-transall-");
 export interface Translation {
     text: string;
     src: string;
+    /** Set for failures and status notes, which are not translations of the message. */
+    error?: boolean;
 }
 
 export type IconProps = {
