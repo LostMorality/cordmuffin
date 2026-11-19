@@ -16,12 +16,13 @@ export interface Platform {
 const WINDOWS_ONLY = ["os_version", "os_sdk_version", "os_build_revision", "os_version_is_release"] as const;
 const DESKTOP_APP_ONLY = [...WINDOWS_ONLY, "client_version", "native_build_number", "os_arch", "app_arch", "client_launch_id", "launch_signature"] as const;
 
-// One entry per icon other people can see. Each sends what one real app sends: Phone is the Android app, Console is the Xbox app.
+// One entry per icon other people can see. Phone copies the Android app's identity fields, Console the Xbox app's.
+// Fields the plugin can't know for those apps (build number, release channel and the like) stay as this client sends them.
 export const PLATFORMS = {
     desktop: {
         label: "Desktop",
         shows: "desktop",
-        props: { os: "Windows", browser: "Discord Client" },
+        props: { browser: "Discord Client" },
         drop: []
     },
     web: {
@@ -46,7 +47,7 @@ export const PLATFORMS = {
     console: {
         label: "Console",
         shows: "embedded",
-        props: { os: "Xbox", browser: "Discord Embedded", device: "" },
+        props: { os: "Xbox", browser: "Discord Embedded", device: "", browser_user_agent: "", browser_version: "" },
         drop: DESKTOP_APP_ONLY
     },
     vr: {
