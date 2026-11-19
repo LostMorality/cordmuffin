@@ -160,11 +160,20 @@ const CHANGELOG_ITEMS = 12;
 // "## Title" starts a section, "- " starts an item; a line indented under an item continues it.
 function parseChangelog(text: string): ChangelogSection[] {
     const sections: ChangelogSection[] = [];
+    // Lines under a "### Plugin" heading are about that plugin, so they get its name in front, the same as a
+    // "- Plugin: ..." line, and the page can still hide them from people who don't have it.
+    let group = "";
     for (const raw of text.split(/\r?\n/)) {
         const line = raw.trim();
-        if (raw.startsWith("## ")) sections.push({ title: line.slice(3).trim(), items: [] });
-        else if (!sections.length || !line) continue;
-        else if (line.startsWith("- ")) sections.at(-1)!.items.push(line.slice(2).trim());
+        if (raw.startsWith("## ")) {
+            sections.push({ title: line.slice(3).trim(), items: [] });
+            group = "";
+        } else if (!sections.length || !line) continue;
+        else if (raw.startsWith("### ")) group = line.slice(4).replace(/\*\*|`/g, "").trim();
+        else if (line.startsWith("- ")) {
+            const item = line.slice(2).trim();
+            sections.at(-1)!.items.push(group ? `${group}: ${item}` : item);
+        }
         else if (/^\s/.test(raw) && sections.at(-1)!.items.length) {
             const { items } = sections.at(-1)!;
             items[items.length - 1] += " " + line;
