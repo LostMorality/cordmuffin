@@ -1,6 +1,9 @@
 # cordmuffin
 
-Plugins for [Equicord](https://github.com/Equicord/Equicord), a mod for the Discord desktop app. Includes Muffinshelf, an in-Discord store for plugins Equicord doesn't ship, and an optional installer that builds Equicord with the plugins and themes you choose.
+Extra plugins for [Equicord](https://github.com/Equicord/Equicord), a mod for the Discord desktop app.
+
+- **Muffinshelf:** an in-Discord store for plugins Equicord doesn't ship.
+- **Installer (optional):** builds Equicord with the plugins and themes you pick.
 
 > [!WARNING]
 > Client mods like Equicord break [Discord's Terms of Service](https://discord.com/terms). Nobody is known to have been banned just for using one, but if losing your account would be a disaster, don't use mods.
@@ -14,47 +17,47 @@ Plugins for [Equicord](https://github.com/Equicord/Equicord), a mod for the Disc
 
 ## Plugins at a glance
 
-Each plugin is a folder in [`custom-creations`](custom-creations). The folder name is listed under each plugin's heading.
+Each plugin is a folder in [`custom-creations`](custom-creations). You'll find the folder name under each plugin's heading.
+
+⚠ = breaks Discord's rules beyond just using a mod (made-up reports, automation or spoofing). Only use these on an account you're fine risking.
 
 **Store**
 
 | Plugin | What it does |
 |---|---|
-| [Muffinshelf](#muffinshelf) | A plugin store inside Discord for plugins Equicord doesn't ship, BetterDiscord ones included. |
+| [Muffinshelf](#muffinshelf) | A plugin store inside Discord. Gets plugins Equicord doesn't ship, BetterDiscord ones included. |
 
 **Everyday**
 
 | Plugin | What it does |
 |---|---|
-| [Dictation](#dictation) | Talk instead of typing, with punctuation added. Runs on your own computer. |
-| [ShrinkUploads](#shrinkuploads) | Shrinks pictures, GIFs, videos and audio to fit your upload limit, on your own computer. |
+| [Dictation](#dictation) | Talk instead of typing. Adds punctuation. Runs on your own computer. |
+| [ShrinkUploads](#shrinkuploads) | Shrinks pictures, GIFs, videos and audio to fit your upload limit. Runs on your own computer. |
 | [ProfileImages](#profileimages) | One-click buttons to see profile pictures, banners and server icons full size. |
-| [PluginPresets](#pluginpresets) | Saves which plugins are on as presets you can switch between and share. |
-| [CustomRPCShare](#customrpcshare) | Export and import CustomRPC presets as a code or a .json file, to share your Rich Presence setups. |
-| [GreetStickerPicker+](#greetstickerpicker) | Pick any sticker for the "Wave to say hi!" button, in servers and in DMs. |
-| [HideClientBadges](#hideclientbadges) | Hides client mod badges, so profiles only show Discord's own. |
+| [PluginPresets](#pluginpresets) | Save which plugins are on as presets. Switch between them and share them. |
+| [CustomRPCShare](#customrpcshare) | Share your Rich Presence setups: export and import CustomRPC presets as a code or a .json file. |
+| [GreetStickerPicker+](#greetstickerpicker) | Pick any sticker for the "Wave to say hi!" button, in servers and DMs. |
+| [HideClientBadges](#hideclientbadges) | Hides client mod badges. Profiles only show Discord's own. |
 | [BadgeTierViewer](#badgetierviewer) | Click any tier in Your Badges to see it in the big preview, locked or as it looks once unlocked. |
-| [TranslateItAll](#translateitall) | Translates messages with Google or Yandex Translate, no API key needed. |
-| [OfficialCustomTypingIndicator](#officialcustomtypingindicator) ⚠ | Set Discord's own Nitro custom typing indicator from desktop. Phone users see it without any plugin. |
-| [Discrub Loader](#discrub-loader) ⚠ | Opens Discrub, which exports, searches and cleans up your messages, inside Discord. |
-| [NoQuestsOnStartup](#noquestsonstartup) | Stops Discord from opening the Quests page every time it starts. |
+| [TranslateItAll](#translateitall) | Translates messages with Google or Yandex Translate. No API key needed. |
+| [OfficialCustomTypingIndicator](#officialcustomtypingindicator) ⚠ | Set Discord's own Nitro custom typing indicator from desktop. Phone users see it with no plugin. |
+| [Discrub Loader](#discrub-loader) ⚠ | Opens Discrub inside Discord to export, search and clean up your messages. |
+| [NoQuestsOnStartup](#noquestsonstartup) | Stops Discord opening the Quests page every time it starts. |
 
 **Badges & quests**
 
 | Plugin | What it does |
 |---|---|
-| [Game Browser](#game-browser-gametimespoof) (GameTimeSpoof) ⚠ | Makes Discord think you're playing any detectable game, so your Game Time and Game Variety badges keep counting. |
-| [StreamTimeFarmer](#streamtimefarmer) ⚠ | Earns Streaming badge time by streaming to a second account of yours, which runs in a hidden window. **Add Streaming Time** adds up to 12 hours each hour. |
-| [QuestRunner](#questrunner) ⚠ | Does your Discord quests for you. You only come back to claim the reward. |
-| [PlatformSpoofer+](#platformspoofer) ⚠ | Pick whether people see you on phone, console, VR headset, web or desktop. |
+| [Game Browser](#game-browser-gametimespoof) (GameTimeSpoof) ⚠ | Makes Discord think you're playing any detectable game. Your Game Time and Game Variety badges keep counting. |
+| [StreamTimeFarmer](#streamtimefarmer) ⚠ | Earns Streaming badge time by streaming to your own second account in a hidden window. **Add Streaming Time** adds up to 12 hours each hour. |
+| [QuestRunner](#questrunner) ⚠ | Does your Discord quests for you. You just come back to claim the reward. |
+| [PlatformSpoofer+](#platformspoofer) ⚠ | Choose whether people see you on phone, console, VR headset, web or desktop. |
 
 **Fun**
 
 | Plugin | What it does |
 |---|---|
-| [Ransom](#ransom) | Ransom from DOORS wanders around your Discord and holds it hostage for gold. Only on your screen. |
-
-⚠ These do things Discord's rules forbid on top of using a mod (made-up reports, automation or spoofing). Only use them on an account you're fine risking.
+| [Ransom](#ransom) | Ransom from DOORS wanders around your Discord and holds it hostage for gold. Only you see it. |
 
 The installer also adds [CordmuffinUpdater](#automatic-updates-cordmuffinupdater), which keeps everything up to date.
 
@@ -62,29 +65,35 @@ The installer also adds [CordmuffinUpdater](#automatic-updates-cordmuffinupdater
 
 ## Equicord Installer
 
-The installer downloads Equicord, adds your plugins, builds it, puts it into Discord, and turns your themes on.
+The installer downloads Equicord, adds your plugins, builds it, puts it into Discord and turns your themes on.
 
 1. Download **Cordmuffin Equicord Installer.zip** from [Releases](../../releases) and unzip it anywhere.
-2. Get the plugins: on this page click **Code → Download ZIP**, unzip it, open `custom-creations`, and copy the folders of the plugins you want (names are in the [plugin list](#plugins-at-a-glance)) into **Plugins Go Here**. You don't need `cordmuffinUpdater`: the installer adds it on its own.
-   - Plugins from anywhere else work as well: a folder with an `index.ts` or `index.tsx` inside, a single `.ts`/`.tsx` file, or a zip.
+2. Get the plugins:
+   - On this page, click **Code → Download ZIP** and unzip it.
+   - Open `custom-creations` and copy the plugin folders you want into **Plugins Go Here**. Folder names are in the [plugin list](#plugins-at-a-glance).
+   - Skip `cordmuffinUpdater`. The installer adds it on its own.
+   - Plugins from other places work too: a folder with an `index.ts` or `index.tsx` inside, a single `.ts`/`.tsx` file, or a zip.
 3. Drop themes (`.css` files) into **Themes Go Here**.
 4. Run **Cordmuffin Equicord Installer.exe** and click **Yes**.
 
 > [!NOTE]
 > Windows might say "Windows protected your PC" because the installer isn't signed. Click **More info**, then **Run anyway**.
 
-The first run takes a few minutes. After that it's faster.
-
-It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need admin rights. If something goes wrong partway, Discord is left as it was, and if Equicord's files ever go missing, Discord simply starts without it.
+**Good to know**
+- The first run takes a few minutes. Later runs are faster.
+- It finds Discord, Discord PTB and Discord Canary on its own.
+- It doesn't need admin rights.
+- If something goes wrong partway, Discord is left as it was.
+- If Equicord's files ever go missing, Discord just starts without it.
 
 ### Updating and removing
 
 | To | Do this |
 |---|---|
-| **Get updates automatically** | Nothing to do. It's on by default through [CordmuffinUpdater](#automatic-updates-cordmuffinupdater). Change it in **User Settings → Cordmuffin Updater**. |
-| **Add or update plugins** | Change the folders and run the installer again. Your Muffinshelf plugins are kept. A newer download in a different folder copies your plugins over from the last install into its **Plugins Go Here**. |
-| **Update by hand** | Run it again and click **Yes**. It always grabs the newest Equicord, and swaps any cordmuffin plugins in **Plugins Go Here** for their newest version (the old copy is kept in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`). |
-| **Remove it** | Run it, click **No**, then confirm. Discord goes back to normal, and if you had another Discord mod before, it puts that back. |
+| **Get updates automatically** | Nothing. It's on by default through [CordmuffinUpdater](#automatic-updates-cordmuffinupdater). Change it in **User Settings → Cordmuffin Updater**. |
+| **Add or update plugins** | Change the folders and run the installer again. Your Muffinshelf plugins are kept. A newer download in a different folder copies your plugins from the last install into its **Plugins Go Here**. |
+| **Update by hand** | Run it again and click **Yes**. It always gets the newest Equicord. Cordmuffin plugins in **Plugins Go Here** are swapped for their newest version, and the old copy goes to `%LOCALAPPDATA%\Cordmuffin\plugin-backups`. |
+| **Remove it** | Run it, click **No**, then confirm. Discord goes back to normal. If you had another Discord mod before, it puts that back. |
 
 ### Automatic updates (CordmuffinUpdater)
 
@@ -92,19 +101,19 @@ It finds Discord, Discord PTB and Discord Canary on its own, and doesn't need ad
 
 **Connects to:** api.github.com, codeload.github.com and github.com (including the repos your Muffinshelf plugins came from), release-assets.githubusercontent.com for new installer releases, plus nodejs.org and registry.npmjs.org while an update builds. Its files live in `%LOCALAPPDATA%\Cordmuffin`, listed under [What the installer downloads and changes](#what-the-installer-downloads-and-changes).
 
-Keeps the cordmuffin plugins, your Muffinshelf plugins and the installer up to date.
+Keeps the cordmuffin plugins, your Muffinshelf plugins and the installer up to date. It isn't in the plugin list: its switches are on their own page, **User Settings → Cordmuffin Updater** (in the Equicord Settings section).
 
 <img src="docs/updater-settings.png" alt="The Cordmuffin Updater page" width="380">
 
 **What it does**
-- Asks GitHub when Discord starts, and every 6 hours, whether there's a newer version of a cordmuffin plugin you use, of a plugin you installed with Muffinshelf (checked in the GitHub repo it came from), or of the installer.
-- If there is, it runs the installer in the background to build the update while Discord keeps working.
-- When it's done, a notification says what was updated. Click it to restart Discord (it asks first), or the update is used the next time Discord starts.
+- Checks GitHub when Discord starts and every 6 hours.
+- Looks for newer versions of the cordmuffin plugins you use and of the installer.
+- Also checks each Muffinshelf plugin in the GitHub repo it came from.
+- When there's an update, it runs the installer in the background. Discord keeps working while it builds.
+- When it's done, a notification says what was updated.
+- Click the notification to restart Discord (it asks first). Otherwise the update is used next time Discord starts.
 - Updates install by themselves by default.
 - Your other plugins, themes and settings are left alone.
-- Equicord updates are off by default: updates rebuild with the Equicord you already have.
-
-It isn't in the plugin list. Its switches are on its own page, **User Settings → Cordmuffin Updater** (in the Equicord Settings section).
 
 <details>
 <summary><b>Settings</b></summary>
@@ -112,18 +121,23 @@ It isn't in the plugin list. Its switches are on its own page, **User Settings �
 All on **User Settings → Cordmuffin Updater**:
 - **Automatically update** (on by default): turn it off to get an **Update now** button instead.
 - **Muffinshelf updates**: turn it off to leave Muffinshelf plugins alone.
-- **Also update Equicord**: turn it on to keep Equicord up to date too.
-- **Check for updates**: turn it off to stop it completely.
-- The page also has **Check now** and shows what's installed. Clicking a notification about a failed update, or one that needs no restart, opens it.
+- **Also update Equicord** (off by default): turn it on to keep Equicord up to date too.
+- **Check for updates**: turn it off to stop the updater completely.
+- The page also has **Check now** and shows what's installed.
+- Clicking a notification about a failed update, or one that needs no restart, opens this page.
 
-Equicord's own updater would replace your build with the official one, which doesn't include these plugins. Turn on **Also update Equicord** to update it from here instead. Equicord changes several times a day, so you choose how often: at most once a day (default), once a week, on every change, or only with plugin updates. With it on, a plugin update also brings the newest Equicord.
+**About Equicord updates**
+- With **Also update Equicord** off, updates rebuild with the Equicord you already have.
+- Equicord's own updater would replace your build with the official one, which doesn't include these plugins. Use **Also update Equicord** instead.
+- Equicord changes several times a day, so you pick how often: at most once a day (default), once a week, on every change, or only with plugin updates.
+- With it on, a plugin update also brings the newest Equicord.
 
 </details>
 
 <details>
 <summary><b>What an update looks like</b></summary>
 
-When an update is ready, you get a notification, or with **Automatically update** off, a bar with an **Update now** button:
+When an update is ready, you get a notification. With **Automatically update** off, you get a bar with an **Update now** button instead.
 
 <img src="docs/updater-notification.png" alt="Update finished notification" width="256">
 
@@ -135,8 +149,10 @@ When an update is ready, you get a notification, or with **Automatically update*
 <summary><b>Things to know</b></summary>
 
 - Before an update replaces a cordmuffin or Muffinshelf plugin, the old copy is saved in `%LOCALAPPDATA%\Cordmuffin\plugin-backups`.
-- If a Muffinshelf plugin's new version doesn't build, it stays on the old one and the rest still updates.
-- If an update fails, Discord keeps the version it has and it tries again an hour later. The reason is in `%LOCALAPPDATA%\Cordmuffin\update.log`. If the new files were only partly put in place, the notification says so and the next update rebuilds.
+- If a Muffinshelf plugin's new version doesn't build, that plugin stays on the old version. Everything else still updates.
+- If an update fails, Discord keeps the version it has. It tries again an hour later.
+- The reason for a failure is in `%LOCALAPPDATA%\Cordmuffin\update.log`.
+- If the new files were only partly put in place, the notification says so and the next update rebuilds.
 
 </details>
 
@@ -149,16 +165,18 @@ When an update is ready, you get a notification, or with **Automatically update*
 <details>
 <summary><b>Full list of what it downloads and changes</b></summary>
 
-**It downloads from these places:**
-- nodejs.org: Node.js, which is needed to build Equicord. It's kept in `%LOCALAPPDATA%\Cordmuffin` and isn't installed on your PC.
-- api.github.com and codeload.github.com: Equicord's source code, from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
-- github.com and release-assets.githubusercontent.com: newer releases of the installer itself, when CordmuffinUpdater finds one. GitHub sends the download on from github.com to release-assets.githubusercontent.com.
-- registry.npmjs.org: pnpm and the packages Equicord needs to build (Equicord's own `pnpm-lock.yaml` decides which).
+**Downloads**
+- **nodejs.org:** Node.js, which is needed to build Equicord. It's kept in `%LOCALAPPDATA%\Cordmuffin` and isn't installed on your PC.
+- **api.github.com and codeload.github.com:** Equicord's source code from [Equicord/Equicord](https://github.com/Equicord/Equicord), and the newest cordmuffin plugins from this repo.
+- **github.com and release-assets.githubusercontent.com:** newer installer releases, when CordmuffinUpdater finds one. GitHub forwards the download from github.com to release-assets.githubusercontent.com.
+- **registry.npmjs.org:** pnpm and the packages Equicord needs to build. Equicord's own `pnpm-lock.yaml` decides which.
 
-**It changes these on your PC:**
-- Discord's `resources` folder: it renames `app.asar` to `_app.asar` and adds a small `app.asar` folder that loads Equicord. This is the same way Equicord's own installer does it.
-- `%LOCALAPPDATA%\Cordmuffin`: Node.js, Equicord's source, pnpm's download cache, the built files, a copy of the installer and of your plugins for background updates, `install.log` and `update.log`. Removing Equicord deletes this folder, except `plugin-backups` when updates saved old plugin copies there (delete it by hand if you don't need them).
-- `%APPDATA%\Equicord\themes` and the `enabledThemes` list in `%APPDATA%\Equicord\settings\settings.json`, only if you added themes.
+**Changes on your PC**
+- **Discord's `resources` folder:** renames `app.asar` to `_app.asar` and adds a small `app.asar` folder that loads Equicord. Equicord's own installer does it the same way.
+- **`%LOCALAPPDATA%\Cordmuffin`:** Node.js, Equicord's source, pnpm's download cache, the built files, `install.log` and `update.log`.
+  - It also holds a copy of the installer and of your plugins, used for background updates.
+  - Removing Equicord deletes this folder, except `plugin-backups` if updates saved old plugin copies there. Delete that by hand if you don't need it.
+- **`%APPDATA%\Equicord\themes`** and the `enabledThemes` list in `%APPDATA%\Equicord\settings\settings.json`: only if you added themes.
 
 </details>
 
@@ -166,7 +184,12 @@ When an update is ready, you get a notification, or with **Automatically update*
 
 ## Plugins
 
-**Installing any plugin below:** copy its folder from `custom-creations` into **Plugins Go Here**, then run the [installer](#equicord-installer). If you build Equicord yourself, it goes in `src/userplugins` like any other user plugin.
+**To install any plugin below:**
+
+1. Copy its folder from `custom-creations` into **Plugins Go Here**.
+2. Run the [installer](#equicord-installer).
+
+If you build Equicord yourself, put the folder in `src/userplugins`, the same as any other user plugin.
 
 ---
 
@@ -181,13 +204,15 @@ A plugin store inside Discord for plugins Equicord doesn't ship. Open it from th
 <img src="docs/muffinshelf.png" alt="Muffinshelf" width="720">
 
 **What it does**
-- Installs Equicord plugins from community GitHub repos and plugin lists (venpm `plugins.json`), with a rebuild and one restart.
-- Installs BetterDiscord plugins from the official BetterDiscord store, with no rebuild or restart. 205 of the 207 store plugins tested so far work.
-- Lists shelter, Moonlight, Replugged and Evi plugins too, with links, so you can find them. They're built for other mods and can't run on Equicord.
-- Marks plugins Equicord already has (like InvisibleTyping, which is Equicord's SilentTyping) and hides them by default.
-- Takes your own sources: paste a GitHub repo link, a `plugins.json` link or a single `.plugin.js` link in the **Sources** tab.
+- Installs Equicord plugins from community GitHub repos and plugin lists (venpm `plugins.json`). Needs a rebuild and one restart.
+- Installs BetterDiscord plugins from the official BetterDiscord store. No rebuild or restart needed.
+- 205 of the 207 BetterDiscord store plugins tested so far work.
+- Lists shelter, Moonlight, Replugged and Evi plugins with links, so you can find them. They're built for other mods and can't run on Equicord.
+- Marks plugins Equicord already has and hides them by default. Example: InvisibleTyping is Equicord's SilentTyping.
+- Takes your own sources in the **Sources** tab: a GitHub repo link, a `plugins.json` link or a single `.plugin.js` link.
 - The **How it works** tab explains all of this and shows every source and folder it uses.
-- Works with Equicord built by the Cordmuffin installer or from your own source folder. Equicord from the official installer can't be rebuilt, so only BetterDiscord plugins work there.
+- Works with Equicord built by the Cordmuffin installer or from your own source folder.
+- Equicord from the official installer can't be rebuilt, so only BetterDiscord plugins work there.
 
 > [!CAUTION]
 > Every plugin you install is someone else's code, and it runs inside your Discord with full access to your account. BetterDiscord plugins are downloaded and run as code at runtime. Only install plugins from people you trust, and use the **Source** button if you're unsure.
@@ -195,9 +220,23 @@ A plugin store inside Discord for plugins Equicord doesn't ship. Open it from th
 <details>
 <summary><b>How installs work</b></summary>
 
-- Equicord plugins: Muffinshelf downloads the plugin's folder, rebuilds Equicord, turns the plugin on and asks you to restart Discord. If anything goes wrong, your plugins are put back the way they were and Discord keeps working.
-- BetterDiscord plugins run through Muffinshelf's own BetterDiscord layer, with no rebuild or restart. Plugins that need one of the shared BetterDiscord libraries (ZeresPluginLibrary, BDFDB or XenoLib) get it installed with them, only when their code really uses it. A library that's turned off is hidden from other plugins, so plugins that need it won't start until it's back on. They get the same Node.js modules BetterDiscord gives them. Their file access is kept to their own plugins folder, but that's not a safety wall: like on BetterDiscord, they run with full access to your Discord account.
-- The BetterDiscord store's plugins were run in Muffinshelf: 205 of the 207 tested work. The 2 that don't were made for an older Discord; they're hidden, with the reason shown (pick **Won't work here** in Browse to see them). Some plugins (BetterAnimations, for example) are fixed up for today's Discord, and a few need one Discord restart after they're installed; Muffinshelf asks when that happens. A plugin that fails for you is hidden the same way, until a new version comes out.
+**Equicord plugins**
+- Muffinshelf downloads the plugin's folder, rebuilds Equicord, turns the plugin on and asks you to restart Discord.
+- If anything goes wrong, your plugins are put back the way they were and Discord keeps working.
+
+**BetterDiscord plugins**
+- They run through Muffinshelf's own BetterDiscord layer, with no rebuild or restart.
+- Some need a shared BetterDiscord library (ZeresPluginLibrary, BDFDB or XenoLib). It gets installed with them, only when their code really uses it.
+- A library that's turned off is hidden from other plugins. Plugins that need it won't start until it's back on.
+- They get the same Node.js modules BetterDiscord gives them.
+- Their file access is kept to their own plugins folder. That's not a safety wall: like on BetterDiscord, they have full access to your Discord account.
+
+**Which BetterDiscord plugins work**
+- The store's plugins were run in Muffinshelf: 205 of the 207 tested work. The 2 that don't work were made for an older Discord.
+- Those 2 are hidden, with the reason shown. Pick **Won't work here** in Browse to see them.
+- Some plugins (BetterAnimations, for example) are fixed up for today's Discord.
+- A few need one Discord restart after they're installed. Muffinshelf asks when that happens.
+- A plugin that fails for you is hidden the same way, until a new version comes out.
 
 </details>
 
@@ -210,7 +249,10 @@ A plugin store inside Discord for plugins Equicord doesn't ship. Open it from th
 - shindex.uwu.network, moonlight-mod.github.io and replugged.dev: the shelter, Moonlight and Replugged plugin lists.
 - Whatever an installed BetterDiscord plugin itself connects to. Those requests go out from Discord's main process.
 
-**Where files go:** Equicord plugins go in Equicord's `src/userplugins` folder, with a backup copy in `%APPDATA%\Equicord\muffinshelf\userplugins` so a Cordmuffin update can't lose them. BetterDiscord plugins and their settings go in `%APPDATA%\Equicord\muffinshelf\bd`.
+**Where files go:**
+- Equicord plugins go in Equicord's `src/userplugins` folder.
+- A backup copy goes in `%APPDATA%\Equicord\muffinshelf\userplugins`, so a Cordmuffin update can't lose them.
+- BetterDiscord plugins and their settings go in `%APPDATA%\Equicord\muffinshelf\bd`.
 
 </details>
 
@@ -222,47 +264,77 @@ A plugin store inside Discord for plugins Equicord doesn't ship. Open it from th
 
 **Connects to:** github.com and huggingface.co, once, to download the speech engine and models. Works offline after that.
 
-Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk, and your words show up in the message box with commas, periods and capitals already in place.
+Talk instead of typing. Your words show up in the message box with commas, periods and capitals already in place.
 
 <img src="docs/dictation-chat.png" alt="Dictated text in the message box" width="720">
 
 **What it does**
-- Runs entirely on your computer: no account or API key, and audio never leaves your PC.
+- Runs entirely on your computer. No account or API key needed.
+- Your audio never leaves your PC.
 - Picks the right speech engine and model for your computer on first use. You can choose one yourself.
-- **Fix Grammar** (optional) turns on a small AI model that cleans up grammar as well.
-- Shows the text live while you talk, with a small level meter that turns green when it hears you.
+- Shows your words live while you talk.
+- A small level meter turns green when it hears you.
 - Ignores silence, so background noise never turns into made-up words.
 - Uses your Discord mic settings: the same input device, input profile and input volume as your voice calls.
+- **Fix Grammar** (optional) turns on a small AI model that also cleans up grammar.
 
 <details>
 <summary><b>How to use it</b></summary>
 
 <img src="docs/dictation-menu.png" alt="Dictation's right-click menu" width="181"> <img src="docs/dictation-settings.png" alt="Dictation's settings" width="373">
 
-- Click the mic in the chat bar, or hold the shortcut, and talk. Your words show up above the message box as you speak, next to the level meter. The finished text goes into the message box when you stop.
-- Right-click the mic for Discord's own mic menu, plus **Add Punctuation**, **Fix Grammar** and **Speech Model**.
+- Click the mic in the chat bar, or hold **Alt+D**, and talk.
+- Your words show up above the message box as you speak, next to the level meter.
+- When you stop, the finished text goes into the message box.
 - If your mic is muted or you don't say anything, nothing gets added.
+- Right-click the mic for Discord's own mic menu, plus **Add Punctuation**, **Fix Grammar** and **Speech Model**.
 
 </details>
 
 <details>
 <summary><b>Settings</b></summary>
 
-- The shortcut is Alt+D by default. Change it in the plugin's settings; it needs Ctrl, Alt or Meta with a key (Shift can be added on top), or an F key on its own. Shift alone doesn't count, so typing capitals never sets it off. It works while Discord is focused.
-- Turn the live text off if you don't want it.
-- Speech model: on first use it downloads a speech engine and model that suit your PC: [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard, on stronger PCs, or the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) on older ones. You can choose either one yourself.
-- Fix Grammar uses Qwen3 4B, or the smaller Qwen2.5 1.5B on PCs with under 8 GB of memory, or with fewer than 8 processor threads and no NVIDIA or AMD graphics (AMD integrated graphics and Apple Silicon Macs count as having one). It runs on your graphics card when it has room, or on the processor otherwise. Each fix takes well under a second on a graphics card and about a second on a modern processor.
+**Shortcut**
+- Alt+D by default. Change it in the plugin's settings.
+- It needs Ctrl, Alt or Meta plus a key (you can add Shift on top), or an F key on its own.
+- Shift alone doesn't count, so typing capitals never sets it off.
+- It works while Discord is focused.
+
+**Live text**
+- Turn it off if you don't want to see your words as you talk.
+
+**Speech model**
+- On first use it downloads a speech engine and model that suit your PC. You can choose either model yourself.
+- Stronger PCs get [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026), the most accurate free English model on Hugging Face's Open ASR leaderboard.
+- Older PCs get the lighter [Parakeet TDT 0.6B v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
+
+**Fix Grammar**
+- Uses Qwen3 4B.
+- Uses the smaller Qwen2.5 1.5B on PCs with under 8 GB of memory.
+- Also uses Qwen2.5 1.5B on PCs with fewer than 8 processor threads and no NVIDIA or AMD graphics. AMD integrated graphics and Apple Silicon Macs count as having one.
+- Runs on your graphics card when it has room, otherwise on the processor.
+- Each fix takes well under a second on a graphics card, and about a second on a modern processor.
 
 </details>
 
 <details>
 <summary><b>Privacy, connections and files</b></summary>
 
-**What it talks to:** only github.com and huggingface.co, once, to download the engines and models ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and [llama.cpp](https://github.com/ggml-org/llama.cpp)). After that it works offline.
+**What it talks to**
+- Only github.com and huggingface.co, once, to download the engines and models ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) and [llama.cpp](https://github.com/ggml-org/llama.cpp)).
+- After that it works offline.
 
-**Where files go:** `%APPDATA%\Equicord\dictation`: about 2.8 GB on disk with the most accurate speech model or 0.7 GB with the fastest one, plus about 2.5 GB if you turn on Fix Grammar. Downloads are smaller, but unpacking needs room for the download and the unpacked files at the same time, and it checks for free space first. A speech model you switch away from stays on disk so switching back is instant.
+**Where files go:** `%APPDATA%\Equicord\dictation`
+- About 2.8 GB on disk with the most accurate speech model, or 0.7 GB with the fastest one.
+- About 2.5 GB more if you turn on Fix Grammar.
+- Downloads are smaller, but unpacking needs room for the download and the unpacked files at the same time.
+- It checks for free space first.
+- A speech model you switch away from stays on disk, so switching back is instant.
 
-**Memory:** while in use, the speech engine takes around 3.5 GB of memory (plus about 3 GB with Fix Grammar on), and both unload themselves after 5 minutes without use.
+**Memory**
+- While in use, the speech engine takes around 3.5 GB of memory.
+- Fix Grammar adds about 3 GB.
+- Both unload themselves after 5 minutes without use.
 
 </details>
 
@@ -274,7 +346,7 @@ Talk instead of typing. Click the mic in the chat bar (or hold **Alt+D**), talk,
 
 **Connects to:** github.com, once, for the video tool (skipped if you already have a full ffmpeg). Your files never leave your computer until Discord uploads them.
 
-Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, right on your own computer.
+Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit. All the work happens on your own computer.
 
 <img src="docs/shrink-uploads.png" alt="ShrinkUploads settings: your upload limit, the video tool and the main options" width="520">
 
@@ -290,24 +362,28 @@ Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, 
 </table>
 
 **What it does**
-- When you send a file over your limit, it's shrunk to just under the limit and added back to the message.
-- The **Shrink** button on any file waiting to be sent lets you pick your own size.
-- Uses your real limit for no Nitro, Nitro Basic, Nitro and every server boost level.
-- Handles huge files, even multi-GB 4K camera clips. Long videos take a while: it does two careful passes to hit the exact size.
-- Removes hidden file info like your location and camera details by default.
+- Send a file over your limit and it's shrunk to just under the limit, then added back to the message.
+- The **Shrink** button on any waiting file lets you pick your own size.
+- Knows your real limit for no Nitro, Nitro Basic, Nitro and every server boost level.
+- Handles huge files, even multi-GB 4K camera clips.
+- Removes hidden file info, like your location and camera details, by default.
 
 <details>
 <summary><b>How to use it</b></summary>
 
-- Send the file as usual. You can have it ask first or do nothing instead. Files that already fit in the same drop go through like normal.
-- Use the **Shrink** button to pick a smaller size yourself, for example to save someone's data. The file keeps its spoiler, description and name.
-- A small panel shows each file's progress, with **Cancel**. Cancelling a Shrink button job puts the original file back. If a too-big file gets cancelled or can't be shrunk, it's left out of the message and the panel says why, until you close it. Send it again to retry.
-
-- If the message fills up (10 files) while a file is shrinking, the panel holds the shrunk file. Remove a file, then press **Add**. Shrunk and restored files go back where the original was in the list.
-
-  <img src="docs/shrink-uploads-failed.png" alt="A card saying a damaged file wasn't added, with a Close button" width="320">
+- Send the file as usual. Files in the same drop that already fit go through like normal.
+- Don't want it automatic? Set it to ask first or do nothing (see Settings).
+- Use the **Shrink** button to pick a smaller size yourself, for example to save someone's data.
+- A shrunk file keeps its spoiler, description and name.
+- A small panel shows each file's progress, with **Cancel**.
+- Cancelling a Shrink button job puts the original file back.
+- If a too-big file is cancelled or can't be shrunk, it's left out of the message. The panel says why until you close it.
+- To retry a file that was left out, send it again.
+- If the message fills up (10 files) while a file is shrinking, the panel holds the shrunk file. Remove a file, then press **Add**.
+- Shrunk and restored files go back to the original file's spot in the list.
 - It checks there's enough free disk space before starting.
-- The settings page shows your real limit, for DMs and for the server you're in. It gets the limit from Discord's own code, the same check Discord runs when you upload, so it stays right when Discord changes the numbers.
+
+<img src="docs/shrink-uploads-failed.png" alt="A card saying a damaged file wasn't added, with a Close button" width="320">
 
 </details>
 
@@ -320,21 +396,29 @@ Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, 
 - **Shrink button** (on): show the Shrink button on files waiting to be sent.
 - **Video speed**: Fast, Balanced (default) or Best quality (slow). Slower looks better.
 - **Video frame rate**: 60 fps (smoother, default) or 30 fps (sharper).
-- **Picture format**: Automatic (default), WebP (smallest) or JPEG. Automatic keeps JPEGs as JPEG. See-through pictures always become WebP.
+- **Picture format**: Automatic (default), WebP (smallest) or JPEG.
+  - Automatic keeps JPEGs as JPEG. See-through pictures always become WebP.
 - **GIFs as video** (off): turn big GIFs into small videos instead of smaller GIFs.
-- **Keep file info** (off): keep hidden info like location in videos and audio. Pictures and GIFs always lose it.
+- **Keep file info** (off): keep hidden info, like location, in videos and audio. Pictures and GIFs always lose it.
 - **Auto-get video tool** (on): download ffmpeg the first time it's needed.
+- The settings page also shows your real limit, for DMs and for the server you're in.
+- That limit comes from Discord's own code, the same check Discord runs on upload. So it stays right when Discord changes the numbers.
 
 </details>
 
 <details>
 <summary><b>What it does to each kind of file</b></summary>
 
-- Videos (MP4, MOV, MKV, WebM, AVI and more): re-encoded in two passes aimed at the exact size, then checked and fixed if it missed. It picks the size and frame rate that look best for the space, for example 720p at 30 fps rather than a blurry 540p at 60. If a video is too long to look OK at all, it says so instead of making mush.
-- Pictures: the best quality that fits, and smaller only if it has to. Screenshots stay pin-sharp when they can. See-through pictures stay see-through.
-- GIFs: rebuilt smaller, or turned into a small video if you turn that on.
-- Audio: turned into small Opus audio.
-- Phone HDR videos get normal colors, so they don't look washed out. Old camcorder and TV recordings get cleaned up so motion doesn't look doubled.
+- **Videos** (MP4, MOV, MKV, WebM, AVI and more): re-encoded in two careful passes aimed at the exact size. Long videos take a while.
+- After encoding, the video is checked and fixed if it missed the size.
+- It picks the size and frame rate that look best for the space, for example 720p at 30 fps rather than a blurry 540p at 60.
+- If a video is too long to look OK at all, it says so instead of making mush.
+- Phone HDR videos get normal colors, so they don't look washed out.
+- Old camcorder and TV recordings get cleaned up so motion doesn't look doubled.
+- **Pictures**: the best quality that fits, made smaller only if it has to be.
+- Screenshots stay pin-sharp when they can. See-through pictures stay see-through.
+- **GIFs**: rebuilt smaller, or turned into a small video if you turn that on.
+- **Audio**: turned into small Opus audio.
 - Pictures and GIFs always lose their hidden file info. Videos and audio keep it if you turn on **Keep file info**.
 
 </details>
@@ -344,14 +428,17 @@ Shrinks pictures, GIFs, videos and audio so they fit your Discord upload limit, 
 
 Videos, GIFs and audio need ffmpeg, a free video tool. Pictures don't need it.
 
-- If you already have a full ffmpeg build (with libx264 and libopus) from scoop, winget, Chocolatey or your PATH, it's found and used, and nothing gets downloaded. An ffmpeg that fails a quick test encode is skipped.
-- To use a specific one, click **Use my own ffmpeg** in the settings and pick it. The file has to be named exactly ffmpeg (ffmpeg.exe on Windows) and pass the same test. **Back to automatic** undoes that.
-- If you don't have it, the plugin downloads it once (about 30 MB) the first time it's needed, or when you click **Download video tool** in the settings.
-- It comes from a fixed release of ffmpeg-static on GitHub and is checked against a fingerprint built into the plugin before it's used.
+- Already have a full ffmpeg build (with libx264 and libopus) from scoop, winget, Chocolatey or your PATH? It's found and used, and nothing is downloaded.
+- An ffmpeg that fails a quick test encode is skipped.
+- To use a specific one, click **Use my own ffmpeg** in the settings and pick it.
+- That file must be named exactly ffmpeg (ffmpeg.exe on Windows) and pass the same test. **Back to automatic** undoes it.
+- No ffmpeg? The plugin downloads it once (about 30 MB) the first time it's needed, or when you click **Download video tool** in the settings.
+- The download comes from a fixed release of ffmpeg-static on GitHub.
+- Before use, it's checked against a fingerprint built into the plugin.
 - If the download fails, check your internet and click **Download video tool** in the settings to try again.
 - It works through your computer's proxy settings, like Discord does.
 - Moving pictures (animated WebP, PNG or AVIF) aren't shrunk yet. They go to Discord as they are and get no Shrink button.
-- .ts files only count as video when they really are one (MPEG-TS), so code files named .ts are left alone.
+- .ts files only count as video when they really are one (MPEG-TS). Code files named .ts are left alone.
 
 </details>
 
@@ -363,30 +450,41 @@ Videos, GIFs and audio need ffmpeg, a free video tool. Pictures don't need it.
 
 **Connects to:** cdn.discordapp.com only, for the images themselves, through Discord's own viewer.
 
-See anyone's profile picture and banner full size with one click. Equicord's ViewIcons hides this in right-click menus; ProfileImages puts the buttons right on the profile. It works fine next to ViewIcons, so you can keep both on.
+See anyone's profile picture and banner full size with one click. Equicord's ViewIcons hides this in right-click menus, while ProfileImages puts the buttons right on the profile.
 
 <img src="docs/profile-images-buttons.png" alt="The avatar and banner buttons next to Message" width="318">
 
 <img src="docs/profile-images-banner.png" alt="Avatar and Banner buttons on a profile popout's banner" width="253">
 
 **What it does**
-- On the full profile: two square buttons next to Message, one for the avatar and one for the banner. They look like Discord's own buttons, and themes style them the same way.
-- On the popout and DM side panel: small **Avatar** and **Banner** buttons in the top corner of the banner. They move aside on their own so they never cover Discord's buttons there.
-- Opens images in Discord's own viewer, full size, and animated avatars and banners stay animated.
-- If someone has a server avatar or banner, that one opens first.
-- With no banner, the banner button shows their banner colour instead.
+- Full profile: two square buttons next to Message, one for the avatar and one for the banner.
+- These look like Discord's own buttons, and themes style them the same way.
+- Popout and DM side panel: small **Avatar** and **Banner** buttons in the top corner of the banner.
+- Those move aside on their own, so they never cover Discord's buttons there.
 - Servers get **Icon** and **Banner** buttons on their banner.
+- Images open full size in Discord's own viewer. Animated avatars and banners stay animated.
+- If someone has a server avatar or banner, that one opens first.
+- If someone has no banner, the banner button shows their banner colour instead.
+- Works fine next to ViewIcons, so you can keep both on.
 
 <details>
 <summary><b>How to use it</b></summary>
 
-- Use the viewer's arrows to switch between the server and main avatar or banner (or pick main-first in settings).
-- Hover the banner-colour button to see the code, click to copy it, or hide the button in settings.
-- Right-click a button to pick the server or main version, view the avatar decoration, copy the link, open it in your browser, or copy the banner colour.
+- Use the viewer's arrows to switch between the server and main avatar or banner.
+- Prefer the main one first? Pick main-first in settings.
+- Banner-colour button: hover to see the colour code, click to copy it, or hide it in settings.
+- Right-click any profile button to:
+  - pick the server or main version
+  - view the avatar decoration
+  - copy the link
+  - open it in your browser
+  - copy the banner colour
 
   <img src="docs/profile-images-menu.png" alt="The right-click menu" width="430">
 
-- If a server has a banner, its **Icon** and **Banner** buttons sit in the bottom-right corner at the top of the channel list. They open the server icon or banner full size, and right-click gives **Copy Link** and **Open in Browser**.
+- Server buttons: if a server has a banner, its **Icon** and **Banner** buttons sit in the bottom-right corner at the top of the channel list.
+- They open the server icon or banner full size.
+- Right-click them for **Copy Link** and **Open in Browser**.
 
   <img src="docs/profile-images-server.png" alt="Icon and Banner buttons on a server banner" width="167">
 
@@ -395,9 +493,10 @@ See anyone's profile picture and banner full size with one click. Equicord's Vie
 <details>
 <summary><b>Settings</b></summary>
 
-- Turn each button on or off.
+- Turn each button on or off, including the banner-colour button.
 - Pick where they show: full profile, popout, DM side panel, server banner.
 - Pick which banner corner they sit in.
+- Pick whether the server or main avatar and banner open first.
 - Image format: webp, png or jpg, and webp or gif for animated ones.
 - Size: 512 to 4096.
 
@@ -411,12 +510,13 @@ See anyone's profile picture and banner full size with one click. Equicord's Vie
 
 **Connects to:** nothing. Presets are saved in Equicord's own storage inside Discord, not in settings.json.
 
-Save which plugins are on, along with their settings, as a named preset, and switch between presets in one go. Have a "Minimal" preset with 5 plugins and an "Everything" one with 100, and flip between them without clicking through 300 toggles.
+Save which plugins are on, plus their settings, as a named preset. Then switch between presets in one go.
 
 <img src="docs/plugin-presets.png" alt="The preset list on the plugin's settings page" width="640">
 
 **What it does**
-- **Save Current** saves the plugins that are on now and every setting they have. When applying, any saved value the plugin's own settings page would reject is skipped and shown in Preview.
+- Keep a "Minimal" preset with 5 plugins and an "Everything" one with 100, and flip between them without clicking through 300 toggles.
+- **Save Current** saves the plugins that are on now and every setting they have.
 - **Preview & Apply** shows what a preset turns on, turns off and changes before anything happens.
 - **Share** presets as a code or a .json file, with your private settings left out.
 - **Import** someone else's preset safely: it only turns on official Equicord and Vencord plugins you have.
@@ -425,12 +525,18 @@ Save which plugins are on, along with their settings, as a named preset, and swi
 <details>
 <summary><b>How to use it</b></summary>
 
-- Saving with a name that's already taken replaces that preset. Presets you save yourself keep everything, secrets included, so treat them like your settings. Only exports leave private settings out.
-- Applying turns on exactly the plugins in the preset and turns the rest off. Required, core and API plugins aren't touched, and plugins that others depend on stay on.
+- Saving with a name that's already taken replaces that preset.
+- Presets you save yourself keep everything, secrets included, so treat them like your settings. Only exports leave private settings out.
+- Applying turns on exactly the plugins in the preset and turns the rest off.
+- Required, core and API plugins aren't touched. Plugins that others depend on stay on.
+- If a saved value would be rejected by the plugin's own settings page, it's skipped and shown in Preview.
 
   <img src="docs/plugin-presets-preview.png" alt="Preview before applying" width="360">
 
-- Most plugins switch right away. Plugins that change Discord's code, and some settings, only take effect after a restart. The preview lists them, and after applying you get **Restart Now** or can restart later. A plugin that fails to start is left off and listed.
+- Most plugins switch right away.
+- Plugins that change Discord's code, and some settings, only take effect after a restart. The preview lists them.
+- After applying, pick **Restart Now** or restart later.
+- A plugin that fails to start is left off and listed.
 - **Rename** and **Delete** only change the saved preset, never your plugins.
 
 </details>
@@ -438,18 +544,30 @@ Save which plugins are on, along with their settings, as a named preset, and swi
 <details>
 <summary><b>Sharing and importing</b></summary>
 
-- **Export** gives you a code to copy (it starts with `PP1.`) or a .json file. Before you copy it, it lists every setting it left out and why.
+- **Export** gives you a code to copy (it starts with `PP1.`) or a .json file.
+- Before you copy it, it lists every setting it left out and why.
 
   <img src="docs/plugin-presets-export.png" alt="Export, with the left-out settings listed" width="360">
 
-- Exports leave out API keys, tokens, passwords, webhooks, login and cookie values, user, channel and server IDs and lists of them, file paths, web addresses and free text that could be personal. It checks the setting's name, what the value looks like (token and key shapes, Discord IDs, emails, paths, addresses) and a list of plugins known to keep private settings, such as Translate's DeepL key or CustomRPC. If a value can't be shown to be harmless, it's left out. Switches, choices from a plugin's own list, plain numbers and default values are shared.
-- Plugins that aren't official Equicord or Vencord plugins (cordmuffin plugins, other userplugins, Muffinshelf BetterDiscord plugins) are shared by name only, without their settings. Exports carry nothing about your account.
+- Left out: API keys, tokens, passwords, webhooks, and login and cookie values.
+- Also left out: user, channel and server IDs and lists of them, file paths, web addresses, and free text that could be personal.
+- To decide, it checks the setting's name and what the value looks like (token and key shapes, Discord IDs, emails, paths, addresses).
+- It also uses a list of plugins known to keep private settings, such as Translate's DeepL key or CustomRPC.
+- If a value can't be shown to be harmless, it's left out.
+- Shared: switches, choices from a plugin's own list, plain numbers and default values.
+- Plugins that aren't official Equicord or Vencord plugins (cordmuffin plugins, other userplugins, Muffinshelf BetterDiscord plugins) are shared by name only, without their settings.
+- Exports carry nothing about your account.
 - **Import** takes a code or a .json file, checks it, and saves it as a preset you can look over before applying.
 
   <img src="docs/plugin-presets-import.png" alt="Import, with the unofficial plugins that stay off" width="360">
 
-- An imported preset only turns on official Equicord and Vencord plugins you have, and applying it turns everything else off, your own userplugins and BetterDiscord plugins included. Other plugins in it are listed with a warning and are never turned on, even if the preset has them on. If you already have one of them on, it stays on. Plugins you don't have are listed as missing.
-- Imported settings go through the same checks, so a preset can't point your plugins at someone else's server. Settings the sharer's export left out keep your own values.
+- An imported preset only turns on official Equicord and Vencord plugins you have.
+- Applying it turns everything else off, your own userplugins and BetterDiscord plugins included.
+- Other plugins in it are listed with a warning and are never turned on, even if the preset has them on.
+- If you already have one of them on, it stays on.
+- Plugins you don't have are listed as missing.
+- Imported settings go through the same checks, so a preset can't point your plugins at someone else's server.
+- Settings the sharer's export left out keep your own values.
 
 </details>
 
@@ -461,29 +579,55 @@ Save which plugins are on, along with their settings, as a named preset, and swi
 
 **Connects to:** nothing. It reads and adds to the presets CustomRPC already saves inside Discord.
 
-Equicord's CustomRPC can save presets of your Rich Presence, but there was no way to hand one to a friend. This adds **Export Presets** and **Import Presets** buttons at the top of CustomRPC's settings (and on this plugin's own page), without changing Equicord's own files.
+Equicord's CustomRPC can save Rich Presence presets, but you couldn't hand one to a friend. This plugin adds **Export Presets** and **Import Presets** buttons so you can.
 
 <img src="docs/customrpc-share.png" alt="The Export and Import buttons above CustomRPC's presets" width="640">
 
 **What it does**
-- **Export Presets** gives you one preset or all of them as a code to copy (it starts with `RPC1.`) or a .json file.
-- **Import Presets** takes a code or a .json file, checks every field, and adds the presets to CustomRPC's list. Nothing is loaded until you pick one there.
+- Adds **Export Presets** and **Import Presets** at the top of CustomRPC's settings and on this plugin's own page.
+- Doesn't change any of Equicord's own files.
+- **Export Presets** turns one preset, or all of them, into a code to copy (it starts with `RPC1.`) or a .json file.
+- **Import Presets** takes a code or a .json file, checks every field, and adds the presets to CustomRPC's list.
+- Nothing is loaded until you pick an imported preset in CustomRPC.
 - CustomRPC itself doesn't have to be on to share presets.
 
 <details>
-<summary><b>What gets shared and what's checked</b></summary>
+<summary><b>What gets shared</b></summary>
 
-- Only the fields you typed into the preset are shared: application ID and name, the two lines, links, images, buttons, party size and timestamps. CustomRPC's on/off switches are never in an export.
-- A field that contains your own user ID or looks like a Discord login token is left out. The export window lists what it left out and why, with privacy removals kept apart from fields CustomRPC wouldn't accept.
+- Only the fields you typed into the preset: application ID and name, the two lines, links, images, buttons, party size and timestamps.
+- CustomRPC's on/off switches are never in an export.
+- A field that contains your own user ID, or looks like a Discord login token, is left out.
+- The export window lists what it left out and why. Privacy removals are listed apart from fields CustomRPC wouldn't accept.
 
   <img src="docs/customrpc-share-export.png" alt="Export, with the code ready to copy" width="360">
 
-- Imports go through the same limits CustomRPC's own boxes use (application ID shape, 128-character lines, 31-character button text, web links that start with http or https, Twitch or YouTube stream links, CustomRPC's own activity and timestamp choices). Anything that doesn't pass, or isn't a CustomRPC field, is skipped and listed. A preset with no application name is skipped, since CustomRPC shows nothing without one. Fields a shared preset doesn't have are saved empty, so loading it doesn't mix in your old buttons or images.
-- If a preset has the same name as one you already have, you choose: **Keep Both** saves it as "Name (2)", **Replace Same Names** overwrites yours. Nothing of yours is overwritten unless you click that.
+</details>
+
+<details>
+<summary><b>What's checked on import</b></summary>
+
+- Imports go through the same limits CustomRPC's own boxes use:
+  - application ID shape
+  - 128-character lines
+  - 31-character button text
+  - web links that start with http or https
+  - Twitch or YouTube stream links
+  - CustomRPC's own activity and timestamp choices
+- Anything that doesn't pass, or isn't a CustomRPC field, is skipped and listed.
+- A preset with no application name is skipped, since CustomRPC shows nothing without one.
+- Fields a shared preset doesn't have are saved empty, so loading it doesn't mix in your old buttons or images.
+- It also reads a raw CustomRPC preset or preset list (the `{ "name", "config" }` shape), so older shared setups work too.
+
+</details>
+
+<details>
+<summary><b>Name clashes</b></summary>
+
+- If a preset has the same name as one you already have, you choose what happens.
+- **Keep Both** saves it as "Name (2)".
+- **Replace Same Names** overwrites yours. Nothing of yours is overwritten unless you click that.
 
   <img src="docs/customrpc-share-import.png" alt="Import, with a name clash" width="360">
-
-- It also reads a raw CustomRPC preset or preset list (the `{ "name", "config" }` shape), so older shared setups work too.
 
 </details>
 
@@ -495,24 +639,40 @@ Equicord's CustomRPC can save presets of your Rich Presence, but there was no wa
 
 **Connects to:** Discord itself, plus cdn.discordapp.com and media.discordapp.net for the sticker thumbnails.
 
-A bigger version of Vencord's GreetStickerPicker, for the **Wave to say hi!** button you get on welcome messages and in new DMs.
+A bigger version of Vencord's GreetStickerPicker. It upgrades the **Wave to say hi!** button you get on welcome messages and in new DMs.
 
 <img src="docs/greet-sticker-picker-menu.png" alt="The Shift+right-click list menu" width="200">
 
 **What it does**
 
-Everything the original does (Greet or Normal Message mode, picking which welcome sticker to wave with), plus:
-- Works in DMs. The original only reacts on a server's welcome message. GreetStickerPicker+ also works on the wave buttons in new DMs and on the in-channel greet.
-- Right-click opens Discord's real sticker picker in a small window: search, the server list on the side, thumbnails and favorites. Pick any sticker and it's sent as your greet. Shift+right-click opens the list menu instead.
-- Left-click sends your default sticker. Turn on **Set as default** in the picker window (or use the list menu) to choose it. Without a default, left-click does Discord's normal random wave.
-- A searchable **Server Stickers** menu, with thumbnails, lists every sticker you're allowed to send, grouped by server. In DMs, **only this server's stickers** has no effect.
-- Thumbnails show next to the stickers in the menus.
-- **Unholy Multi-Greet** (up to 3 welcome stickers in one message) gets a normal switch in settings.
+- Keeps everything the original does: Greet or Normal Message mode, and picking which welcome sticker to wave with.
+- Works in DMs too. The original only reacts on a server's welcome message.
+- Also works on the wave buttons in new DMs and on the in-channel greet.
+- Lets you greet with any sticker, picked from Discord's real sticker picker.
+- Adds a searchable **Server Stickers** menu that lists every sticker you're allowed to send, grouped by server.
+- Shows thumbnails next to the stickers in the menus.
+- Gives **Unholy Multi-Greet** (up to 3 welcome stickers in one message) a normal switch in settings.
+
+<details>
+<summary><b>How to use</b></summary>
+
+- **Left-click** the wave button to send your default sticker.
+- With no default set, left-click does Discord's normal random wave.
+- **Right-click** opens Discord's real sticker picker in a small window, with search, the server list on the side, thumbnails and favorites.
+- Pick any sticker in that window and it's sent as your greet.
+- **Shift+right-click** opens the list menu instead.
+- To choose a default, turn on **Set as default** in the picker window, or use the list menu.
+
+</details>
 
 <details>
 <summary><b>Settings</b></summary>
 
-Greet mode, whether right-click opens the picker or the list menu, the Server Stickers menu on or off, only this server's stickers, and Unholy Multi-Greet.
+- Greet mode.
+- Whether right-click opens the picker or the list menu.
+- The Server Stickers menu, on or off.
+- **only this server's stickers**. In DMs this has no effect.
+- Unholy Multi-Greet.
 
 </details>
 
@@ -520,10 +680,13 @@ Greet mode, whether right-click opens the picker or the list menu, the Server St
 <summary><b>Things to know</b></summary>
 
 - Thumbnails show for every sticker, including Discord's Lottie welcome stickers, which Discord's own sticker renderer draws.
-- Greet mode only applies to welcome stickers (the list, Multi-Greet and a welcome default sticker). Any other sticker always goes out as a reply, because Discord's greet only takes welcome stickers.
-- The sticker lists only show stickers Discord would let you send in that channel. If your default sticker can't be sent where you click, you get a message instead and nothing is sent.
-- Unholy Multi-Greet is a hidden setting in the original that you can't turn on from the settings page.
-- If you used the original, GreetStickerPicker+ takes over its settings and turns it off, so the two don't fight over the same button. If you turn the original back on, GreetStickerPicker+ stands aside and says so.
+- Greet mode only applies to welcome stickers: the list, Multi-Greet and a welcome default sticker.
+- Any other sticker always goes out as a reply, because Discord's greet only takes welcome stickers.
+- The sticker lists only show stickers Discord would let you send in that channel.
+- If your default sticker can't be sent where you click, you get a message instead and nothing is sent.
+- In the original, Unholy Multi-Greet is a hidden setting you can't turn on from the settings page.
+- If you used the original, GreetStickerPicker+ takes over its settings and turns it off, so the two don't fight over the same button.
+- If you turn the original back on, GreetStickerPicker+ stands aside and says so.
 
 </details>
 
@@ -535,14 +698,17 @@ Greet mode, whether right-click opens the picker or the list menu, the Server St
 
 **Connects to:** nothing new. With **Block Donor Lists** on, badges.vencord.dev and badge.equicord.org are no longer contacted.
 
-Takes client mod badges off profiles, so they only show Discord's own badges: Nitro, server boost, HypeSquad, Active Developer, quests, game badges and the rest.
+Takes client mod badges off profiles. Only Discord's own badges stay: Nitro, server boost, HypeSquad, Active Developer, quests, game badges and the rest.
 
 <img src="docs/hide-client-badges.png" alt="Profiles before and after, in the full profile, popout, DM side panel and badge window" width="720">
 
 **What it does**
-- Works in the profile popout, the full profile, the DM side panel, and the badge window you get when you click a badge. Badges next to names in chat from the ShowBadgesInChat plugin aren't covered: use that plugin's own toggles, or Block Donor Lists for donor badges.
-- Hides Vencord and Equicord donor, custom, translator and contributor badges, badges from other mods that the GlobalBadges plugin shows (Aliucord, BetterDiscord, Replugged, Nekocord, ReviewDB and more), and badges that plugins add, like FriendshipRanks.
-- Removes them from the badge list itself, so there are no gaps and the "+3" count stays right. Discord's own badges aren't touched.
+- Hides Vencord and Equicord donor, custom, translator and contributor badges.
+- Hides badges from other mods that the GlobalBadges plugin shows (Aliucord, BetterDiscord, Replugged, Nekocord, ReviewDB and more).
+- Hides badges that plugins add, like FriendshipRanks.
+- Works in the profile popout, the full profile, the DM side panel, and the badge window you get when you click a badge.
+- Removes badges from the list itself, so there are no gaps and the "+3" count stays right.
+- Doesn't touch Discord's own badges.
 - Only changes what you see. Other people still see their badges, and yours, the same as before.
 
 <details>
@@ -553,15 +719,21 @@ Takes client mod badges off profiles, so they only show Discord's own badges: Ni
 - **Hide All** is on by default. Turn it off to pick which kinds to hide: Vencord, Equicord, other mods or plugins.
 - **Keep Own** leaves your own profile alone, so you still see all of your own badges.
 - **Keep Contributors** keeps Vencord and Equicord contributor and translator badges.
-- **Block Donor Lists** stops Equicord from downloading the Vencord and Equicord donor badge lists at all (it normally grabs them on every start and every 30 minutes). This also empties donor badges in chat if you use ShowBadgesInChat. While it's on, Equicord's settings page can't tell that you're a donor (the Donate button comes back), and BadgeAPI's "Refetch Badges" toolbox action still says it worked even though nothing was downloaded.
-- **Hide Nitro Boost** also hides Discord's own Nitro and server boost badges, in profiles and in other people's badge window. Your own badge window keeps them, because that's where you customize your badges. Off by default.
+- **Block Donor Lists** stops Equicord from downloading the Vencord and Equicord donor badge lists at all. Normally it grabs them on every start and every 30 minutes.
+- **Hide Nitro Boost** also hides Discord's own Nitro and server boost badges, in profiles and in other people's badge window. Off by default.
 
 </details>
 
 <details>
 <summary><b>Things to know</b></summary>
 
-Client mods hand out their own profile badges to donors and contributors, and donors can pick custom ones that everyone with the mod sees. In a big server, half the profiles end up covered in them. That's what this plugin cleans up.
+- Client mods hand out their own profile badges to donors and contributors. Donors can also pick custom ones that everyone with the mod sees.
+- In a big server, half the profiles end up covered in them. That's what this plugin cleans up.
+- Badges next to names in chat from the ShowBadgesInChat plugin aren't covered. Use that plugin's own toggles, or Block Donor Lists for donor badges.
+- Block Donor Lists also empties donor badges in chat if you use ShowBadgesInChat.
+- While Block Donor Lists is on, Equicord's settings page can't tell that you're a donor, so the Donate button comes back.
+- While Block Donor Lists is on, BadgeAPI's "Refetch Badges" toolbox action still says it worked, even though nothing was downloaded.
+- With Hide Nitro Boost on, your own badge window keeps your Nitro and boost badges, because that's where you customize your badges.
 
 </details>
 
@@ -573,23 +745,53 @@ Client mods hand out their own profile badges to donors and contributors, and do
 
 **Connects to:** nothing new.
 
-Lets you look at every tier of a tiered badge (Streaming, Game Time and the rest) in the big preview at the top of the badge window, not just the one you're on.
+See every tier of a tiered badge (Streaming, Game Time and the rest) in the big preview at the top of the badge window, not just the tier you're on.
 
 | <img src="docs/badge-tier-viewer-locked.png" alt="A locked tier picked, shown greyed out with a lock" width="360"><br>A locked tier, shown locked | <img src="docs/badge-tier-viewer-revealed.png" alt="The same tier with the eye on, shown as it looks once unlocked" width="360"><br>The same tier with the eye on |
 |---|---|
 
 **What it does**
-- Click any tier in the grid under **Your progress** (or tab to it and press Enter or Space) and the big preview switches to it, with its name, art and rarity. The picked tier gets a ring around it.
-- Until you click a tier, the badge window looks exactly like Discord's own. The eye is the one exception: with it on, a badge that opens on a locked tier shows it unlocked straight away.
-- Tiers you haven't unlocked show greyed out with a lock, along with what they take and how far off you are, like "Needs 300 hours (141 to go)". Nitro and Server Boosting tiers show a rough unlock date instead, like "Unlocks around Aug 22, 2027 if you stay subscribed".
-- The eye button next to the big preview flips that: open eye shows locked tiers the way they look once unlocked (marked "Preview"), closed eye with a line through it shows them locked again. It only shows up on badges that still have locked tiers, and it's dimmed while you're looking at a tier you already have.
-- Works on your own badges and on other people's. Closing the window puts it back on the tier it normally opens on.
-- Only changes what you see. Nothing extra is sent to Discord, and Discord's own stats still get the tier you really have, not the one you're previewing.
+- Click any tier and the big preview switches to it, with its name, art and rarity.
+- Locked tiers show greyed out with a lock, plus what they take and how far off you are.
+- An eye button lets you see locked tiers the way they look once unlocked.
+- Works on your own badges and on other people's.
+
+<details>
+<summary><b>How to use</b></summary>
+
+- Click any tier in the grid under **Your progress**, or tab to it and press Enter or Space.
+- The picked tier gets a ring around it.
+- Until you click a tier, the badge window looks exactly like Discord's own. The eye is the one exception (see below).
+- Closing the window puts it back on the tier it normally opens on.
+
+</details>
+
+<details>
+<summary><b>Locked tiers and the eye button</b></summary>
+
+- Most locked tiers show what's left, like "Needs 300 hours (141 to go)".
+- Nitro and Server Boosting tiers show a rough unlock date instead, like "Unlocks around Aug 22, 2027 if you stay subscribed".
+- The eye button sits next to the big preview.
+- Open eye: locked tiers show the way they look once unlocked, marked "Preview".
+- Closed eye with a line through it: locked tiers show locked again.
+- The eye only shows up on badges that still have locked tiers.
+- It's dimmed while you're looking at a tier you already have.
+- With the eye on, a badge that opens on a locked tier shows it unlocked straight away. This is the one time the window differs from Discord's before you click.
+
+</details>
 
 <details>
 <summary><b>Settings</b></summary>
 
 - **Reveal Locked** is the same switch as the eye button, so it remembers your choice. Off by default.
+
+</details>
+
+<details>
+<summary><b>Privacy</b></summary>
+
+- Only changes what you see. Nothing extra is sent to Discord.
+- Discord's own stats still get the tier you really have, not the one you're previewing.
 
 </details>
 
@@ -601,18 +803,26 @@ Lets you look at every tier of a tiered badge (Streaming, Game Time and the rest
 
 **Connects to:** Google Translate, or Yandex Translate if you turn it on. Toki Pona, Sitelen Pona and Shavian use a few more hosts, listed below.
 
-Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Yandex Translate added as a free choice next to Google Translate.
+Translate+ (by Prince527, based on Vencord's Translate) as a userplugin. It adds Yandex Translate as a free choice next to Google Translate.
 
 **What it does**
-- Adds **Translate** to the message hover buttons and the message right-click menu, including forwarded messages, bot messages built from components, and search results (right-click, with FullSearchContext on). The translation shows under the message.
-- Translates into the language you pick in settings (searchable list, English by default).
-- Uses Google Translate by default. Turn on **Use Yandex Translate** to use Yandex instead. Neither needs an account or API key. Languages Yandex doesn't have (such as Chinese (Traditional) or Hawaiian) go through Google instead, and the settings say so.
-- Toki Pona, Sitelen Pona and Shavian work like in Translate+, and short Toki Pona or sentences with names are caught too. Each one can be turned off in settings, with no restart needed.
+- Adds **Translate** to the message hover buttons and the message right-click menu.
+- Works on forwarded messages and on bot messages built from components.
+- Works in search results too (right-click, with FullSearchContext on).
+- Shows the translation under the message.
+- Translates into the language you pick in settings. The list is searchable and set to English by default.
+- Uses Google Translate by default. Turn on **Use Yandex Translate** to use Yandex instead.
+- Neither one needs an account or API key.
+- Languages Yandex doesn't have (such as Chinese (Traditional) or Hawaiian) go through Google instead, and the settings say so.
+- Toki Pona, Sitelen Pona and Shavian work like in Translate+.
+- Short Toki Pona and sentences with names in them are caught too.
+- Each of those three can be turned off in settings, with no restart needed.
 
 <details>
 <summary><b>Things to know</b></summary>
 
-- The first time you translate with Yandex, Equicord asks to allow `translate.yandex.net`. Accept it and restart Discord. The settings page also shows an **Allow Host** button while **Use Yandex Translate** is on and the host is blocked.
+- The first time you translate with Yandex, Equicord asks to allow `translate.yandex.net`. Accept it and restart Discord.
+- While **Use Yandex Translate** is on and the host is blocked, the settings page shows an **Allow Host** button.
 - Turn off the built-in Translate+ and Vencord's Translate while using this, so you don't get two Translate buttons.
 
 </details>
@@ -624,7 +834,7 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 - translate.googleapis.com: Google Translate (the default).
 - translate.yandex.net: only with **Use Yandex Translate** on.
 - aiapi.serversmp.xyz: the Toki Pona translation service Translate+ uses, for Toki Pona and Sitelen Pona messages.
-- raw.githubusercontent.com: the Sitelen Pona and Shavian word lists from Translate+'s repo (no message text is sent).
+- raw.githubusercontent.com: the Sitelen Pona and Shavian word lists from Translate+'s repo. No message text is sent here.
 
 </details>
 
@@ -636,14 +846,19 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 
 **Connects to:** nothing new. It only talks to Discord, through Discord's own connection.
 
-**This is Discord's own feature, not something the plugin made up.** Discord's [Custom Typing Indicator](https://support.discord.com/hc/en-us/articles/42962943077271-Custom-Typing-Indicator-FAQ) swaps "is typing…" for 3 emoji, an animation and a word like "is yapping…". It's a Nitro perk that Discord only lets you set up in the phone app so far. This plugin lets you set it from desktop, and it's saved on your Discord account just like setting it on your phone.
+Lets you set Discord's own [Custom Typing Indicator](https://support.discord.com/hc/en-us/articles/42962943077271-Custom-Typing-Indicator-FAQ) from desktop. This is a real Discord Nitro perk, not something the plugin made up, and so far Discord only lets you set it up in the phone app.
 
 <img src="docs/custom-typing-indicator.gif" alt="The typing bar showing three emoji waving and 'Muffin is yapping…'" width="376">
 
 **What it does**
+- Swaps "is typing…" for 3 emoji, an animation and a word like "is yapping…".
 - Adds an editor to the plugin's settings: pick 3 emoji, an animation (None, Pulse, Ring or Wave) and a word, then click **Apply**.
+- Your style is saved on your Discord account, the same as setting it on your phone.
 - **Everyone on an up-to-date Discord phone app sees your style, no plugin needed.** Discord shows it to them itself.
-- Discord is starting to draw these styles on desktop too, turning it on for some people at a time. Until yours does, the plugin draws other people's styles for you. Where Discord already draws a style itself, the plugin steps aside so you never see it twice. Turning **Show Others** off gives plain dots everywhere, including where Discord draws styles itself. The word shows in your Discord language.
+- Discord is starting to draw these styles on desktop too, turning it on for some people at a time. Until yours has it, the plugin draws other people's styles for you.
+- Where Discord already draws a style itself, the plugin steps aside so you never see it twice.
+- Turn **Show Others** off for plain dots everywhere, even where Discord draws styles itself.
+- The word shows in your Discord language.
 
 > [!CAUTION]
 > **Use at your own risk.** So far Discord only accepts this setting from its phone app, so on that one save the plugin says the request comes from the Android app. That's spoofing, which is against Discord's rules. Nothing else you do in Discord is changed. Discord's desktop app has started getting its own save code, so this may not be needed once Discord ships its own desktop editor.
@@ -653,10 +868,16 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 
 <img src="docs/custom-typing-indicator-editor.png" alt="The editor with emoji slots, emoji search, animation and word choices" width="460">
 
-- Your first emoji pick fills all 3 slots, like on the phone. Click a slot and pick another emoji to swap it in. Search by name (`thumbs_up`, `+1`) or type an emoji in.
-- The preview at the top shows how others see you. You never see your own while you type; Discord doesn't show you your own typing.
-- **Surprise me** picks a random combo, **Reset** undoes what you haven't applied, **Remove** puts the normal dots back.
-- Discord sometimes asks for a captcha when you save. Solve it and the save goes through. Saving a lot in a short time makes it ask more often.
+- Your first emoji pick fills all 3 slots, like on the phone.
+- To swap one, click a slot and pick another emoji.
+- Search emoji by name (`thumbs_up`, `+1`) or type an emoji in.
+- The preview at the top shows how others see you.
+- You never see your own style while you type. Discord doesn't show you your own typing.
+- **Surprise me** picks a random combo.
+- **Reset** undoes what you haven't applied.
+- **Remove** puts the normal dots back.
+- Discord sometimes asks for a captcha when you save. Solve it and the save goes through.
+- Saving a lot in a short time makes the captcha show up more often.
 
 </details>
 
@@ -664,10 +885,13 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 <summary><b>What you need and who sees it</b></summary>
 
 - **Full Nitro.** Nitro Basic isn't enough, and Discord won't save it without Nitro.
-- **Your account in Discord's rollout.** Discord says every Nitro user gets it within a few weeks. If your phone app shows **Settings → App Settings → Typing Indicator**, you're in.
+- **Your account in Discord's rollout.** Discord says every Nitro user gets it within a few weeks.
+- If your phone app shows **Settings → App Settings → Typing Indicator**, you're in.
 - It only shows when you're the only one typing. With two or more people typing, everyone goes back to "is typing…".
-- In a server with **Use External Emoji** turned off, people there see the normal dots instead of emoji from other servers, but still see your word.
-- Discord's FAQ lists 7 words: yapping, venting, oversharing, barking, babbling, daydreaming, meowing. Discord's code has 5 more (purring, chirping, keysmashing, thinking, squeaking) that aren't announced yet, so some phones may not show those. **Surprise me** only uses the announced ones.
+- In a server with **Use External Emoji** turned off, people there see the normal dots instead of emoji from other servers. They still see your word.
+- Discord's FAQ lists 7 words: yapping, venting, oversharing, barking, babbling, daydreaming, meowing.
+- Discord's code has 5 more that aren't announced yet: purring, chirping, keysmashing, thinking, squeaking. Some phones may not show those.
+- **Surprise me** only uses the announced words.
 - If saving says **"Discord didn't save it"** while you have full Nitro, Discord may want a newer app version than the plugin sends. [Open an issue](#issues) so it can be bumped.
 
 </details>
@@ -680,12 +904,20 @@ Translate+ (by Prince527, based on Vencord's Translate) as a userplugin, with Ya
 
 **Connects to:** nothing.
 
-Some accounts get sent to the Quests page every time Discord starts or reloads, instead of where Discord normally opens. That's Discord, not a mod: it's a quest campaign experiment, and stock Discord does it to those accounts too. This plugin switches that redirect off, so Discord opens where it normally would.
+Some accounts land on the Quests page every time Discord starts or reloads. This plugin turns that off, so Discord opens where it normally would.
 
 **What it does**
-- Turns off the experiment's "open Quests on start" switch, and the startup check that acts on it.
-- Nothing else about quests changes. The Quests page, quest bar and QuestRunner work as before.
+- Turns off the experiment's "open Quests on start" switch.
+- Turns off the startup check that acts on that switch.
+- Leaves everything else about quests alone. The Quests page, quest bar and QuestRunner work as before.
+
+<details><summary><b>Things to know</b></summary>
+
+- The redirect comes from Discord, not a mod. It's a quest campaign experiment.
+- Stock Discord does it to those accounts too.
 - Accounts that aren't in the experiment see no difference.
+
+</details>
 
 ---
 
@@ -695,16 +927,17 @@ Some accounts get sent to the Quests page every time Discord starts or reloads, 
 
 **Connects to:** the Chrome Web Store (to get Discrub), GitHub (to check it) and discord.com. Details below.
 
-Runs [Discrub](https://github.com/pratherbytecraft/discrub) inside Discord, a tool for exporting, searching and bulk-deleting your messages that normally runs as a browser extension. Open it from the broom button in the top bar.
+Runs [Discrub](https://github.com/pratherbytecraft/discrub) inside Discord. Discrub exports, searches and bulk-deletes your messages, and normally runs as a browser extension.
 
 <img src="docs/discrub-launcher.png" alt="Discrub's start screen inside Discord" width="320">
 
 **What it does**
-- Includes both versions: the new Discrub and Discrub Classic, the older version that's no longer updated. In settings you pick which one opens: New, Classic, or ask each time on Discrub's own start screen. With ask each time, the start screen always waits for your pick instead of counting down into the last one.
-- Uses the Chrome Web Store build of Discrub as published, unmodified, with nothing copied into this repo. Discrub signs in with your Discord session on its own, like it does in the browser.
-- Checks every download three ways, and installs nothing if a check fails.
+- Opens Discrub from the broom button in the top bar.
+- Includes both versions: the new Discrub and Discrub Classic, the older one that's no longer updated.
+- Uses the Chrome Web Store build exactly as published. Nothing is changed, and nothing is copied into this repo.
+- Discrub signs in with your Discord session on its own, like it does in the browser.
+- Checks every download three ways and installs nothing if a check fails.
 - Updates on your terms, and goes back to the last working version if a new one won't start.
-- Its settings page shows the installed version, the newest one on the store, any update waiting, when it last checked, and a **Check now** button.
 
 > [!CAUTION]
 > Bulk deleting or exporting with your own account is automation Discord's rules don't allow, the same as with the browser extension. Discrub waits between requests and slows down when Discord asks it to, so keep its delays at their defaults.
@@ -712,12 +945,21 @@ Runs [Discrub](https://github.com/pratherbytecraft/discrub) inside Discord, a to
 <details>
 <summary><b>Settings</b></summary>
 
-It looks for a new Discrub 20 seconds after Discord starts and every 6 hours after that. Pick how updates happen:
+**Which version opens:** New, Classic, or ask each time on Discrub's own start screen. With ask each time, the start screen waits for your pick instead of counting down into the last one.
+
+**Updates:** it looks for a new Discrub 20 seconds after Discord starts, then every 6 hours. Pick one:
 - **Ask before updating** (default): offers each new version once. Press **Check now** to see it again.
 - **Update automatically**: downloads and checks new versions on its own.
 - **Stay on this version**: no background checks at all. Only **Check now** contacts the store.
 
 A new version starts after Discord reloads. If it won't start, the plugin goes back to the last one that worked.
+
+**The settings page shows:**
+- The installed version.
+- The newest version on the store.
+- Any update waiting.
+- When it last checked.
+- A **Check now** button.
 
 <img src="docs/discrub-settings.png" alt="Discrub Loader's settings" width="400">
 
@@ -726,10 +968,13 @@ A new version starts after Discord reloads. If it won't start, the plugin goes b
 <details>
 <summary><b>Things to know</b></summary>
 
-- A download is only used if it matches the size and fingerprint the Chrome Web Store announces, it's signed by Discrub's own developer key, and every file matches the list Discrub publishes on GitHub for that version.
-- The first install needs one Discord reload, and the plugin asks before reloading.
+- A download is only used if it passes all three checks:
+  1. It matches the size and fingerprint the Chrome Web Store announces.
+  2. It's signed by Discrub's own developer key.
+  3. Every file matches the list Discrub publishes on GitHub for that version.
+- The first install needs one Discord reload. The plugin asks before reloading.
 - Exports save straight to your Downloads folder.
-- Discrub Classic signs in on its own only while the Discord window is focused, which is always the case when you click the broom yourself.
+- Discrub Classic signs in on its own only while the Discord window is focused. That's always true when you click the broom yourself.
 - Works in the Discord desktop app with Equicord, not in Discord on the web.
 
 </details>
@@ -739,11 +984,14 @@ A new version starts after Discord reloads. If it won't start, the plugin goes b
 
 **What it talks to:**
 - clients2.google.com: the Chrome Web Store, to check for Discrub updates.
-- Google's download servers (*.googleusercontent.com, *.google.com or *.gvt1.com, plus wherever Google redirects the download): to download Discrub. Every download is checked as described above, whatever server it comes from.
+- Google's download servers (*.googleusercontent.com, *.google.com or *.gvt1.com, plus wherever Google redirects the download): to download Discrub. Every download gets the same three checks, whatever server it comes from.
 - raw.githubusercontent.com: Discrub's published file list, to check each download.
 - discord.com: Discrub itself, using your own account.
 
-**Where files go:** `%APPDATA%\Equicord\discrubLoader` (about 11 MB for each saved version, plus one 11 MB working copy; it keeps the current version and the one before it). Discrub keeps its own settings inside Discord.
+**Where files go:** `%APPDATA%\Equicord\discrubLoader`
+- About 11 MB for each saved version, plus one 11 MB working copy.
+- It keeps the current version and the one before it.
+- Discrub keeps its own settings inside Discord.
 
 </details>
 
@@ -758,18 +1006,22 @@ A new version starts after Discord reloads. If it won't start, the plugin goes b
 
 **Connects to:** discord.com and cdn.discordapp.com only. It never downloads or runs code from the internet.
 
-Makes Discord think you're playing any game Discord can detect, so your Game Time and Game Variety profile badges keep counting.
+Makes Discord think you're playing any game it can detect. Your Game Time and Game Variety profile badges keep counting.
 
 <img src="docs/game-browser.png" alt="The Game Browser" width="720">
 
 **What it does**
-- The controller button in Discord's top bar opens the Game Browser: all of Discord's detectable games, with cover art, search, genre filter, favorites and a **Detected** tab.
+- The controller button in Discord's top bar opens the Game Browser.
+- It lists all of Discord's detectable games, with cover art, search, genre filter, favorites and a **Detected** tab.
 - Click a cover to open that game's real Discord page.
-- **Spoof** switches to that game right away. The game you're spoofing always stays at the top. **Stop** also turns rotation off, so the game doesn't come back on the next switch.
-- **Rotation** cycles through your favorites or random games (any game Discord can detect) on a timer. With no game picked yet it starts one right away.
+- **Spoof** switches to that game right away. The game you're spoofing always stays at the top.
+- **Stop** also turns rotation off, so the game doesn't come back on the next switch.
+- **Rotation** cycles through your favorites or random games (any game Discord can detect) on a timer.
+- If no game is picked yet, rotation starts one right away.
 - **Add Time** and **Add Random Games** add play time to one game, all your favorites, or any number of random games (or all of them).
-- The badge tracker shows your real badge ranks and when your added time should be counted.
-- Real games count too, even when Equicord's NoTrack blocks Discord's own game reports. Spoofed and real games are each counted once, whatever NoTrack is set to.
+- A badge tracker shows your real badge ranks and when your added time should be counted.
+- Real games count too, even when Equicord's NoTrack blocks Discord's own game reports.
+- Spoofed and real games are each counted once, whatever NoTrack is set to.
 
 > [!IMPORTANT]
 > Turn on both "Use data" options in User Settings → Data & Privacy, or Discord ignores the play time and your badges won't move. Details under "What it needs" below.
@@ -780,12 +1032,22 @@ Makes Discord think you're playing any game Discord can detect, so your Game Tim
 <details>
 <summary><b>How to use it</b></summary>
 
-Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a game with the controller button.
+1. Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins).
+2. Click the controller button and pick a game.
 
-- **Add Time** can stick to games you've never played, so each one counts toward Game Variety.
-- It works out the totals for you: for example 2 games at 48 hours each shows "4 days (96 hours) in total", plus how long sending will take.
-- It runs in the background. Once you click **Add Time** the window closes and a small progress box in the bottom-right corner shows how far along it is, with a **Stop** button. Keep using Discord as normal. It sends at the same pace either way.
-- The badge tracker in **Add Time** shows your real Game Time and Game Variety rank straight from Discord, the time still waiting to be counted, the rank you'll reach after the run, how far the next rank is, and when your added time should be counted. That time comes from your own account: the plugin learns when Discord's daily update runs for you instead of guessing.
+**Add Time**
+- It can stick to games you've never played, so each one counts toward Game Variety.
+- It works out the totals for you. Example: 2 games at 48 hours each shows "4 days (96 hours) in total".
+- It also shows how long sending will take.
+- It runs in the background. Once you click **Add Time**, the window closes.
+- A small progress box in the bottom-right corner shows how far along it is, with a **Stop** button.
+- Keep using Discord as normal. It sends at the same pace either way.
+
+**Badge tracker** (inside **Add Time**)
+- Your real Game Time and Game Variety rank, straight from Discord.
+- The time still waiting to be counted.
+- The rank you'll reach after the run, and how far the next rank is.
+- When your added time should be counted. This comes from your own account: the plugin learns when Discord's daily update runs for you instead of guessing.
 
 <img src="docs/game-time-badges.png" alt="Add Play Time with the badge tracker (sample numbers)" width="320">
 
@@ -796,22 +1058,34 @@ Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a 
 
 **What it needs**
 
-- **Turn on both "Use data" options** (User Settings → Data & Privacy → **Use data to improve Discord** and **Use data to personalize my Discord experience**). Without them, Discord ignores the play time and your badges won't move.
+- **Turn on both "Use data" options:** User Settings → Data & Privacy → **Use data to improve Discord** and **Use data to personalize my Discord experience**.
+  - Without them, Discord ignores the play time and your badges won't move.
   - These are saved on your account, on Discord's side, so no plugin can skip them.
 - **Turn off other tracking blockers while adding time.** DoNotTrack, NoTrack add-ons, ad blockers and Pi-hole can stop the play-time reports from reaching Discord.
-  - The Game Browser and the **Add Time** window warn you when one of these plugins is on, and a blocked run stops right away and says so.
+  - The Game Browser and the **Add Time** window warn you when one of these plugins is on.
+  - A blocked run stops right away and says so.
   - Turn the blocker off, or let Discord's `/science` address through.
-- **NoTrack doesn't matter here.** GameTimeSpoof works with any NoTrack setup. It sends its own play-time reports for spoofed games, and Discord's own game reports never include them, so they're counted once.
-  - Real games are counted once too. NoTrack's **Disable Analytics** ("Block Discord's tracking analytics") only stops Discord's game reports when its **Allow Badge Tracking** ("Still send the events needed for badges...") is off. Both are on by default. Then GameTimeSpoof reports real games itself; otherwise Discord does.
-  - Like NoTrack, it goes by the switches Discord started with, so a change to either one counts after a restart.
-  - StreamTimeFarmer needs **Allow Badge Tracking** on too (or **Disable Analytics** off), the same as NoTrack's defaults (see [StreamTimeFarmer](#streamtimefarmer)).
 - **Keep "Share your detected activities with others" on** (User Settings → Activity Privacy) if you want people to see the game you spoof.
   - Play time still counts with it off, but nobody sees the game.
-  - DoNotTrack's **Stop Process Monitor** option turns this off by itself. The Game Browser warns you when it's off and has a **Turn On** button.
+  - DoNotTrack's **Stop Process Monitor** option turns this off by itself.
+  - The Game Browser warns you when it's off and has a **Turn On** button.
+
+**NoTrack doesn't matter here**
+
+- GameTimeSpoof works with any NoTrack setup.
+- Spoofed games: it sends its own play-time reports, and Discord's own game reports never include them, so each is counted once.
+- Real games are counted once too, by either Discord or GameTimeSpoof:
+  - NoTrack's **Disable Analytics** ("Block Discord's tracking analytics") only stops Discord's game reports when its **Allow Badge Tracking** ("Still send the events needed for badges...") is off.
+  - Both are on by default. In that case Discord reports real games.
+  - When **Disable Analytics** is on and **Allow Badge Tracking** is off, GameTimeSpoof reports them itself.
+- Like NoTrack, it goes by the switches Discord started with. A change to either one counts after a restart.
+- StreamTimeFarmer needs **Allow Badge Tracking** on too (or **Disable Analytics** off), the same as NoTrack's defaults (see [StreamTimeFarmer](#streamtimefarmer)).
 
 **Settings**
 
-- **Report real games** (on): while NoTrack's **Disable Analytics** is on and its **Allow Badge Tracking** is off, Discord stops counting games you really play, so GameTimeSpoof reports them itself. With NoTrack's defaults Discord still counts them, and this sends nothing. Turn it off to never send anything for real games.
+- **Report real games** (on): reports games you really play while NoTrack's **Disable Analytics** is on and its **Allow Badge Tracking** is off, since Discord stops counting them then.
+  - With NoTrack's defaults, Discord still counts them and this sends nothing.
+  - Turn it off to never send anything for real games.
 
 </details>
 
@@ -819,8 +1093,14 @@ Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a 
 <summary><b>Things to know</b></summary>
 
 - Badges don't update right away. Discord doesn't publish a schedule, so new play time can take many hours to show up.
-- There's no cap on games or time. Big runs just take longer, and if Discord asks it to slow down, it waits and carries on.
-- It uses discord.com (Discord's own API) for the list of detectable games, game pages, the play-time reports that badges are counted from, and your own badge progress and play history (read only), and cdn.discordapp.com for game cover art and icons. Everything it does is in the plugin's own files.
+- There's no cap on games or time. Big runs just take longer.
+- If Discord asks it to slow down, it waits and carries on.
+- discord.com (Discord's own API) is used for:
+  - the list of detectable games and game pages
+  - the play-time reports that badges are counted from
+  - your own badge progress and play history (read only)
+- cdn.discordapp.com is used for game cover art and icons.
+- Everything it does is in the plugin's own files.
 
 </details>
 
@@ -832,19 +1112,21 @@ Turn on **GameTimeSpoof** in Discord (User Settings, then Plugins), then pick a 
 
 **Connects to:** discord.com and Discord's voice servers, plus GitHub for Equicord's web build. Details below.
 
-Earns Streaming badge time by streaming to a second account of yours, which runs hidden inside your same Discord. No second Discord install needed.
+Earns Streaming badge time by streaming to a second account of yours. That account runs hidden inside your same Discord, so you don't need a second Discord install.
 
 <img src="docs/stream-farm-settings.png" alt="StreamTimeFarmer's settings with a second account logged in (placeholder account shown)" width="380"> <img src="docs/stream-farm-widget.png" alt="The call widget in the bottom-right corner" width="280">
 
 **What it does**
-- **Logs in your second account once** (QR code or email and password), then runs it hidden. Calls only ever go to that account.
-- **Call** starts a DM call. Your account goes live at 480p / 5 fps and the second account watches. Both accounts mute and deafen themselves, so a real call on top of the farm's can't feed sound back.
+- **Logs in your second account once** (QR code or email and password), then runs it hidden.
+- Calls only ever go to that second account.
+- **Call** starts a DM call. Your account goes live at 480p / 5 fps and the second account watches.
+- Both accounts mute and deafen themselves, so a real call on top of the farm's can't feed sound back.
 - Fixes itself when either account drops or the stream breaks.
 - Can show your stream as "Streaming <game>" (optional).
 - Reports the time regularly (every hour by default), so a crash doesn't lose it all.
-- **AFK mode** for leaving it running for hours or days, at about half the CPU.
+- **AFK mode** lets you leave it running for hours or days, at about half the CPU.
 - Checks your settings on both accounts and shows each one green or red.
-- **Add Streaming Time** (optional): adds badge time faster than real time, up to 12 hours for every hour the farm runs.
+- **Add Streaming Time** (optional) adds badge time faster than real time: up to 12 hours for every hour the farm runs.
 
 > [!CAUTION]
 > Discord doesn't allow automating accounts, so both accounts are at risk. Don't use one you can't afford to lose.
@@ -859,22 +1141,29 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 
 **Setup**
 
-1. Turn on **StreamTimeFarmer** in Discord (User Settings, then Plugins), or press **Log in second account** in its settings, which turns it on for you. If its settings say to quit Discord fully, do that once (right-click Discord's tray icon, then **Quit Discord**) and open it again.
-2. Press **Log in second account**. A warning first explains what it does (it turns the plugin on and runs a hidden second Discord). Press **Log in**, then log your other account in once (QR code or email and password) in the window that opens. The settings then show its picture, name, tag and ID.
+1. Turn on **StreamTimeFarmer** in Discord (User Settings, then Plugins). Or press **Log in second account** in its settings, which turns it on for you.
+   - If its settings say to quit Discord fully, do that once (right-click Discord's tray icon, then **Quit Discord**) and open it again.
+2. Press **Log in second account**.
+   - A warning first explains what it does: it turns the plugin on and runs a hidden second Discord.
+   - Press **Log in**, then log your other account in once (QR code or email and password) in the window that opens.
+   - The settings then show its picture, name, tag and ID.
 
    <img src="docs/stream-farm-login.png" alt="The Log in second account button in StreamTimeFarmer's settings" width="440">
 
    <img src="docs/stream-farm-login-warning.png" alt="The warning shown before logging in a second account" width="360">
 
-3. Press **Call** (in the settings or in the small call widget in the bottom-right corner).
+3. Press **Call**, in the settings or in the small call widget in the bottom-right corner.
    - Your account calls the second one in DMs, mutes and deafens itself, and goes live with its own small window.
-   - That window sits in the bottom-right corner behind everything, see-through and click-through, with no taskbar button. It shows only its name (or the game's cover), a ticking clock of how long it's been streaming and a moving bar.
+   - That window sits in the bottom-right corner behind everything. It's see-through and click-through, with no taskbar button.
+   - It shows only its name (or the game's cover), a ticking clock of how long it's been streaming and a moving bar.
    - You can pick the screen or another window instead. Only your second account sees it.
-   - The second account joins, mutes and deafens itself too, and watches. Discord clears both whenever a stream starts, so the farm sets them again rather than assuming they stuck.
+   - The second account joins, mutes and deafens itself too, and watches.
+   - Discord clears both whenever a stream starts, so the farm sets them again rather than assuming they stuck.
    - Prefer a server? Pick **A server voice channel** instead of the DM call.
 
 **Stopping and managing it**
-- **Hang up** in the widget or settings, or leave the call in Discord. This ends the stream and fully closes the second account's window. Its login stays saved, so the next Call starts straight away.
+- **Hang up** in the widget or settings, or leave the call in Discord. This ends the stream and fully closes the second account's window.
+- The second account's login stays saved, so the next Call starts straight away.
 - **Open** shows its window as a small panel if you want to see or control it.
 - **Sign out** forgets it.
 
@@ -883,19 +1172,33 @@ Earns Streaming badge time by streaming to a second account of yours, which runs
 <details>
 <summary><b>While it runs</b></summary>
 
-- The farm only adds time while the second account is really watching. The widget and settings show what's happening and the time counted.
-- If either account drops, they reconnect on their own.
-- If Discord drops you from the call itself (you were alone in it too long, or it moved you to the AFK channel), the farm joins again after a short wait and tells you. Click that notice if you meant to hang up and it stays off.
-- If no time has counted for a while, the status says for how long, and after 15 minutes a notice pops up so you don't find out hours later.
+**Status and time**
+- The farm only adds time while the second account is really watching.
+- The widget and settings show what's happening and the time counted.
+- If no time has counted for a while, the status says for how long.
+- After 15 minutes with no time counted, a notice pops up so you don't find out hours later.
 - Offline? It says so and waits for the internet to come back, instead of blaming Discord.
-- If the second account's hidden Discord breaks, it rebuilds itself about every 15 minutes. If the farm's own window can't open (an antivirus blocking it, say), a DM call shows your screen to the second account instead, so time keeps counting. It tries its own window again each time it reports the time.
-- If you picked a window to stream and it's minimized, the status tells you to open it, because a minimized window doesn't count.
-- If the stream fails (like Discord's error 2012), gets stuck paused, or Discord says no picture is getting through, the second account reopens it, and your account restarts Go Live (and reopens its window if something closed it). Time doesn't count while it's broken.
-- **Show it as a game** (optional): search for a game and pick it. The farm's window takes that game's name and cover art, and Discord's own game detection is told the window is that game, so your stream shows as "Streaming <game>" and your profile as playing it. The game itself never runs; the picture is still the farm's window.
-  - If another plugin (gameSessionSpoofer) is already showing a game, the window streams as itself until that ends, so the two don't fight.
 
-**AFK mode** (the **AFK** button during a call):
-- Discord is hidden behind a black screen that shows your total streaming time, how long the current call has run and whether it's counting.
+**When something breaks**
+- If either account drops, they reconnect on their own.
+- If Discord drops you from the call (you were alone in it too long, or it moved you to the AFK channel), the farm joins again after a short wait and tells you.
+- Meant to hang up? Click that notice and it stays off.
+- If the second account's hidden Discord breaks, it rebuilds itself about every 15 minutes.
+- If the farm's own window can't open (an antivirus blocking it, say), a DM call shows your screen to the second account instead, so time keeps counting.
+- It tries its own window again each time it reports the time.
+- If you picked a window to stream and it's minimized, the status tells you to open it. A minimized window doesn't count.
+- If the stream fails (like Discord's error 2012), gets stuck paused, or Discord says no picture is getting through, both sides fix it.
+  - The second account reopens the stream, and your account restarts Go Live (and reopens its window if something closed it).
+- Time doesn't count while the stream is broken.
+
+**Show it as a game** (optional)
+- Search for a game and pick it. The farm's window takes that game's name and cover art.
+- Discord's own game detection is told the window is that game. Your stream shows as "Streaming <game>" and your profile as playing it.
+- The game itself never runs. The picture is still the farm's window.
+- If another plugin (gameSessionSpoofer) is already showing a game, the window streams as itself until that ends, so the two don't fight.
+
+**AFK mode** (the **AFK** button during a call)
+- Discord is hidden behind a black screen showing your total streaming time, how long the current call has run and whether it's counting.
 - Discord then uses about half the CPU and next to no graphics card. The call and stream keep going.
 - Press **Esc twice** or the **Leave AFK** button to come back.
 - If a setting might stop the badge counting, the AFK screen says so.
@@ -918,20 +1221,32 @@ Adds Streaming badge time faster than the clock: up to 12 hours of badge time fo
 2. Press **Add Streaming Time** in StreamTimeFarmer's settings, or in Equicord's toolbox.
 3. Type how many hours to add (1 to 9,999), check the summary under the box and press **Add Time**.
 
-A small box in the top-right corner then shows how far along it is, when the next send goes out and how long the rest takes, with a **Stop** button. Click its title to make it smaller.
+A small box in the top-right corner then shows:
+- How far along it is.
+- When the next send goes out and how long the rest takes.
+- A **Stop** button. Click the box's title to make it smaller.
 
 **How it works**
-- Discord adds up streaming time from the report your Discord sends when a stream ends. Once each hour, Add Streaming Time sends one of those reports for the farm's stream with its length raised to what's left of your total, up to just under 12 hours (Discord counts nothing for a report of 12 hours or more).
-- Sends go out between a few minutes past the hour and a few minutes before the next one, at most one per hour (UTC). 100 hours is 9 sends, so it takes about 7 to 9 hours; the window shows the exact time before you start.
-- Usually it sends the farm's last real report again, so the stream keeps running. When that report is over about 5 hours old, it ends the farm's stream instead, so a fresh report goes out, and the farm goes live again by itself.
-- Only reports of the farm's own window are changed. A stream of your screen, a window you picked or a Go Live you start yourself is never touched, and nothing is changed while no job is running.
+- Discord adds up streaming time from the report your Discord sends when a stream ends.
+- Once each hour, Add Streaming Time sends one of those reports for the farm's stream, with the length raised to what's left of your total.
+- Each report is capped just under 12 hours. Discord counts nothing for a report of 12 hours or more.
+- Sends go out between a few minutes past the hour and a few minutes before the next one, at most one per hour (UTC).
+- Example: 100 hours is 9 sends, so it takes about 7 to 9 hours. The window shows the exact time before you start.
+- Usually it sends the farm's last real report again, so the stream keeps running.
+- When that report is over about 5 hours old, it ends the farm's stream instead so a fresh report goes out. The farm then goes live again by itself.
+- Only reports of the farm's own window are changed.
+- A stream of your screen, a window you picked or a Go Live you start yourself is never touched.
+- Nothing is changed while no job is running.
 - Each send shows up on the badge about 1.5 to 3 hours after it goes out.
 
 **Things to know**
-- Keep Discord open. A job survives a restart and carries on where it stopped, and **Stop** keeps everything already sent.
+- Keep Discord open. A job survives a restart and carries on where it stopped.
+- **Stop** keeps everything already sent.
 - It only works in the desktop app, and only for the account that started it.
-- Your second account has to be set up, and everything under **What the badge needs** below has to be right first, including **Use data to improve Discord** (only recommended for the farm itself). The window says what's missing.
-- The **Sends** list in the settings shows every send: when it went out, how long the stream really ran, what was added and whether Discord accepted it. **Clear log** empties it but keeps this hour's and last hour's rows, so a restart can't send twice in one hour.
+- Your second account has to be set up first.
+- Everything under **What the badge needs** below has to be right first, including **Use data to improve Discord** (only recommended for the farm itself). The window says what's missing.
+- The **Sends** list in the settings shows every send: when it went out, how long the stream really ran, what was added and whether Discord accepted it.
+- **Clear log** empties that list but keeps this hour's and last hour's rows, so a restart can't send twice in one hour.
 
 </details>
 
@@ -940,39 +1255,60 @@ A small box in the top-right corner then shows how far along it is, when the nex
 
 **What the badge needs, on both accounts**
 
-Discord adds up streaming time from the report your Discord sends when a stream ends. Equicord's NoTrack plugin can throw that report away, and then no stream counts, farmed or real. NoTrack's **Disable Analytics** ("Block Discord's tracking analytics", on by default) blocks it unless NoTrack's **Allow Badge Tracking** ("Still send the events needed for badges...", also on by default) is on too, which lets only the badge reports through.
+Discord adds up streaming time from the report your Discord sends when a stream ends. Equicord's NoTrack plugin can throw that report away, and then no stream counts, farmed or real.
 
+- NoTrack's **Disable Analytics** ("Block Discord's tracking analytics", on by default) blocks the report unless **Allow Badge Tracking** is on too.
+- NoTrack's **Allow Badge Tracking** ("Still send the events needed for badges...", also on by default) lets only the badge reports through.
+
+What to set:
 - NoTrack: **Allow Badge Tracking** on (NoTrack's default), or **Disable Analytics** off. Then restart Discord.
 - Data & Privacy → **Use data to personalize my Discord experience** must be **on** (Discord's own badge article asks for this one).
 - Data & Privacy → **Use data to improve Discord** should be **on** (recommended; it's not known whether Discord ignores reports without it).
 
-StreamTimeFarmer checks all of them on both accounts (your second account's while it's in a call) and shows each one in green when it's right and red when it isn't, in its settings and in the corner call widget (the minimized widget gets a red ring).
+**How it checks them**
+- StreamTimeFarmer checks all of them on both accounts. Your second account's are checked while it's in a call.
+- Each one shows green when it's right and red when it isn't, in StreamTimeFarmer's settings and in the corner call widget.
+- The minimized widget gets a red ring.
+- **Fix these for me** changes what's red after a confirm box that lists every change.
+- For NoTrack it turns **Allow Badge Tracking** on, so the rest of Discord's tracking stays blocked.
+- On an older NoTrack without that switch, it turns **Disable Analytics** off instead.
+- If your NoTrack changed, it asks to restart Discord. NoTrack keeps blocking until you do.
+- The second account's hidden Discord reloads and rejoins the call by itself.
 
-**Fix these for me** changes what's red after a confirm box that lists every change. For NoTrack it turns **Allow Badge Tracking** on, so the rest of Discord's tracking stays blocked (on an older NoTrack without that switch it turns **Disable Analytics** off instead). If your NoTrack changed, it then asks to restart Discord (NoTrack keeps blocking until you do), and the second account's hidden Discord reloads and rejoins the call by itself.
-
-It also names other plugins that may block the reports, and warns when a report that should have gone out never reached Discord (an ad blocker or Pi-hole, say). Time streamed while they were blocking was never reported and can't be added back.
-
-Once Discord has actually accepted a report, those warnings stand down: a report getting through proves nothing on your PC is in the way, whatever the switches say. Discord's own two privacy settings keep warning either way, because Discord can accept a report and still decide to ignore it, and nothing on your PC can see that happen.
+**Other blockers**
+- It names other plugins that may block the reports.
+- It warns when a report that should have gone out never reached Discord (an ad blocker or Pi-hole, say).
+- Time streamed while they were blocking was never reported and can't be added back.
+- Once Discord has actually accepted a report, those warnings stand down. A report getting through proves nothing on your PC is in the way, whatever the switches say.
+- Discord's own two privacy settings keep warning either way. Discord can accept a report and still decide to ignore it, and nothing on your PC can see that happen.
 
 <img src="docs/stream-farm-tracking.png" alt="The Streaming badge warning in StreamTimeFarmer's settings" width="440"> <img src="docs/stream-farm-widget-tracking.png" alt="The same warning in the call widget, here for the second account (placeholder account shown)" width="240">
 
 **Discord ending the call**
 
-Discord ends a call after you've been alone in it for a few minutes, or away for a while. Equicord's **DisableCallIdle** plugin stops that. If it's off, the farm's settings show a **Turn it on** button (Discord then needs a restart), and the second account's hidden Discord gets it turned on by itself.
+- Discord ends a call after you've been alone in it for a few minutes, or away for a while.
+- Equicord's **DisableCallIdle** plugin stops that.
+- If it's off, the farm's settings show a **Turn it on** button. Discord then needs a restart.
+- The second account's hidden Discord gets it turned on by itself.
 
 **Plugin settings**
 
 - **Second account's online status** (default: leave as is): sets it to Online, Idle, Do Not Disturb or Invisible each time it starts.
   - It's that account's own Discord setting, so it changes everywhere it's logged in.
-- **Mute Mic** (on): mutes your mic when the farm joins the call. Unmuted again when the farm stops. **Deafen Both** mutes your mic too, so this only matters with that off.
-- **Deafen Both** (on): both accounts deafen themselves in the farm's call, so joining a real call on top of it can't feed sound back either way. Undone when the farm stops.
+- **Mute Mic** (on): mutes your mic when the farm joins the call, and unmutes it when the farm stops.
+  - **Deafen Both** mutes your mic too, so this only matters with that off.
+- **Deafen Both** (on): both accounts deafen themselves in the farm's call, so a real call on top of it can't feed sound back either way. Undone when the farm stops.
   - Discord clears mute and deafen every time a stream starts, so the farm checks them as it runs and sets them again.
 - **Call Widget** (on): shows the small widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.
-- **Quiet Second Account** (on): keeps the second account's unreads off your taskbar badge and stops its desktop notifications. Turning it off takes effect right away, also during a call.
-- **Mute Call Sounds** (on): silences Discord's call sounds while the farm runs, so restarts stay quiet on your PC: calling and ringing, Go Live starting and ending, joins and leaves, mute and deafen.
+- **Quiet Second Account** (on): keeps the second account's unreads off your taskbar badge and stops its desktop notifications.
+  - Turning it off takes effect right away, also during a call.
+- **Mute Call Sounds** (on): silences Discord's call sounds while the farm runs, so restarts stay quiet on your PC.
+  - Covers calling and ringing, Go Live starting and ending, joins and leaves, mute and deafen.
   - Real incoming calls ring silently too, but their popup still shows. Message sounds stay on.
-- **Keep Computer Awake** (off): stops your PC from sleeping on its own while the farm or AFK mode runs. Choosing Sleep yourself or closing a laptop lid still works.
-- **Report Every** (every hour): ends and restarts Go Live this often so the time so far gets sent. Pick 30 minutes, 1, 2 or 4 hours, or Never.
+- **Keep Computer Awake** (off): stops your PC from sleeping on its own while the farm or AFK mode runs.
+  - Choosing Sleep yourself or closing a laptop lid still works.
+- **Report Every** (every hour): ends and restarts Go Live this often so the time so far gets sent.
+  - Pick 30 minutes, 1, 2 or 4 hours, or Never.
   - It goes by time really watched. The call and the second account stay during the restart.
 
 </details>
@@ -980,30 +1316,53 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 <details>
 <summary><b>Things to know</b></summary>
 
-- Discord only counts streaming with someone else in the call, so the farm streams for real, an hour of badge time per hour. **Add Streaming Time** (above) is the faster way.
-- Discord only counts a stream's time when the stream ends, so a stream left running for days would count nothing until then. That's why **Report Every** restarts Go Live: a crash then only loses the time since the last report.
-- Quitting or reloading Discord sends the time so far as it closes. A crash, a kill or Discord's own relaunch still lose the time since the last report.
-- The widget and settings show when the last report was sent and Discord replied OK, when the next one goes out, and Discord's own count for the badge, which it updates on its own schedule and can go up or down.
-- Each report restart plays Discord's stream sounds unless **Mute Call Sounds** is on. **Mute Call Sounds** can't change what other people in the call hear, so a DM call with your second account is the quiet choice.
-- The dot on the second account's picture in the widget and settings shows its real online status, with the name next to it. It shows Offline while it isn't running.
-- The second account's window shares one program with your Discord, so without **Quiet Second Account** your taskbar badge creeps up every time it's invited to a call and never clears. The account still receives everything; **Open** its window to read it.
-- **Keep Computer Awake** also covers moments when no call is live, such as AFK mode with the farm stopped or a farm waiting to reconnect. During a call Discord already keeps the PC awake and the screen on; otherwise the screen can still turn off. Your normal sleep settings come back when both stop. Some laptops on battery can still sleep after a while.
+**Counting time**
+- Discord only counts streaming with someone else in the call, so the farm streams for real: an hour of badge time per hour.
+- **Add Streaming Time** (above) is the faster way.
+- Discord only counts a stream's time when the stream ends. A stream left running for days would count nothing until then.
+- That's why **Report Every** restarts Go Live: a crash then only loses the time since the last report.
+- Quitting or reloading Discord sends the time so far as it closes.
+- A crash, a kill or Discord's own relaunch still lose the time since the last report.
+- The widget and settings show when the last report was sent and Discord replied OK, and when the next one goes out.
+- They also show Discord's own count for the badge, which Discord updates on its own schedule. It can go up or down.
+- The badge doesn't update right after a report. It can take many hours, and Discord doesn't publish a schedule.
+
+**Sound and notifications**
+- Each report restart plays Discord's stream sounds unless **Mute Call Sounds** is on.
+- **Mute Call Sounds** can't change what other people in the call hear, so a DM call with your second account is the quiet choice.
+- The second account's window shares one program with your Discord. Without **Quiet Second Account**, your taskbar badge creeps up every time it's invited to a call and never clears.
+- The second account still receives everything. **Open** its window to read it.
+
+**Second account**
+- The dot on its picture in the widget and settings shows its real online status, with the name next to it.
+- It shows Offline while it isn't running.
+
+**Keep Computer Awake**
+- It also covers moments when no call is live, such as AFK mode with the farm stopped or a farm waiting to reconnect.
+- During a call Discord already keeps the PC awake and the screen on. Otherwise the screen can still turn off.
+- Your normal sleep settings come back when both stop.
+- Some laptops on battery can still sleep after a while.
+
+**Other**
 - It needs the desktop app. The second account's window fetches its own Equicord, so there's nothing extra to install.
 - It used to be part of GameTimeSpoof. If you used the stream farm there, updating adds StreamTimeFarmer and turns it on, with your settings and your second account's login kept.
 - Settings and totals are saved per account, so two accounts on one PC don't overwrite each other.
 - Your own Go Live quality is put back after each call.
-- The badge doesn't update right after a report. It can take many hours, and Discord doesn't publish a schedule.
 
 </details>
 
 <details>
 <summary><b>Privacy, connections and files</b></summary>
 
-- It uses discord.com and Discord's voice servers through Discord's own calls and Go Live, like pressing the buttons yourself. The second account's window is Discord's own web app.
-- The first time that window opens, the plugin downloads Equicord's own released web build (about 3 MB), keeps it on your PC for 6 hours and fetches it again after that. So the second window always runs a current Equicord, and this plugin doesn't have to be built into it: the plugin sends the viewer half of the farm into the window itself. It works the same with the Cordmuffin installer or a self-built Equicord.
-- Nothing to install for the second window: it fetches its own Equicord.
+- It uses discord.com and Discord's voice servers through Discord's own calls and Go Live, like pressing the buttons yourself.
+- The second account's window is Discord's own web app.
+- The first time that window opens, the plugin downloads Equicord's own released web build (about 3 MB).
+- It keeps that build on your PC for 6 hours and fetches it again after that, so the second window always runs a current Equicord.
+- This plugin doesn't have to be built into that Equicord. The plugin sends the viewer half of the farm into the window itself.
+- So there's nothing extra to install. It works the same with the Cordmuffin installer or a self-built Equicord.
 - If the download fails (no internet, GitHub blocked), the card says so and offers a **Try again** button.
-- **Add Streaming Time** connects to nothing new: it changes the length in your Discord's own stream report on its way to discord.com, or sends the farm's last real report again through Discord's own tracker. Its job, send log, hourly state and the last real report are saved in Equicord's local storage on your PC.
+- **Add Streaming Time** connects to nothing new. It changes the length in your Discord's own stream report on its way to discord.com, or sends the farm's last real report again through Discord's own tracker.
+- Its job, send log, hourly state and the last real report are saved in Equicord's local storage on your PC.
 
 </details>
 
@@ -1013,35 +1372,55 @@ Discord ends a call after you've been alone in it for a few minutes, or away for
 
 `questRunner` · Off by default · Play quests need Windows
 
-**Connects to:** discord.com only (plus an activity's discordsays.com page for activity achievement quests, if you turn them on).
+**Connects to:** discord.com only, which is Discord's own quest API (plus an activity's discordsays.com page for activity achievement quests, if you turn them on).
 
 Does your Discord quests for you. Press Accept on a quest and QuestRunner finishes it on its own. You only come back to claim the reward and solve the captcha Discord shows when you claim.
 
 <img src="docs/questrunner.png" alt="QuestRunner's settings" width="400">
 
 **What it does**
-- Video quests play in the background in real time, reporting progress every few seconds like a real viewer. One video at a time by default.
-- Play quests run a tiny, invisible stand-in program named after the game, so Discord's own game detection sees a process for it. Several can run at once. Each takes its real time, because Discord's servers time play quests.
-- Optional (off by default): auto-accept new quests; finish activity and console-only quests by reporting them straight to Discord (riskier, the method Questify uses); finish activity achievement quests.
-- Every quest it can do gets a Complete button on its card. Pressing it on an activity, Xbox or PlayStation quest uses direct heartbeats, the riskier method. A play quest whose game has nothing to run only falls back to direct heartbeats when that setting is on.
-- The settings page shows what's running, what's waiting and why, and has a button to delete the stand-in files.
+- **Video quests** play in the background in real time, reporting progress every few seconds like a real viewer.
+- One video runs at a time by default.
+- **Play quests** run a tiny, invisible stand-in program named after the game, so Discord's own game detection sees a process for it.
+- Several play quests can run at once. Each takes its real time, because Discord's servers time play quests.
+- Every quest it can do gets a **Complete** button on its card.
+- The settings page shows what's running, what's waiting and why.
+- The settings page also has a button to delete the stand-in files.
+
+**Optional extras (all off by default)**
+- Auto-accept new quests.
+- Finish activity and console-only quests by reporting them straight to Discord (riskier, the method Questify uses).
+- Finish activity achievement quests.
 
 > [!CAUTION]
 > Automating quests breaks Discord's Terms of Service. Discord can suspend quest access, or worse, on accounts it catches. Use it on an account you're fine risking.
 
 <details>
+<summary><b>How the Complete button works</b></summary>
+
+- On an activity, Xbox or PlayStation quest, it uses direct heartbeats, the riskier method.
+- On a play quest whose game has nothing to run, it falls back to direct heartbeats only when that setting is on.
+
+</details>
+
+<details>
 <summary><b>How it compares to Questify</b></summary>
 
-Questify is mostly a better quest page (sorting, hiding, alerts). Its finisher just tells Discord a game is running when none is, and Discord has started suspending quest access for that. Keep Questify for its quest page if you like it, but turn its finisher off; QuestRunner offers a button for that. Auto-accept skips quests you hid in Questify.
+- Questify is mostly a better quest page: sorting, hiding and alerts.
+- Its finisher just tells Discord a game is running when none is. Discord has started suspending quest access for that.
+- Keep Questify for its quest page if you like it, but turn its finisher off. QuestRunner has a button for that.
+- Auto-accept skips quests you hid in Questify.
 
 </details>
 
 <details>
 <summary><b>Things to know</b></summary>
 
-- While a stand-in runs, your friends see you "Playing" that game, and Discord may add it to your Registered Games.
+- While a stand-in runs, your friends see you "Playing" that game.
+- Discord may add that game to your Registered Games.
 - Game detection has to be on in Discord (User Settings, then Activity Privacy).
-- Antivirus software sometimes blocks the stand-in, since it's a brand-new unsigned file. Allow it if that happens. Its source is in `questRunner/stub/stub.c`, and `stub/build.cmd` rebuilds it.
+- Antivirus software sometimes blocks the stand-in, since it's a brand-new unsigned file. Allow it if that happens.
+- The stand-in's source is in `questRunner/stub/stub.c`, and `stub/build.cmd` rebuilds it.
 - Stand-ins close when Discord closes, and only work on Windows.
 
 </details>
@@ -1063,16 +1442,21 @@ Questify is mostly a better quest page (sorting, hiding, alerts). Its finisher j
 
 **Connects to:** nothing. It only changes what your Discord already sends to Discord.
 
-Choose which platform others see you on: phone, console, VR headset, web or desktop. It replaces the PlatformSpoofer Equicord removed (2026-11-03), rebuilt from scratch without the random logouts.
+Pick which platform others see you on: phone, console, VR headset, web or desktop. It replaces the PlatformSpoofer that Equicord removed on 2026-11-03, rebuilt from scratch without the random logouts.
 
 <img src="docs/platform-spoofer-button.png" alt="The button next to mute and deafen" width="400">
 
 **What it does**
-- Adds a button next to mute and deafen. Click it to flip between your real platform and the last one you picked. Right-click it to pick any of them.
-- Switches live: Discord reconnects for a second, no restart. If you're in a call it asks first, because the reconnect drops the call and any stream.
+- Adds a button next to mute and deafen.
+- Click the button to flip between your real platform and the last one you picked.
+- Right-click the button to pick any platform.
+- Switches live. Discord reconnects for a second, with no restart.
+- If you're in a call, it asks first, because the reconnect drops the call and any stream.
 - Spoofs from the very first connect, so you never flash up as desktop first.
-- Phone uses the Android app's name and device fields, Console the Xbox app's, and Web a real browser name. Details only the real app knows, like its build number, stay as your client sends them.
-- Turning the plugin off puts your real platform back right away (it asks first if you're in a call). Equicord still shows its restart notice; you can ignore it.
+- Phone uses the Android app's name and device fields. Console uses the Xbox app's. Web uses a real browser name.
+- Details only the real app knows, like its build number, stay as your client sends them.
+- Turning the plugin off puts your real platform back right away. It asks first if you're in a call.
+- Equicord still shows its restart notice when you turn it off. You can ignore it.
 
 > [!CAUTION]
 > **Use at your own risk.** Changing what platform you report is against Discord's rules. Discord also turns some features on per platform, so things like Quests or Orbs may hide while you show as something else. Switch back if something you need disappears.
@@ -1080,13 +1464,20 @@ Choose which platform others see you on: phone, console, VR headset, web or desk
 <details>
 <summary><b>How to use it</b></summary>
 
-- The button's icon shows what Discord shows you as right now. If you pick something during a call and choose **Later**, the icon stays on what you still show as, and the tooltip says what you picked. Picking Desktop on the desktop app counts as your real platform. You can hide the button in the settings.
+- Turning the plugin on needs one restart, like any plugin that changes Discord's code. Switching platforms after that never does.
+- The button's icon shows what Discord shows you as right now.
+- If you pick something during a call and choose **Later**, the icon stays on what you still show as. The tooltip says what you picked.
+- Picking Desktop on the desktop app counts as your real platform. It changes nothing, so it doesn't reconnect.
+- You can hide the button in the settings.
 
   <img src="docs/platform-spoofer-menu.png" alt="The right-click menu" width="260">
 
-- **Right-click yourself → Show me as**, the **Platform** setting, or **`/platform`** (run it empty to see what Discord shows you as right now) do the same as the button.
-- Turning the plugin on needs one restart, like any plugin that changes Discord's code. Switching platforms after that never does. Picking Desktop on the desktop app changes nothing, so it doesn't reconnect.
-- After each switch a message says what Discord now shows you as. The settings page has a **What Discord sees right now** panel listing every session on your account and how Discord sees it.
+- Other ways to switch, which work the same as the button:
+  - **Right-click yourself → Show me as**
+  - The **Platform** setting
+  - **`/platform`** (run it empty to see what Discord shows you as right now)
+- After each switch, a message says what Discord now shows you as.
+- The settings page has a **What Discord sees right now** panel. It lists every session on your account and how Discord sees it.
 
   <img src="docs/platform-spoofer-settings.png" alt="The settings page with the check panel" width="560">
 
@@ -1102,27 +1493,35 @@ Choose which platform others see you on: phone, console, VR headset, web or desk
 | Console | Console (shown by plugins like PlatformIndicators) |
 | Web / Desktop | No special icon |
 
-The phone icon only shows while you're Online; that's how Discord works. Your other devices still show up as themselves.
+- The phone icon only shows while you're Online. That's how Discord works.
+- Your other devices still show up as themselves.
 
 </details>
 
 <details>
 <summary><b>What's different from the old PlatformSpoofer</b></summary>
 
-- The old plugin logged people out because Discord sometimes refuses a spoofed connection with an "authentication failed" code, and Discord's app treats that code as "log out now". PlatformSpoofer+ catches that one case: you stay logged in, get put back on your real platform, and the button says Discord refused it (click it to try again). If your login really did expire or got revoked, Discord still logs you out like normal.
-- Discord's desktop app opens its connection before plugins load. The plugin skips that early connection while a spoof is on.
-- Phone uses the Android app's name and device fields, Console the Xbox app's, and Web a real browser name instead of the made-up "Discord Web".
-- When you turn the plugin off, its button, menu and command go away with it.
-- If you used the old PlatformSpoofer, your pick carries over by itself.
+- **No random logouts.** Discord sometimes refuses a spoofed connection with an "authentication failed" code. Discord's app treats that code as "log out now", which is why the old plugin logged people out.
+- PlatformSpoofer+ catches that one case. You stay logged in and get put back on your real platform.
+- The button then says Discord refused it. Click it to try again.
+- If your login really did expire or got revoked, Discord still logs you out like normal.
+- **No early desktop connect.** Discord's desktop app opens its connection before plugins load. The plugin skips that early connection while a spoof is on.
+- **Real app names.** Phone uses the Android app's name and device fields, Console the Xbox app's. Web uses a real browser name instead of the made-up "Discord Web".
+- **Clean off switch.** When you turn the plugin off, its button, menu and command go away with it.
+- **Your pick carries over.** If you used the old PlatformSpoofer, your choice moves over by itself.
 
 </details>
 
 <details>
 <summary><b>Spoof web requests too (off by default, riskier)</b></summary>
 
-Normally only the live connection is changed, and Discord's normal web requests still say what you really are. This option makes them match the platform you picked, from the very first request after Discord starts.
-
-Turning it on shows a warning first, and nothing changes until you click **Turn it on**. It's riskier: Discord picks some features and tests by platform from those requests, so parts of Discord can change or break, and Discord sees more of the spoof. Turn it off if anything acts weird. The sign-in page always stays real.
+- Normally only the live connection changes. Discord's normal web requests still say what you really are.
+- This option makes those requests match the platform you picked, from the very first request after Discord starts.
+- Turning it on shows a warning first. Nothing changes until you click **Turn it on**.
+- It's riskier. Discord picks some features and tests by platform from those requests, so parts of Discord can change or break.
+- Discord also sees more of the spoof.
+- Turn it off if anything acts weird.
+- The sign-in page always stays real.
 
 <img src="docs/platform-spoofer-warning.png" alt="The warning before spoofing web requests" width="480">
 
@@ -1136,28 +1535,44 @@ Turning it on shows a warning first, and nothing changes until you click **Turn 
 
 **Connects to:** static.wikitide.net (the DOORS wiki's files) while **Doors Assets** is on. Details below.
 
-A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and if you move while it holds up its sign, it fake-"encrypts" your screen until you pay it in gold you find around Discord. Everything is visual and only on your screen.
+A harmless jump-scare game. Ransom from DOORS wanders your Discord window, and if you move while it holds up its sign, it fake-"encrypts" your screen until you pay it in gold you find around Discord.
 
 <img src="docs/ransom-follow.png" alt="Ransom wandering through a chat" width="720">
 
 **What it does**
-- Its little face wanders around the window like Oneko, and every now and then it stops and holds up its stop sign: a split second of freeze, like in the game. Hold still and Ransom leaves. Move your mouse or press a key and it catches you.
-- Then names, channels and messages turn into scrambled text, the message box locks and pop-ups fill the screen. Click the gold piles around Discord to pay it off before the 90-second timer runs out.
+- Ransom's little face wanders around the window, like Oneko.
+- Now and then it stops and holds up its stop sign, with a split second of freeze like in the game.
+- Hold still and Ransom leaves. Move your mouse or press a key and it catches you.
+- When caught, names, channels and messages turn into scrambled text, the message box locks and pop-ups fill the screen.
+- Click the gold piles around Discord to pay it off before the 90-second timer runs out.
 - Run out of time and Discord falls apart. Revive with your gold, or give up and get the DOORS death screen.
 - Loose gold and hidden items turn up around Discord for you to collect.
 - The Ransom panel shows your gold, items and scores.
-- Nothing is really encrypted or deleted, and nobody else sees any of it.
+- Everything is visual and only on your screen. Nothing is really encrypted or deleted, and nobody else sees any of it.
 
 <details>
 <summary><b>How it plays</b></summary>
 
-- Spam clicking costs you gold. Paying it off drops a Honey Pot on something in view (not when nothing is, like on a settings page).
+**During a challenge**
+- Spam clicking costs you gold.
+- Paying it off drops a Honey Pot on something in view. If nothing is in view, like on a settings page, no Honey Pot drops.
 - Press Esc at any time during a challenge to end it with no loss.
-- If time runs out, Discord stays broken until you revive with all your gold (at least 1,000). Give up and you get the DOORS death screen with the Guiding Light and its music, then an overview of your run.
+
+**When time runs out**
+- Discord stays broken until you revive with all your gold (at least 1,000).
 - With under 1,000 gold there is nothing to revive with, so a loss goes straight to the death screen.
-- Like the gold in DOORS drawers, a small pile of loose gold turns up somewhere in Discord now and then. Taking it brings Ransom sooner.
-- Sometimes a small spooky item hides in a DM or server channel when you open it. Click it to collect it. Losing a ransom can take up to 3 hidden items.
-- The Ransom panel is in the Equicord toolbox (**Open Ransom**) and behind the Ransom button in the top bar. The revive card comes up by itself when time runs out and stays until you revive or give up. The toolbox also has **Try a challenge** and **Drop some gold**.
+- Give up and you get the DOORS death screen with the Guiding Light and its music, then an overview of your run.
+- The revive card comes up by itself and stays until you revive or give up.
+
+**Gold and items**
+- Like the gold in DOORS drawers, a small pile of loose gold turns up somewhere in Discord now and then.
+- Taking loose gold brings Ransom sooner.
+- Sometimes a small spooky item hides in a DM or server channel when you open it. Click it to collect it.
+- Losing a ransom can take up to 3 hidden items.
+
+**Where to find it**
+- The Ransom panel is in the Equicord toolbox (**Open Ransom**) and behind the Ransom button in the top bar.
+- The toolbox also has **Try a challenge** and **Drop some gold**.
 
 | <img src="docs/ransom-sign.png" alt="The stop sign" width="360"><br>The stop sign | <img src="docs/ransom-encrypted.png" alt="Discord encrypted, with the ransom window and its timer" width="360"><br>Discord encrypted, with the ransom window and its timer |
 |---|---|
@@ -1171,21 +1586,24 @@ A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and i
 <summary><b>Settings</b></summary>
 
 - Turn the wandering, the challenges, loose gold and hidden items on or off one by one.
-- How often challenges can happen, how much gold Ransom asks for, and how fast and big it is.
-- **Break UI** (Discord falls apart) and **Encrypt UI** (scrambled text) can be turned off. Both are only visual and everything comes back when it ends.
+- Set how often challenges can happen and how much gold Ransom asks for.
+- Set how fast and how big Ransom is.
+- **Break UI** (Discord falls apart) and **Encrypt UI** (scrambled text) can each be turned off. Both are only visual, and everything comes back when it ends.
 - **See Through** tints the sign and download screens red instead of solid, so you can still read your chat.
-- **Jumpscare** with its own volume, or a plain "TIME'S UP" screen instead.
-- **Calm Effects:** no flashing, softer static and shaking.
-- Challenges can be kept away while you're typing or in a voice call or stream.
-- **Reset scores** in the Ransom panel asks first and keeps your gold. **Forget all finds** asks first too.
+- **Jumpscare** has its own volume, or you can get a plain "TIME'S UP" screen instead.
+- **Calm Effects** turns off flashing and softens the static and shaking.
+- Challenges can be kept away while you're typing, or in a voice call or stream.
+- **Reset scores** in the Ransom panel asks first and keeps your gold.
+- **Forget all finds** asks first too.
 
 </details>
 
 <details>
 <summary><b>Things to know</b></summary>
 
-- The wait between challenges only counts down while you're actually using Discord, never while it's in the background, idle or you're in a call.
-- While Discord is encrypted or broken only the message box is locked. Search fields and settings still work, and windows stay readable. Revive or Give up on the revive card ends it, and so does turning Break UI or challenges off.
+- The wait between challenges only counts down while you're actually using Discord. It never counts while Discord is in the background, idle, or you're in a call.
+- While Discord is encrypted or broken, only the message box is locked. Search fields and settings still work, and windows stay readable.
+- It ends when you press Revive or Give up on the revive card, or turn Break UI or challenges off.
 - Works in the Discord desktop app with Equicord, not in Discord on the web.
 
 </details>
@@ -1193,11 +1611,19 @@ A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and i
 <details>
 <summary><b>Privacy, connections and files</b></summary>
 
-**What it talks to:** static.wikitide.net, the DOORS wiki's files (Ransom's sprites, pop-ups, sounds and music), only while **Doors Assets** is on (it's on by default). With it off, or if a download fails, Ransom's face doesn't show and it doesn't wander around at all. The stop sign, gold, Honey Pot, revive heart and skull get plain drawn stand-ins.
+**What it talks to**
+- static.wikitide.net, the DOORS wiki's files: Ransom's sprites, pop-ups, sounds and music.
+- Only while **Doors Assets** is on. It's on by default.
+- With it off, or if a download fails, Ransom's face doesn't show and it doesn't wander around at all.
+- In that case the stop sign, gold, Honey Pot, revive heart and skull get plain drawn stand-ins.
 
-**Where files go:** `%APPDATA%\<your Discord>\RansomPlugin` (`discord`, `discordptb` or `discordcanary`): the downloaded DOORS files. Your gold, items and scores stay inside Discord.
+**Where files go**
+- `%APPDATA%\<your Discord>\RansomPlugin` holds the downloaded DOORS files. `<your Discord>` is `discord`, `discordptb` or `discordcanary`.
+- Your gold, items and scores stay inside Discord.
 
-**Optional files of your own:** put `gun.png`, `hand.png`, `music.mp3` and `death.mp3` in `RansomPlugin\EasterEgg` to use them in the rare B▓GG▓R encounter and its death screen. They are only read on your PC, never uploaded.
+**Optional files of your own**
+- Put `gun.png`, `hand.png`, `music.mp3` and `death.mp3` in `RansomPlugin\EasterEgg` to use them in the rare B▓GG▓R encounter and its death screen.
+- They are only read on your PC, never uploaded.
 
 </details>
 
@@ -1209,28 +1635,47 @@ A harmless jump-scare game: Ransom from DOORS wanders your Discord window, and i
 ## Building it yourself
 
 **Repo layout**
-- `custom-creations/`: one folder per plugin
-- `equicord-installer/`: the Go installer
-- `docs/`: screenshots used in this README
-- `tools/patchtest/`: checks whether a plugin's patches still fit the Discord you have open
 
-**The installer** needs [Go](https://go.dev) 1.27 or newer (see `equicord-installer/go.mod`).
+| Folder | What's in it |
+|---|---|
+| `custom-creations/` | One folder per plugin |
+| `equicord-installer/` | The Go installer |
+| `docs/` | Screenshots used in this README |
+| `tools/patchtest/` | Checks if a plugin's patches still fit the Discord you have open |
+
+**Build the installer**
+
+You need [Go](https://go.dev) 1.27 or newer (see `equicord-installer/go.mod`).
 
 ```bash
 cd equicord-installer
 go build -trimpath -ldflags "-s -w" -o "Cordmuffin Equicord Installer.exe" .
 ```
 
-**Using the plugins without the installer:** copy any folder from `custom-creations` into your Equicord checkout's `src/userplugins`, then run `pnpm build && pnpm inject`.
+**Use the plugins without the installer**
 
-**Making the release zip:**
-- Run `equicord-installer/build-release.ps1 -Version 1.2.3` in PowerShell, with the version you'll tag the release as (`v1.2.3`). The background updater compares the two to find a newer installer.
-- It only packs the installer and the empty **Plugins Go Here** and **Themes Go Here** folders, and stops if anything else would end up in the zip.
-- Upload both files it makes, the zip and `Cordmuffin Equicord Installer.zip.sha256`. The background updater checks a new installer against the checksum before using it.
+1. Copy any folder from `custom-creations` into your Equicord checkout's `src/userplugins`.
+2. Run `pnpm build && pnpm inject`.
+
+**Make the release zip**
+
+1. In PowerShell, run `equicord-installer/build-release.ps1 -Version 1.2.3`.
+2. Use the same version you'll tag the release as (`v1.2.3`). The background updater compares the two to find a newer installer.
+3. Upload both files it makes: the zip and `Cordmuffin Equicord Installer.zip.sha256`.
+
+- The zip only holds the installer and the empty **Plugins Go Here** and **Themes Go Here** folders.
+- The script stops if anything else would end up in the zip.
+- The background updater checks a new installer against the checksum before using it.
 
 ## Issues
 
-[Open an issue](../../issues) for bugs or questions. Please include which plugin, what you did and what happened. For install or update problems, attach `install.log` or `update.log` from `%LOCALAPPDATA%\Cordmuffin`.
+[Open an issue](../../issues) for bugs or questions. Please include:
+
+- Which plugin
+- What you did
+- What happened
+
+For install or update problems, attach `install.log` or `update.log` from `%LOCALAPPDATA%\Cordmuffin`.
 
 ## License
 
