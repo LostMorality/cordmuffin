@@ -5,15 +5,18 @@
  */
 
 import { definePluginSettings } from "@api/Settings";
-import { Button } from "@components/Button";
+import { Button, type ButtonProps } from "@components/Button";
+import { Paragraph } from "@components/Paragraph";
 import { OptionType, PluginNative } from "@utils/types";
 import { useEffect, useState } from "@webpack/common";
 
 import type { Status } from "./native";
 
-export const Native = VencordNative.pluginHelpers.DiscrubLoader as PluginNative<typeof import("./native")>;
+// Undefined on Discord on the web, where there's no native side.
+export const Native = VencordNative.pluginHelpers.DiscrubLoader as PluginNative<typeof import("./native")> | undefined;
 
 let current: Status | null = null;
+let running = false;
 const listeners = new Set<(s: Status) => void>();
 
 export function setStatus(status: Status) {
@@ -25,11 +28,25 @@ export function setStatus(status: Status) {
 
 export const getStatus = () => current;
 
+// Equicord shows a plugin's settings while it's off; the buttons only work while it's on.
+export const isRunning = () => running;
+export function setRunning(value: boolean) {
+    running = value;
+    if (current) setStatus(current);
+}
+
 // Filled in by index.tsx so the settings page can trigger the same actions as the top-bar button.
 export const actions = {
     checkNow: async () => { },
     applyUpdate: async () => { },
 };
+
+// A disabled primary button only fades a little, so while the plugin is off it turns grey instead.
+// The wrapper carries the cursor and hint, since a disabled button gets no pointer events.
+export function PluginButton({ off, disabled, variant, ...props }: ButtonProps & { off: boolean; }) {
+    const button = <Button {...props} variant={off ? "secondary" : variant} disabled={off || disabled} />;
+    return off ? <span className="vc-discrub-btn-off" title="Turn the plugin on first.">{button}</span> : button;
+}
 
 function when(ms: number | null) {
     return ms ? new Date(ms).toLocaleString() : "never";
@@ -41,7 +58,7 @@ function StatusPanel() {
 
     useEffect(() => {
         listeners.add(set);
-        Native.getStatus().then(setStatus);
+        Native?.getStatus().then(setStatus).catch(() => { });
         return () => void listeners.delete(set);
     }, []);
 
@@ -55,27 +72,30 @@ function StatusPanel() {
     };
 
     if (!status) return null;
+    const off = !running;
     return (
-        <div>
+        <div className="vc-discrub-panel">
             <dl className="vc-discrub-status">
                 <dt>Installed</dt>
                 <dd>{status.installed ? `v${status.installed}` : "not yet (press the broom at the top of Discord)"}</dd>
-                <dt>Running in this window</dt>
+                <dt>Running here</dt>
                 <dd>{status.loaded ? `v${status.loaded}` : "no"}</dd>
-                <dt>Newest on the Chrome Web Store</dt>
+                <dt>Newest in the store</dt>
                 <dd>{status.latest ? `v${status.latest}` : "unknown"}</dd>
                 <dt>Update waiting</dt>
                 <dd>{status.staged ? `v${status.staged} (downloaded and checked)` : "none"}</dd>
                 <dt>Last check</dt>
                 <dd>{when(status.lastCheck)}</dd>
             </dl>
+            {status.notice && <div className="vc-discrub-error">{status.notice}</div>}
             {status.lastError && <div className="vc-discrub-error">{status.lastError}</div>}
+            {off && <Paragraph className="vc-discrub-off">Turn the plugin on to use these buttons.</Paragraph>}
             <div className="vc-discrub-buttons">
-                <Button size="small" disabled={working} onClick={run(actions.checkNow)}>Check now</Button>
+                <PluginButton size="small" off={off} disabled={working} onClick={run(actions.checkNow)}>Check now</PluginButton>
                 {status.staged && (
-                    <Button size="small" disabled={working} onClick={run(actions.applyUpdate)}>
+                    <PluginButton size="small" off={off} disabled={working} onClick={run(actions.applyUpdate)}>
                         Use v{status.staged} now
-                    </Button>
+                    </PluginButton>
                 )}
             </div>
         </div>
@@ -85,20 +105,20 @@ function StatusPanel() {
 export const settings = definePluginSettings({
     startWith: {
         type: OptionType.SELECT,
-        description: "Which Discrub opens from the top-bar button.",
+        description: "Which Discrub the broom opens. \"Ask each time\" shows Discrub's own start screen with no countdown. Classic is the old version and no longer gets updates.",
         options: [
-            { label: "Ask each time (Discrub's own start screen)", value: "ask", default: true },
+            { label: "Ask each time", value: "ask", default: true },
             { label: "New Discrub", value: "web" },
-            { label: "Discrub Classic (the old version, no longer updated)", value: "classic" },
+            { label: "Discrub Classic", value: "classic" },
         ],
     },
     updateMode: {
         type: OptionType.SELECT,
-        description: "How new Discrub versions are handled. Every download must be signed by Discrub's developer and match the file list Discrub publishes on GitHub.",
+        description: "Ask: offers each new version once (\"Check now\" offers it again). Automatic: downloads and checks it on its own. Stay: no background checks at all, only \"Check now\". Every download must be signed by Discrub's developer and match the file list Discrub publishes on GitHub.",
         options: [
             { label: "Ask before updating", value: "ask", default: true },
-            { label: "Always take the latest (downloads and checks it on its own)", value: "auto" },
-            { label: "Stay on the installed version (only \"Check now\" looks for updates)", value: "pinned" },
+            { label: "Update automatically", value: "auto" },
+            { label: "Stay on this version", value: "pinned" },
         ],
     },
     status: {
