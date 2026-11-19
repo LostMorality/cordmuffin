@@ -24,6 +24,11 @@ let level = 0;
 // apart completely and doesn't shake, so it can be lived with until it's revived.
 let wrecked = false;
 let timer: ReturnType<typeof setInterval> | undefined;
+// What's on screen, measured once every few ticks instead of every tick. Scrolling, resizing or Discord throwing a
+// piece away (a channel switch) measures again on the next tick.
+let onScreen: { pieces: HTMLElement[]; panels: HTMLElement[]; at: number; } | undefined;
+let watching = false;
+const remeasure = () => { onScreen = undefined; };
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
@@ -33,6 +38,26 @@ function visible(selector: string) {
         const r = el.getBoundingClientRect();
         return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight && el.checkVisibility({ visibilityProperty: true });
     });
+}
+
+function measured() {
+    const now = Date.now();
+    if (onScreen && now - onScreen.at < (wrecked ? 6000 : 2000)
+        && onScreen.pieces.every(el => el.isConnected) && onScreen.panels.every(el => el.isConnected)) return onScreen;
+    return onScreen = { pieces: visible(PIECES), panels: visible(PANELS), at: now };
+}
+
+function watchLayout(on: boolean) {
+    if (on === watching) return;
+    watching = on;
+    if (on) {
+        document.addEventListener("scroll", remeasure, { capture: true, passive: true });
+        window.addEventListener("resize", remeasure, { passive: true });
+    } else {
+        document.removeEventListener("scroll", remeasure, { capture: true });
+        window.removeEventListener("resize", remeasure);
+    }
+    onScreen = undefined;
 }
 
 const some = <T,>(list: T[], n: number) => list.sort(() => Math.random() - 0.5).slice(0, n);
@@ -53,8 +78,7 @@ function tick() {
     for (const el of flashes) if (!el.isConnected) flashes.delete(el);
     for (const el of touched.keys()) if (!el.isConnected) touched.delete(el);
     const calm = settings.store.calmEffects;
-    const pieces = visible(PIECES);
-    const panels = visible(PANELS);
+    const { pieces, panels } = measured();
 
     for (const el of some(pieces, level >= 2 ? 4 : 2)) flash(el, "vc-ransom-twitch", 420);
     if (calm) return;
@@ -95,6 +119,7 @@ export function breakUI(next: number) {
     level = next;
     document.documentElement.classList.toggle("vc-ransom-quake", level >= 3 && !settings.store.calmEffects);
     if (!timer) timer = setInterval(tick, 650);
+    watchLayout(true);
     tick();
 }
 
@@ -105,13 +130,16 @@ export function wreckUI() {
     level = 3;
     document.documentElement.classList.remove("vc-ransom-quake");
     clearInterval(timer);
-    timer = setInterval(tick, 900);
+    // Slower than during the ransom: a wreck can last for hours.
+    timer = setInterval(tick, 1500);
+    watchLayout(true);
     tick();
 }
 
 export function repairUI() {
     clearInterval(timer);
     timer = undefined;
+    watchLayout(false);
     level = 0;
     wrecked = false;
     document.documentElement.classList.remove("vc-ransom-quake");
