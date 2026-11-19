@@ -61,10 +61,10 @@ export const settings = definePluginSettings({
     },
     noBanner: {
         type: OptionType.SELECT,
-        description: "When someone has no banner",
+        description: "When someone has no banner (the colour button copies the colour code)",
         options: [
-            { label: "Show their banner colour (click copies it)", value: "color", default: true },
-            { label: "Hide the banner button", value: "hide" }
+            { label: "Show banner colour", value: "color", default: true },
+            { label: "Hide the button", value: "hide" }
         ]
     },
     format: {
