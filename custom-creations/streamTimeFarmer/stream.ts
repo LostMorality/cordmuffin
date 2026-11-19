@@ -130,9 +130,13 @@ const FARM_FAILS_MAX = 3;
 const FINDS_RECHECK_MS = 5 * 60_000;
 const OFFLINE_TEXT = "Offline. The farm picks up again when the internet is back.";
 const FARM_TITLE = "Stream farm (StreamTimeFarmer)";
-// The farm window is a Windows program started by Discord's desktop app; anywhere else the farm streams a random
-// open window, like it did before it had its own.
+// The farm window is a Windows program started by Discord's desktop app. Where it can't run, a DM call streams the
+// screen instead and a server channel streams nothing (see farmOrFallback).
 export const canUseFarmWindow = () => Native != null && navigator.userAgent.includes("Windows");
+// Why the farm window can't run in this Discord, for status texts.
+const noFarmWindowWhy = () => Native == null
+    ? IS_DISCORD_DESKTOP ? "needs Discord fully quit and opened again first" : "only runs in Discord's desktop app"
+    : "only runs on Windows";
 
 let timer: ReturnType<typeof setInterval> | undefined;
 let lastTick = 0;
@@ -286,7 +290,7 @@ function target(now: number): Target | string {
     }
     if (!partner) return prof().hostSecond
         ? "Your second account isn't set up yet. Log into it in its window."
-        : "Your second account isn't set up yet. Press Log in to second account.";
+        : "Your second account isn't set up yet. Press Log in second account.";
     if (partner === UserStore.getCurrentUser().id) return "Your second account's window is logged into this same account. Sign out there and log into your other account.";
     const dm = ChannelStore.getDMFromUserId(partner);
     if (dm) return { id: dm, name: `the call with ${partnerName("your other account")}`, guildId: null, dm: true };
@@ -557,24 +561,19 @@ function closeFarmWindow() {
 // The farm window only works as the "farm" choice: picked by its title, it would be closed and then never found.
 export const isFarmWindow = (source: CaptureSource) => source.name === FARM_TITLE || farmHandle !== "" && source.id.split(":")[1] === farmHandle;
 
-// The old default, still used where the farm window can't run.
-async function randomWindow(): Promise<CaptureSource | null> {
-    const sources = await captureSources();
-    const windows = sources.filter(s => s.id.startsWith("window:"));
-    return windows.length ? windows[Math.floor(Math.random() * windows.length)] : sources.find(s => s.id.startsWith("screen:")) ?? null;
-}
-
 // Anyone in a server channel can watch the stream, so there nothing but the farm's own window is ever streamed. A DM
 // call is only watched by the user's own second account.
 const fallbackAllowed = () => prof().where !== "server";
 const usingFarmWindow = () => farmFails < FARM_FAILS_MAX || !fallbackAllowed();
 const farmOpening = () => farmOpeningFor === run;
 
-// The farm window, unless it keeps failing to start in a DM call: then this run streams the screen instead. Not a
-// random window, which could be anything private and would change with every restart.
+// The farm window, unless it can't run here or keeps failing to start in a DM call: then this run streams the screen
+// instead. Not a random window, which could be anything private and would change with every restart.
 async function farmOrFallback(): Promise<CaptureSource | null> {
     const myRun = run;
-    if (usingFarmWindow()) {
+    const canRun = canUseFarmWindow();
+    if (!canRun && !fallbackAllowed()) return null;
+    if (canRun && usingFarmWindow()) {
         // A slow start can outlast the wait between Go Live tries. A second try alongside it would count the same
         // failure twice and close the window the first one is still waiting for.
         if (farmOpening() || Date.now() < farmRetryAt) return null;
@@ -603,8 +602,10 @@ async function farmOrFallback(): Promise<CaptureSource | null> {
     }
     const source = (await captureSources()).find(s => s.id.startsWith("screen:")) ?? null;
     if (myRun !== run || !source) return null;
-    if (!fallbackNote) toast({ text: "The farm's own window wouldn't open, so the farm is showing your screen to your second account instead.", variant: "critical" });
-    fallbackNote = "The farm's own window wouldn't open (antivirus or Windows may be blocking it), so it's streaming your screen instead.";
+    if (!fallbackNote) toast({ text: `The farm's own window ${canRun ? "wouldn't open" : "can't run here"}, so the farm is showing your screen to your second account instead.`, variant: "critical" });
+    fallbackNote = canRun
+        ? "The farm's own window wouldn't open (antivirus or Windows may be blocking it), so it's streaming your screen instead."
+        : `The farm's own window ${noFarmWindowWhy()}, so it's streaming your screen instead.`;
     return source;
 }
 
@@ -613,7 +614,7 @@ let lastWindow: { source: string; handle: string; } | null = null;
 
 async function pickSource(): Promise<CaptureSource | null> {
     const wanted = prof().source.trim().toLowerCase();
-    if (wanted === FARM_SOURCE || wanted === "random") return canUseFarmWindow() ? farmOrFallback() : randomWindow();
+    if (wanted === FARM_SOURCE || wanted === "random") return farmOrFallback();
     const sources = await captureSources();
     const screen = sources.find(s => s.id.startsWith("screen:"));
     if (!wanted || wanted === "screen") return screen ?? null;
@@ -668,6 +669,14 @@ async function goLive(now: number, where: Target) {
     if (!source) {
         flatWait();
         const wanted = prof().source.trim().toLowerCase();
+        // The farm window picked where it can't run: a DM call found no screen either, and a server channel never
+        // streams anything but that window.
+        if (farmChoice() && !canUseFarmWindow()) {
+            liveError = fallbackAllowed()
+                ? `The farm's own window ${noFarmWindowWhy()}, and there's no screen to stream instead.`
+                : `The farm's own window ${noFarmWindowWhy()}, and a server channel never streams anything else. Pick a window or meet in a DM call.`;
+            return;
+        }
         liveError = !isFarmSource() ? ["", "screen", FARM_SOURCE, "random"].includes(wanted) ? "Couldn't find anything to stream. Pick a window instead." : `Couldn't find "${prof().source}" to stream. Pick another source.`
             : !usingFarmWindow() ? "The farm's own window wouldn't open, and there's no screen to stream instead."
                 : farmOpening() ? "Opening the farm's own window..."
@@ -712,8 +721,10 @@ const streamKey = (stream: AppStream) => stream.guildId
     ? `${stream.streamType}:${stream.guildId}:${stream.channelId}:${stream.ownerId}`
     : `${stream.streamType}:${stream.channelId}:${stream.ownerId}`;
 
-const isFarmSource = () => canUseFarmWindow() && [FARM_SOURCE, "random"].includes(prof().source.trim().toLowerCase());
-const withFallback = (text: string) => fallbackNote && isFarmSource() ? `${text} ${fallbackNote}` : text;
+// The farm's own window was picked; isFarmSource is whether that's what really streams.
+const farmChoice = () => [FARM_SOURCE, "random"].includes(prof().source.trim().toLowerCase());
+const isFarmSource = () => canUseFarmWindow() && farmChoice();
+const withFallback = (text: string) => fallbackNote && farmChoice() ? `${text} ${fallbackNote}` : text;
 
 // Stream errors Discord shows for this account's own stream (sending) or for the partner's (receiving).
 function streamErrors(kind: "sender" | "receiver", userId: string): string[] {
@@ -946,7 +957,7 @@ function streamerTick(now: number, elapsed: number) {
             const own = ApplicationStreamingStore.getCurrentUserActiveStream();
             // Only the farm's own stream: by now it may be gone and the live one the user's.
             if (own && startedKey && streamKey(own) === startedKey && restartLive(own, Date.now(), "The farm window closed.")) kick();
-        }).finally(() => farmCheck = null);
+        }).catch(e => logger.warn("Couldn't restart Go Live after the farm window closed", e)).finally(() => farmCheck = null);
     }
 
     const partner = partnerId();
