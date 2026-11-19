@@ -6,7 +6,7 @@
 
 import "./styles.css";
 
-import { ApplicationCommandInputType, ApplicationCommandOptionType, findOption, sendBotMessage } from "@api/Commands";
+import { ApplicationCommandInputType, ApplicationCommandOptionType, commands as registeredCommands, findOption, registerCommand, sendBotMessage, unregisterCommand, VencordCommand } from "@api/Commands";
 import { NavContextMenuPatchCallback } from "@api/ContextMenu";
 import { isPluginEnabled } from "@api/PluginManager";
 import { definePluginSettings, migratePluginSettings, SettingsStore, useSettings } from "@api/Settings";
@@ -14,26 +14,15 @@ import { addUserAreaButton } from "@api/UserArea";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Notice } from "@components/Notice";
 import definePlugin, { OptionType } from "@utils/types";
-import { findByCodeLazy } from "@webpack";
-import { Alerts, AuthenticationStore, Menu, SessionsStore, showToast as equicordShowToast, useEffect, useReducer } from "@webpack/common";
+import { findByPropsLazy } from "@webpack";
+import { Alerts, AuthenticationStore, Menu, SelectedChannelStore, SessionsStore, showToast, useEffect, useReducer } from "@webpack/common";
 
 import { PlatformButton, PlatformIcon } from "./Button";
 import { cancelReconnect, GatewaySocket, isReconnectPending, logger, scheduleReconnect } from "./gateway";
 import { StatusPanel } from "./Panel";
 import { isPlatformId, PLATFORM_IDS, PlatformId, platformLabel, PLATFORMS, SHOWS_LABEL, upgradePlatformId } from "./platforms";
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
-
-function showToast(options: Parameters<typeof equicordShowToast>[0]) {
-    for (const show of [equicordShowToast, discordToast]) {
-        try {
-            show(options);
-            return;
-        } catch { }
-    }
-}
+const SuperProperties: { getSuperProperties(): Record<string, unknown>; } = findByPropsLazy("getSuperProperties", "getSuperPropertiesBase64");
 
 const PLUGIN_NAME = "PlatformSpoofer+";
 
@@ -80,7 +69,7 @@ export const settings = definePluginSettings({
         default: false,
         onChange: (on: boolean) => {
             if (on) confirmSpoofRequests();
-            else settings.store.requestsConfirmed = false;
+            else if (settings.store.requestsConfirmed) settings.store.requestsConfirmed = false;
         }
     },
     status: {
@@ -91,7 +80,6 @@ export const settings = definePluginSettings({
 
 function confirmSpoofRequests() {
     let confirmed = false;
-    settings.store.requestsConfirmed = false;
     const undo = () => {
         if (!confirmed) settings.store.spoofRequests = false;
     };
@@ -106,7 +94,7 @@ function confirmSpoofRequests() {
         ),
         confirmText: "Turn it on",
         cancelText: "Keep it off",
-        confirmColor: "danger",
+        confirmVariant: "critical-primary",
         onConfirm: () => {
             confirmed = true;
             settings.store.requestsConfirmed = true;
@@ -128,11 +116,45 @@ export function currentPlatform(): PlatformId {
     return isPlatformId(platform) ? platform : "off";
 }
 
+// Desktop on the desktop app sends exactly what Discord already sends, so treat it as off: no reconnect, fast connect kept.
+export function isNoopSpoof(id: PlatformId, props?: Record<string, unknown>) {
+    if (id !== "desktop") return false;
+    try {
+        return (props ?? SuperProperties.getSuperProperties()).browser === PLATFORMS.desktop.props.browser;
+    } catch {
+        return false;
+    }
+}
+
+export function effectivePlatform(): PlatformId {
+    const id = currentPlatform();
+    return isNoopSpoof(id) ? "off" : id;
+}
+
 let verifyUntil = 0;
 let lastIdentifySpoofed = false;
 let lastSent: PlatformId | null = null;
 let refused = false;
 const refusedListeners = new Set<() => void>();
+const sentListeners = new Set<() => void>();
+
+function setLastSent(value: PlatformId) {
+    if (lastSent === value) return;
+    lastSent = value;
+    sentListeners.forEach(fn => fn());
+}
+
+// What the live connection identified as. Null (fast connect, real properties) counts as off.
+export const sentPlatform = (): PlatformId => lastSent ?? "off";
+
+export function useSentPlatform() {
+    const [, rerender] = useReducer(n => n + 1, 0);
+    useEffect(() => {
+        sentListeners.add(rerender);
+        return () => void sentListeners.delete(rerender);
+    }, []);
+    return sentPlatform();
+}
 
 function setRefused(value: boolean) {
     if (refused === value) return;
@@ -151,20 +173,47 @@ export function useRefused() {
     return refused;
 }
 
+// Enabled and running since startup, so the identify patch is live. Turning it on from off needs a restart first.
+export const isActive = (): boolean => isPluginEnabled(PLUGIN_NAME) && plugin.started;
+
 export function useEnabled() {
     useSettings([`plugins.${PLUGIN_NAME}.enabled`]);
-    return isPluginEnabled(PLUGIN_NAME);
+    return isActive();
 }
-const isSpoofedNow = () => lastSent != null && lastSent !== "off";
 
-function applyPlatform() {
+export const isSpoofedNow = () => lastSent != null && lastSent !== "off";
+
+// True when a reconnect would change what Discord sees: a different platform than the live one, or a retry after a refusal.
+export function needsReconnect() {
+    if (refused) return isActive();
+    return (isActive() ? effectivePlatform() : "off") !== sentPlatform();
+}
+
+export function applyPlatform() {
     setRefused(false);
-    if (isPluginEnabled(PLUGIN_NAME) || isSpoofedNow()) reconnect();
+    if (!isActive() && !isSpoofedNow()) return;
+    // A retry of a refused pick still differs from the real platform that was sent instead, so it reconnects;
+    // picking off or a no-op Desktop after a refusal changes nothing and doesn't.
+    if (!needsReconnect() && !isReconnectPending()) return;
+    reconnect();
+}
+
+function syncCommand() {
+    const on = isPluginEnabled(PLUGIN_NAME);
+    const registered = platformCommand.name in registeredCommands;
+    try {
+        if (on && !registered) registerCommand(platformCommand, PLUGIN_NAME);
+        else if (!on && registered) unregisterCommand(platformCommand.name);
+    } catch (e) {
+        logger.error("Couldn't update the /platform command", e);
+    }
 }
 
 function onEnabledChange() {
     setRefused(false);
-    reconnect();
+    syncCommand();
+    const next = isPluginEnabled(PLUGIN_NAME) ? effectivePlatform() : "off";
+    if (next !== sentPlatform()) reconnect();
 }
 
 export function pickPlatform(id: PlatformId) {
@@ -172,10 +221,38 @@ export function pickPlatform(id: PlatformId) {
     else applyPlatform();
 }
 
-export function reconnect() {
+function reconnectNow() {
     scheduleReconnect(ok => {
         if (ok) verifyUntil = Date.now() + 30_000;
         else showToast({ text: "Couldn't reconnect to Discord. Your platform changes the next time Discord connects.", variant: "critical" });
+    });
+}
+
+let askingAboutCall = false;
+
+export const isInCall = () => SelectedChannelStore.getVoiceChannelId() != null;
+
+// A platform change needs a brand new gateway session. Voice and Go Live belong to the old one, so a call drops.
+export function reconnect() {
+    if (!isInCall()) {
+        reconnectNow();
+        return;
+    }
+    if (askingAboutCall) return;
+    askingAboutCall = true;
+    const done = () => void (askingAboutCall = false);
+    Alerts.show({
+        title: "Leave your call?",
+        body: "Changing platform reconnects Discord as a new session. That drops your voice call and ends any stream. Your pick is saved either way and applies the next time Discord fully reconnects, like after a restart.",
+        confirmText: "Reconnect now",
+        cancelText: "Later",
+        confirmVariant: "critical-primary",
+        onConfirm: () => {
+            done();
+            reconnectNow();
+        },
+        onCancel: done,
+        onCloseCallback: done
     });
 }
 
@@ -193,7 +270,7 @@ function checkResult() {
 }
 
 const userContext: NavContextMenuPatchCallback = (children, { user }) => {
-    if (user?.id !== AuthenticationStore.getId() || !isPluginEnabled(PLUGIN_NAME)) return;
+    if (user?.id !== AuthenticationStore.getId() || !isActive()) return;
     const active = currentPlatform();
 
     children.push(
@@ -218,7 +295,45 @@ const userContext: NavContextMenuPatchCallback = (children, { user }) => {
 // Registering now makes it show on every start; PlatformButton renders nothing while the plugin is off.
 addUserAreaButton(PLUGIN_NAME, PlatformButton);
 
-export default definePlugin({
+const platformCommand: VencordCommand = {
+    name: "platform",
+    description: "Change what platform people see you on.",
+    inputType: ApplicationCommandInputType.BUILT_IN,
+    options: [
+        {
+            name: "show-as",
+            description: "Platform to show as. Leave empty to see what you show as now.",
+            type: ApplicationCommandOptionType.STRING,
+            required: false,
+            choices: (["off", ...PLATFORM_IDS] as PlatformId[]).map(id => ({ name: platformLabel(id), label: platformLabel(id), value: id }))
+        }
+    ],
+    execute(args, ctx) {
+        if (!isActive()) {
+            sendBotMessage(ctx.channel.id, { content: "PlatformSpoofer+ is turned off. Turn it on in Equicord's plugin settings first." });
+            return;
+        }
+        const picked = findOption<string>(args, "show-as");
+        const client = SessionsStore.getSession()?.clientInfo.client ?? "unknown";
+        if (!picked) {
+            sendBotMessage(ctx.channel.id, {
+                content: `Picked: **${platformLabel(currentPlatform())}**${refused ? " (Discord refused it, so you're on your real platform)" : ""}. Discord currently shows this session as **${SHOWS_LABEL[client] ?? client}**.`
+            });
+            return;
+        }
+        if (!isPlatformId(picked)) {
+            sendBotMessage(ctx.channel.id, { content: "That isn't one of the platforms in the list." });
+            return;
+        }
+        const inCall = isInCall();
+        pickPlatform(picked);
+        sendBotMessage(ctx.channel.id, {
+            content: `Switching to **${platformLabel(picked)}**. ${inCall ? "You're in a call, so Discord asks before it reconnects." : "Discord reconnects for a second."}`
+        });
+    }
+};
+
+const plugin = definePlugin({
     name: PLUGIN_NAME,
     description: "A revival of the removed PlatformSpoofer. Pick what platform people see you on (phone, web, console and more), switch live, and stay logged in if Discord refuses it.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
@@ -270,42 +385,7 @@ export default definePlugin({
         "user-context": userContext
     },
 
-    commands: [
-        {
-            name: "platform",
-            description: "Change what platform people see you on.",
-            inputType: ApplicationCommandInputType.BUILT_IN,
-            options: [
-                {
-                    name: "show-as",
-                    description: "Platform to show as. Leave empty to see what you show as now.",
-                    type: ApplicationCommandOptionType.STRING,
-                    required: false,
-                    choices: (["off", ...PLATFORM_IDS] as PlatformId[]).map(id => ({ name: platformLabel(id), label: platformLabel(id), value: id }))
-                }
-            ],
-            execute(args, ctx) {
-                if (!isPluginEnabled(PLUGIN_NAME)) {
-                    sendBotMessage(ctx.channel.id, { content: "PlatformSpoofer+ is turned off. Turn it on in Equicord's plugin settings first." });
-                    return;
-                }
-                const picked = findOption<string>(args, "show-as");
-                const client = SessionsStore.getSession()?.clientInfo.client ?? "unknown";
-                if (!picked) {
-                    sendBotMessage(ctx.channel.id, {
-                        content: `Picked: **${platformLabel(currentPlatform())}**${refused ? " (Discord refused it, so you're on your real platform)" : ""}. Discord currently shows this session as **${SHOWS_LABEL[client] ?? client}**.`
-                    });
-                    return;
-                }
-                if (!isPlatformId(picked)) {
-                    sendBotMessage(ctx.channel.id, { content: "That isn't one of the platforms in the list." });
-                    return;
-                }
-                pickPlatform(picked);
-                sendBotMessage(ctx.channel.id, { content: `Switching to **${platformLabel(picked)}**. Discord reconnects for a second.` });
-            }
-        }
-    ],
+    commands: [platformCommand],
 
     flux: {
         SESSIONS_REPLACE: checkResult,
@@ -321,12 +401,13 @@ export default definePlugin({
 
     spoofProperties(props: Record<string, unknown>) {
         lastIdentifySpoofed = false;
-        lastSent = "off";
-        if (!isPluginEnabled(PLUGIN_NAME) || refused) return props;
         const id = currentPlatform();
-        if (id === "off") return props;
+        if (!isPluginEnabled(PLUGIN_NAME) || refused || id === "off" || isNoopSpoof(id, props)) {
+            setLastSent("off");
+            return props;
+        }
         lastIdentifySpoofed = true;
-        lastSent = id;
+        setLastSent(id);
 
         logger.info(`Identifying as ${PLATFORMS[id].label}`);
         return spoofedProps(props, id);
@@ -348,7 +429,7 @@ export default definePlugin({
     },
 
     dropFastConnect<T extends { ws?: WebSocket; }>(fast: T | null | undefined): T | null | undefined {
-        if (fast == null || !isPluginEnabled(PLUGIN_NAME) || currentPlatform() === "off") return fast;
+        if (fast == null || !isPluginEnabled(PLUGIN_NAME) || effectivePlatform() === "off") return fast;
         logger.info("Skipping fast connect so the first identify is spoofed");
         fast.ws?.close(1000);
         return null;
@@ -358,6 +439,7 @@ export default definePlugin({
         if (!lastIdentifySpoofed) return false;
         lastIdentifySpoofed = false;
         verifyUntil = 0;
+        setLastSent("off");
         setRefused(true);
         socket.sessionId = null;
         socket.seq = 0;
@@ -369,7 +451,7 @@ export default definePlugin({
     start() {
         SettingsStore.addChangeListener(`plugins.${PLUGIN_NAME}.enabled`, onEnabledChange);
         if (settings.store.spoofRequests && !settings.store.requestsConfirmed) settings.store.spoofRequests = false;
-        const id = currentPlatform();
+        const id = effectivePlatform();
         const client = SessionsStore.getSession()?.clientInfo.client;
         if (id !== "off" && client && client !== PLATFORMS[id].shows) reconnect();
     },
@@ -378,6 +460,8 @@ export default definePlugin({
         SettingsStore.removeChangeListener(`plugins.${PLUGIN_NAME}.enabled`, onEnabledChange);
         cancelReconnect();
         verifyUntil = 0;
-        if (isSpoofedNow()) scheduleReconnect();
+        if (isSpoofedNow()) reconnect();
     }
 });
+
+export default plugin;
