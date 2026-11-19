@@ -161,7 +161,7 @@ function ProgressCard() {
         <div className={cl("job", `job-${result.kind}`)} role="status">
             <div className={cl("job-head")}>
                 <span className={cl("job-title")}>{result.title}</span>
-                <span className={cl("job-toggle")} onClick={dismiss} title="Close">✕</span>
+                <button className={cl("job-toggle", "job-close")} onClick={dismiss} title="Close" aria-label="Close">✕</button>
             </div>
             <div className={cl("job-text", "job-result")}>{result.text}</div>
             {result.kind !== "success" && (
@@ -174,7 +174,7 @@ function ProgressCard() {
 
     return (
         <div className={cl("job", small && "job-small")} role="status">
-            <div className={cl("job-head")} onClick={() => setSmall(s => !s)} title={small ? "Show details" : "Make smaller"}>
+            <div className={cl("job-head", "job-head-toggle")} onClick={() => setSmall(s => !s)} title={small ? "Show details" : "Make smaller"}>
                 <span className={cl("job-title")}>{small ? `Adding play time · ${percent}%` : "Adding play time"}</span>
                 <span className={cl("job-toggle")}>{small ? "▴" : "▾"}</span>
             </div>
