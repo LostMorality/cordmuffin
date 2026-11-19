@@ -8,7 +8,7 @@ import * as DataStore from "@api/DataStore";
 import { pluginRequiresRestart, plugins, startDependenciesRecursive, startPlugin, stopPlugin } from "@api/PluginManager";
 import { PlainSettings, Settings } from "@api/Settings";
 import { Logger } from "@utils/Logger";
-import { OptionType } from "@utils/types";
+import { OptionType, PluginSettingDef } from "@utils/types";
 import { useEffect, useState } from "@webpack/common";
 
 import { PluginMeta } from "~plugins";
@@ -33,7 +33,7 @@ export interface Preset {
     /** Plugins that are on. Everything else the preset manages gets turned off. */
     enabled: string[];
     settings: Record<string, Record<string, Json>>;
-    /** Muffinshelf BetterDiscord plugin files that are on, or null when Muffinshelf wasn't there. */
+    /** Muffinshelf BetterDiscord plugin files that are on, or null when Muffinshelf wasn't on. */
     bd: string[] | null;
     /** Set on presets that came from an import: they only touch official plugins. */
     imported?: ImportInfo;
@@ -43,6 +43,8 @@ export interface Plan {
     turnOn: string[];
     turnOff: string[];
     settingChanges: Record<string, string[]>;
+    /** Saved settings the plugin would reject now (out of range, not a choice, failed its own check), as "Plugin.key". */
+    invalidSettings: string[];
     missing: string[];
     restart: string[];
     bdOn: string[];
@@ -73,7 +75,9 @@ export function isManaged(name: string) {
     return !/\/_(core|api)\//.test(`${PluginMeta[name]?.folderName ?? ""}/`);
 }
 
+// BIGINT settings are stored as their decimal text, and turned back into a BigInt when applied.
 function toJson(value: unknown): Json | undefined {
+    if (typeof value === "bigint") return value.toString();
     try {
         const text = JSON.stringify(value);
         return text === undefined ? undefined : JSON.parse(text);
@@ -102,8 +106,9 @@ function settingKeys(name: string) {
     return [...keys];
 }
 
-function readBd(): string[] | null {
-    if (!plugins.Muffinshelf) return null;
+// Null when Muffinshelf isn't installed, or (with onlyIfOn) while it's off: its list does nothing then.
+function readBd(onlyIfOn = true): string[] | null {
+    if (!plugins.Muffinshelf || (onlyIfOn && !Settings.plugins.Muffinshelf?.enabled)) return null;
     const list = PlainSettings.plugins.Muffinshelf?.bdEnabled;
     return Array.isArray(list) ? list.map(String).sort() : [];
 }
@@ -113,6 +118,48 @@ function installedBd(): Set<string> | null {
     if (!plugins.Muffinshelf?.started) return null;
     const all = (window as any).BdApi?.Plugins?.getAll?.();
     return Array.isArray(all) ? new Set(all.map((p: any) => String(p?.filename))) : null;
+}
+
+// The value a preset would write, in the type the setting holds. Undefined when the plugin's own settings UI would
+// refuse it, so an old or hand-made preset can't set what the plugin doesn't accept.
+function settingValue(name: string, def: PluginSettingDef, saved: Json): unknown {
+    let value: unknown = saved;
+    switch (def.type) {
+        case OptionType.BOOLEAN:
+            if (typeof value !== "boolean") return undefined;
+            break;
+        case OptionType.SELECT:
+            if (!def.options.some(o => o.value === value)) return undefined;
+            break;
+        case OptionType.STRING:
+            if (typeof value !== "string") return undefined;
+            break;
+        case OptionType.NUMBER:
+            if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+            if ((def.min != null && value < def.min) || (def.max != null && value > def.max)) return undefined;
+            break;
+        case OptionType.SLIDER: {
+            const markers = def.markers ?? [];
+            if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+            if (markers.length && (value < Math.min(...markers) || value > Math.max(...markers))) return undefined;
+            break;
+        }
+        case OptionType.BIGINT: {
+            if (typeof value === "number" && Number.isSafeInteger(value)) value = String(value);
+            if (typeof value !== "string" || !/^-?\d{1,30}$/.test(value)) return undefined;
+            const big = BigInt(value);
+            if ((def.min != null && big < def.min) || (def.max != null && big > def.max)) return undefined;
+            value = big;
+            break;
+        }
+        default:
+            return undefined;
+    }
+    try {
+        return (def.isValid?.call(plugins[name].settings as any, value) ?? true) === true ? value : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 export function newId() {
@@ -173,6 +220,7 @@ export function planApply(preset: Preset): Plan {
     for (const n of turnOff) if (pluginRequiresRestart(plugins[n])) restart.add(n);
 
     const settingChanges: Plan["settingChanges"] = {};
+    const invalidSettings: string[] = [];
     for (const n of want) {
         const saved = preset.settings[n];
         if (!saved) continue;
@@ -180,14 +228,20 @@ export function planApply(preset: Preset): Plan {
         const known = new Set(settingKeys(n));
         const changed = Object.keys(saved).filter(key =>
             known.has(key) && (!imported || Object.prototype.hasOwnProperty.call(defs, key)) && !deepEqual(readSetting(n, key), saved[key]));
-        if (!changed.length) continue;
-        settingChanges[n] = changed;
-        if (!restart.has(n) && changed.some(key => defs[key]?.restartNeeded)) restart.add(`${n} (settings)`);
+        const invalid = changed.filter(key => settingValue(n, defs[key], saved[key]) === undefined);
+        invalidSettings.push(...invalid.map(key => `${n}.${key}`));
+        const valid = changed.filter(key => !invalid.includes(key));
+        if (!valid.length) continue;
+        settingChanges[n] = valid;
+        if (!restart.has(n) && valid.some(key => defs[key]?.restartNeeded)) restart.add(`${n} (settings)`);
     }
 
     // BetterDiscord plugins: a saved preset sets the list exactly, minus files that were deleted since; an imported
     // one only keeps those it lists that are on.
-    const current = readBd();
+    // Judged by whether Muffinshelf is on once the preset is applied, so turning it on also restores its list and
+    // turning it off leaves the list alone.
+    const bdOnAfter = isManaged("Muffinshelf") ? want.has("Muffinshelf") : !!Settings.plugins.Muffinshelf?.enabled;
+    const current = bdOnAfter ? readBd(false) : null;
     const installed = imported ? null : installedBd();
     const bdTarget = !current ? null
         : imported ? current.filter(f => imported.betterDiscord.includes(f))
@@ -198,7 +252,7 @@ export function planApply(preset: Preset): Plan {
     const bdOff = bdTarget && current ? current.filter(f => !bdTarget.includes(f)) : [];
     if (bdOn.length || bdOff.length) restart.add("Muffinshelf BetterDiscord plugins");
 
-    return { turnOn, turnOff, settingChanges, missing, restart: [...restart], bdOn, bdOff, bdTarget, keptUnofficial, blockedUnofficial };
+    return { turnOn, turnOff, settingChanges, invalidSettings, missing, restart: [...restart], bdOn, bdOff, bdTarget, keptUnofficial, blockedUnofficial };
 }
 
 export function applyPreset(preset: Preset): ApplyResult {
@@ -223,7 +277,9 @@ export function applyPreset(preset: Preset): ApplyResult {
     for (const [n, keys] of Object.entries(plan.settingChanges)) {
         for (const key of keys) {
             try {
-                Settings.plugins[n][key] = toJson(preset.settings[n][key]);
+                const value = settingValue(n, plugins[n].settings!.def[key], preset.settings[n][key]);
+                if (value === undefined) throw new Error("not a value the plugin accepts");
+                Settings.plugins[n][key] = value;
             } catch (e) {
                 logger.error(`Failed to set ${n}.${key}`, e);
                 failed.push(`${n}: couldn't change the "${key}" setting`);
@@ -337,6 +393,8 @@ export async function addPreset(preset: Preset) {
 
 export async function renamePreset(id: string, name: string) {
     const list = await loadPresets();
+    if (list.some(p => p.id !== id && p.name.toLowerCase() === name.toLowerCase()))
+        throw new Error(`a preset named "${name}" already exists`);
     await store(list.map(p => p.id === id ? { ...p, name } : p));
 }
 
