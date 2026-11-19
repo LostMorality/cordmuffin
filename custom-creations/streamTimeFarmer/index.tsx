@@ -88,6 +88,17 @@ export const settings = definePluginSettings({
         type: OptionType.COMPONENT,
         component: () => <AddTimePanel />
     },
+    jobBoxSpot: {
+        type: OptionType.CUSTOM,
+        default: null as { right: number; top: number; } | null,
+        description: ""
+    },
+    jobBoxSmall: {
+        type: OptionType.BOOLEAN,
+        description: "The Add Streaming Time progress box is minimized.",
+        default: true,
+        hidden: true
+    },
     profiles: {
         type: OptionType.CUSTOM,
         default: {} as Record<string, StreamProfile>,
