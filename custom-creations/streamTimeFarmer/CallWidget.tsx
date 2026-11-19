@@ -8,18 +8,21 @@ import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
+import { Logger } from "@utils/Logger";
 import { relaunch } from "@utils/native";
-import { Alerts, createRoot, useEffect, useState } from "@webpack/common";
+import { Alerts, createRoot, useEffect, useRef, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
 import { changeStreamProfile, pluginActive, settings } from ".";
 import { enterAfk } from "./afk";
+import { useLayout } from "./layout";
 import { type SecondAccountInfo, useProfile } from "./profile";
 import { BROKEN_TEXT, cancelLink, canHostSecond, linkSecondAccount, PRESENCE_LABELS, refetchWeb, RESTART_TEXT, showSecondAccount, signOutSecondAccount, turnOn, useSecondStatus, useSetupProblem, WEB_TEXT } from "./secondAccount";
 import { hangingUp, onStreamStatus, streamFarmRunning, streamStatus } from "./stream";
 import { ReportStatus, TrackingWarning, useTrackingLevel } from "./TrackingWarning";
 
 const cl = classNameFactory("vc-stf-");
+const logger = new Logger("StreamTimeFarmer");
 
 export function formatTime(ms: number) {
     ms = Math.max(0, ms);
@@ -131,7 +134,7 @@ function confirmLogin() {
         ),
         confirmText: "Log in",
         cancelText: "Cancel",
-        onConfirm: () => void linkSecondAccount(),
+        onConfirm: () => void linkSecondAccount().catch(e => logger.error("Couldn't log in the second account", e)),
     });
 }
 
@@ -141,7 +144,7 @@ function confirmSignOut() {
         body: "This ends the call and forgets its login on this PC.",
         confirmText: "Sign out",
         cancelText: "Cancel",
-        onConfirm: () => void signOutSecondAccount()
+        onConfirm: () => void signOutSecondAccount().catch(e => logger.error("Couldn't sign out the second account", e))
     });
 }
 
@@ -209,7 +212,7 @@ export function SecondAccountCard() {
                     second Discord, and calls only ever go to the account logged in here.
                     {!pluginActive() && " Logging in turns StreamTimeFarmer on."}
                 </div>
-                <Button size="small" onClick={confirmLogin}>Log in to second account</Button>
+                <Button size="small" onClick={confirmLogin}>Log in second account</Button>
             </div>
         );
     }
@@ -247,7 +250,26 @@ export function SecondAccountCard() {
     );
 }
 
+// The widget's spot in styles.css, from the window's right and bottom edges.
+const WIDGET_RIGHT = 20;
+const WIDGET_BOTTOM = 84;
+const PIP_GAP = 12;
+
+// Discord's picture-in-picture preview of the farm's own stream sits in the bottom-right corner too, on a layer above
+// the widget. When the open widget would be under it, it moves left of it; it can't go above it without also going
+// above Discord's popouts and modals, which share that layer. 0 keeps the stylesheet's spot.
+function clearOfPreview(widget: HTMLElement | null) {
+    const pip = document.querySelector('[class*="pictureInPictureWindow"]')?.getBoundingClientRect();
+    if (!widget || !pip?.width) return 0;
+    const right = window.innerWidth - WIDGET_RIGHT, bottom = window.innerHeight - WIDGET_BOTTOM;
+    const left = right - widget.offsetWidth, top = bottom - widget.offsetHeight;
+    const overlaps = pip.left < right && pip.right > left && pip.top < bottom && pip.bottom > top;
+    return overlaps ? Math.round(window.innerWidth - pip.left) + PIP_GAP : 0;
+}
+
 function Widget() {
+    const box = useRef<HTMLDivElement>(null);
+    const shiftedRight = useLayout(() => clearOfPreview(box.current), 0);
     const { hostSecond } = useProfile();
     const { callWidget, widgetOpen: open } = settings.use(["callWidget", "widgetOpen"]);
     const setOpen = (value: boolean) => void (settings.store.widgetOpen = value);
@@ -268,7 +290,7 @@ function Widget() {
     }
 
     return (
-        <div className={cl("call-widget")}>
+        <div className={cl("call-widget")} ref={box} style={shiftedRight ? { right: shiftedRight } : undefined}>
             <div className={cl("stream-row")}>
                 <Avatar account={account} size={40} />
                 {account ? <Who account={account} /> : <div className={cl("call-who")}>Second account</div>}
