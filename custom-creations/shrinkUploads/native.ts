@@ -11,7 +11,7 @@ import { app, BrowserWindow, dialog, type IpcMainInvokeEvent, net, type OpenDial
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { appendFile, open, stat, statfs } from "fs/promises";
 import { homedir, setPriority, tmpdir } from "os";
-import { delimiter, join } from "path";
+import { basename, delimiter, join, sep } from "path";
 import { Readable, Transform } from "stream";
 import { pipeline } from "stream/promises";
 import { createGunzip } from "zlib";
@@ -27,6 +27,7 @@ const WORK = process.platform === "linux" ? join(ROOT, "work") : join(tmpdir(), 
 const NULL_OUT = WIN ? "NUL" : "/dev/null";
 const STALL_MS = 30_000;
 const CHECK_MS = 60_000;
+const VERSION_MS = 10_000;
 
 const RELEASE = "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/";
 const BUILDS: Record<string, { file: string; sha256: string; mb: number; }> = {
@@ -137,6 +138,8 @@ function removeDir(dir: string) {
 }
 
 async function capable(file: string) {
+    const version = await run(file, ["-version"], undefined, VERSION_MS);
+    if (!/^ffmpeg version/m.test(version.out)) return null;
     const { out } = await run(file, ["-hide_banner", "-encoders"], undefined, CHECK_MS);
     if (!/\blibx264\b/.test(out) || !/\blibopus\b/.test(out)) return null;
     const dir = join(WORK, `check-${randomUUID()}`);
@@ -226,6 +229,9 @@ async function ffmpegPath() {
     return system;
 }
 
+// Checked before anything is run, so a program that merely has "ffmpeg" in its name (ffmpeg-gui.exe) is never started.
+const isNamedFfmpeg = (file: string) => WIN ? basename(file).toLowerCase() === EXE : basename(file) === EXE;
+
 export async function useTool(_: IpcMainInvokeEvent, file: string, saved = false) {
     let path = String(file ?? "").trim().replace(/^"|"$/g, "");
     if (!path) {
@@ -237,9 +243,11 @@ export async function useTool(_: IpcMainInvokeEvent, file: string, saved = false
     const real = path && unshim(path);
     const problem = !real
         ? "The ffmpeg you picked isn't there anymore. Pick it again, or go back to automatic."
-        : !await capable(real)
-            ? "The ffmpeg you picked didn't pass the test. It needs a full build with libx264 and libopus."
-            : "";
+        : !isNamedFfmpeg(real)
+            ? "That file isn't ffmpeg. Pick the file named ffmpeg."
+            : !await capable(real)
+                ? "The ffmpeg you picked didn't pass the test. It needs a full build with libx264 and libopus."
+                : "";
     if (problem) {
         if (saved) {
             custom = "";
@@ -263,12 +271,19 @@ export async function pickTool(e: IpcMainInvokeEvent) {
     return r.canceled ? "" : r.filePaths[0] ?? "";
 }
 
+function hideHome(path: string) {
+    const home = homedir();
+    const same = WIN ? path.toLowerCase().startsWith(home.toLowerCase()) : path.startsWith(home);
+    return home && same && (path.length === home.length || path[home.length] === sep) ? `~${path.slice(home.length)}` : path;
+}
+
 export async function getTools(_: IpcMainInvokeEvent) {
     const path = await ffmpegPath();
     return {
         ready: path != null,
         source: path == null ? null : path === custom ? "custom" : path === BIN ? "downloaded" : "system",
         path: path ?? "",
+        shownPath: path ? hideHome(path) : "",
         customError,
         supported: BUILD != null,
         sizeMb: BUILD?.mb ?? 0,
@@ -497,7 +512,7 @@ async function probe(job: Job, bin: string) {
     const info = parseProbe(first.err);
     if (!info.duration && (info.hasVideo || info.hasAudio) && !job.cancelled) {
         job.phase = "Measuring length";
-        const { err } = await run(bin, ["-hide_banner", "-i", job.input, "-map", "0:v:0?", "-map", "0:a:0?", "-c", "copy", "-f", "null", NULL_OUT], job);
+        const { err } = await run(bin, ["-hide_banner", "-i", job.input, "-map", "0:V:0?", "-map", "0:a:0?", "-c", "copy", "-f", "null", NULL_OUT], job);
         const times = [...err.matchAll(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/g)];
         const last = times[times.length - 1];
         if (last) info.duration = seconds(last[1], last[2], last[3]);
@@ -542,7 +557,7 @@ async function encodeVideo(job: Job, bin: string, info: MediaInfo, target: numbe
         if (info.interlaced) filters.unshift(DEINTERLACE);
         if (tonemap) filters.push(TONEMAP);
         const base = [
-            "-i", job.input, "-map", "0:v:0",
+            "-i", job.input, "-map", "0:V:0",
             "-vf", [...filters, "format=yuv420p"].join(","),
             "-c:v", "libx264", "-preset", SPEED[opts.speed], "-b:v", `${kbps}k`, "-profile:v", "high",
             "-passlogfile", log,
