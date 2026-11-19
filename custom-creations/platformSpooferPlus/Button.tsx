@@ -7,7 +7,7 @@
 import { UserAreaButton, UserAreaRenderProps } from "@api/UserArea";
 import { ContextMenuApi, Menu } from "@webpack/common";
 
-import { currentPlatform, isRefused, pickPlatform, settings, useEnabled, useRefused } from ".";
+import { currentPlatform, effectivePlatform, isNoopSpoof, isRefused, pickPlatform, settings, useEnabled, useRefused, useSentPlatform } from ".";
 import { ClientKind, isPlatformId, PLATFORM_IDS, PlatformId, platformLabel, PLATFORMS } from "./platforms";
 
 const PATHS: Record<ClientKind, string> = {
@@ -22,15 +22,15 @@ const shownAs = (id: PlatformId, refused: boolean): ClientKind => id === "off" |
 
 const lastSpoof = (): Exclude<PlatformId, "off"> => {
     const id = settings.store.lastSpoof;
-    return isPlatformId(id) && id !== "off" ? id : "phone";
+    return isPlatformId(id) && id !== "off" && !isNoopSpoof(id) ? id : "phone";
 };
 
 function Icon({ className }: { className?: string; }) {
-    settings.use(["platform"]);
+    const sent = useSentPlatform();
     const refused = useRefused();
     return (
         <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d={PATHS[shownAs(currentPlatform(), refused)]} />
+            <path d={PATHS[shownAs(sent, refused)]} />
         </svg>
     );
 }
@@ -38,7 +38,7 @@ function Icon({ className }: { className?: string; }) {
 export { Icon as PlatformIcon };
 
 function toggle() {
-    const id = currentPlatform();
+    const id = effectivePlatform();
     if (id === "off") {
         pickPlatform(lastSpoof());
         return;
@@ -63,7 +63,7 @@ function PickerMenu() {
                     label={platformLabel(item)}
                     checked={id === item}
                     action={() => {
-                        if (item !== "off") settings.store.lastSpoof = item;
+                        if (item !== "off" && !isNoopSpoof(item)) settings.store.lastSpoof = item;
                         pickPlatform(item);
                         ContextMenuApi.closeContextMenu();
                     }}
@@ -73,25 +73,29 @@ function PickerMenu() {
     );
 }
 
-function tooltip(id: PlatformId, refused: boolean) {
+const named = (id: PlatformId) => id === "off" ? "your real platform" : platformLabel(id);
+
+function tooltip(id: PlatformId, sent: PlatformId, refused: boolean) {
     if (refused) return `Discord refused ${platformLabel(id)}, so you're on your real platform. Click to try again, right-click to pick.`;
-    if (id === "off") return `Showing your real platform. Click for ${platformLabel(lastSpoof())}, right-click to pick.`;
-    return `Showing as ${platformLabel(id)}. Click for your real platform, right-click to pick.`;
+    const click = `Click for ${named(id === "off" ? lastSpoof() : "off")}, right-click to pick.`;
+    if (id !== sent) return `Picked ${named(id)}, still showing as ${named(sent)} until Discord reconnects. ${click}`;
+    return id === "off" ? `Showing your real platform. ${click}` : `Showing as ${platformLabel(id)}. ${click}`;
 }
 
 export function PlatformButton({ nameplate, iconForeground, hideTooltips }: UserAreaRenderProps) {
     const { showButton } = settings.use(["platform", "showButton"]);
     const enabled = useEnabled();
     const refused = useRefused();
+    const sent = useSentPlatform();
     if (!showButton || !enabled) return null;
 
-    const id = currentPlatform();
-    const spoofing = id !== "off" && !refused;
+    const id = effectivePlatform();
+    const spoofing = sent !== "off" && !refused;
 
     return (
         <UserAreaButton
             icon={<Icon className={iconForeground} />}
-            tooltipText={hideTooltips ? undefined : tooltip(id, refused)}
+            tooltipText={hideTooltips ? undefined : tooltip(id, sent, refused)}
             role="switch"
             aria-checked={spoofing}
             plated={nameplate != null}
