@@ -10,9 +10,11 @@ import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Text } from "@components/Text";
 import { classNameFactory } from "@utils/css";
+import { classes } from "@utils/misc";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Channel, Emoji } from "@vencord/discord-types";
-import { AccessibilityStore, EmojiStore, TextInput, UserStore, useMemo, useState, useStateFromStores, WindowStore } from "@webpack/common";
+import { findCssClassesLazy } from "@webpack";
+import { AccessibilityStore, EmojiStore, i18n, TextInput, UserStore, useMemo, useState, useStateFromStores, WindowStore } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import managedStyle from "./style.css?managed";
@@ -21,8 +23,38 @@ import { ANIMATIONS, ANNOUNCED_WORDS, emojisAllowed, emojiUrl, errorText, getSav
 const cl = classNameFactory("vc-cti-");
 const EMPTY: TypingStyle = { emojis: [], animation: 0, typingSuggestion: 0 };
 const AnimateEmoji = getUserSettingLazy<boolean>("textAndImages", "animateEmoji");
-// Same intention Discord's own pickers use for emoji you can send anywhere.
+// EmojiIntention.TYPING_INDICATOR, the one Discord's own typing indicator picker uses.
 const PICKER_INTENTION = 15;
+// Discord's class for its own typing-bar glyph, so the in-channel typing bar lines our emoji up with the avatars like Discord's.
+const TypingClasses = findCssClassesLazy("customIndicatorGlyph", "typingDots");
+
+// Discord's localized "{name} is yapping…" strings by TypingSuggestion, grabbed from its typing bar module when it loads.
+let suggestionMessages: Record<number, unknown> | null = null;
+
+function suggestionText(suggestion: number, name: ReactNode): ReactNode {
+    const message = suggestionMessages?.[suggestion] ?? suggestionMessages?.[0];
+    try {
+        if (message) return i18n.intl.format(message as any, { name });
+    } catch {
+        // Fall through to the English text below.
+    }
+    return [<strong key="u">{name}</strong>, ` ${verbFor(suggestion)}`];
+}
+
+// The same localized string with the name left out, e.g. "is yapping...", for the editor's word buttons.
+// Some languages run long, so the button gets a short form and the full text goes in its tooltip.
+function suggestionLabel(suggestion: number): { label: string; full: string; } {
+    const message = suggestionMessages?.[suggestion];
+    let text = "";
+    try {
+        text = message ? i18n.intl.formatToPlainString(message as any, { name: "" }).trim() : "";
+    } catch {
+        // Fall through to the English text below.
+    }
+    if (!text) text = verbFor(suggestion);
+    const chars = Array.from(text);
+    return { label: chars.length > 21 ? chars.slice(0, 20).join("").trimEnd() + "\u2026" : text, full: text };
+}
 
 function useMotion(live?: boolean) {
     const reduced = useStateFromStores([AccessibilityStore], () => AccessibilityStore.useReducedMotion);
@@ -38,11 +70,11 @@ function EmojiImg({ emoji, size, animate = true }: { emoji: StyleEmoji; size: nu
         : <span className={cl("emoji")} style={{ fontSize: size * 0.85, lineHeight: `${size}px` }}>{emoji.name}</span>;
 }
 
-function Emojis({ style, size, live }: { style: TypingStyle; size: number; live?: boolean; }) {
+function Emojis({ style, size, live, className }: { style: TypingStyle; size: number; live?: boolean; className?: string; }) {
     const { reduced, playGifs } = useMotion(live);
     const anim = reduced ? "none" : ANIMATIONS[style.animation].toLowerCase();
     return (
-        <span className={cl("emojis", `anim-${anim}`, live && "live")} aria-hidden>
+        <span className={classes(cl("emojis", `anim-${anim}`, live && "live"), className)} aria-hidden>
             {style.emojis.slice(0, 3).map((e, i) => <EmojiImg key={i} emoji={e} size={size} animate={playGifs} />)}
         </span>
     );
@@ -122,11 +154,11 @@ function EmojiGrid({ onPick, disabled }: { onPick(e: StyleEmoji): void; disabled
     );
 }
 
-function Choice({ options, value, onChange, disabled }: { options: readonly string[]; value: number; onChange(v: number): void; disabled: boolean; }) {
+function Choice({ options, titles, value, onChange, disabled }: { options: readonly string[]; titles?: readonly string[]; value: number; onChange(v: number): void; disabled: boolean; }) {
     return (
         <div className={cl("choices")} role="radiogroup">
             {options.map((label, i) => (
-                <Button key={label} size="small" variant={value === i ? "primary" : "secondary"} role="radio" aria-checked={value === i} disabled={disabled} onClick={() => onChange(i)}>
+                <Button key={i} size="small" variant={value === i ? "primary" : "secondary"} role="radio" aria-checked={value === i} title={titles?.[i] !== label ? titles?.[i] : undefined} disabled={disabled} onClick={() => onChange(i)}>
                     {label}
                 </Button>
             ))}
@@ -148,6 +180,7 @@ function Editor() {
     const [busy, setBusy] = useState<"save" | "remove" | null>(null);
     const [status, setStatus] = useState<{ ok: boolean; text: string; } | null>(null);
     const { reduced, playGifs } = useMotion();
+    const words = WORDS.map((_, i) => suggestionLabel(i));
 
     const fullNitro = user?.premiumType === 2;
     const dirty = !sameStyle(normalize(draft), saved);
@@ -214,7 +247,7 @@ function Editor() {
 
             <div className={cl("preview")}>
                 {complete ? <Emojis style={draft} size={20} live /> : <span className={cl("dots")}><i /><i /><i /></span>}
-                <Text size="sm" tag="span"><strong>{name}</strong> {verbFor(draft.typingSuggestion)}</Text>
+                <Text size="sm" tag="span">{suggestionText(draft.typingSuggestion, name)}</Text>
             </div>
             <Text size="xs" color="text-muted">
                 This is how others see you. You never see your own while typing.
@@ -235,7 +268,7 @@ function Editor() {
             <Choice options={ANIMATIONS} value={draft.animation} disabled={locked} onChange={animation => edit(d => ({ ...d, animation }))} />
 
             <Text size="sm" weight="semibold">Text</Text>
-            <Choice options={WORDS.map(w => `is ${w}…`)} value={draft.typingSuggestion} disabled={locked} onChange={typingSuggestion => edit(d => ({ ...d, typingSuggestion }))} />
+            <Choice options={words.map(w => w.label)} titles={words.map(w => w.full)} value={draft.typingSuggestion} disabled={locked} onChange={typingSuggestion => edit(d => ({ ...d, typingSuggestion }))} />
             <Text size="xs" color="text-muted">Discord hasn't announced the last 5 words yet, so some phones may not show them.</Text>
 
             <div className={cl("actions")}>
@@ -257,7 +290,7 @@ const settings = definePluginSettings({
     },
     showOthers: {
         type: OptionType.BOOLEAN,
-        description: "Show other people's custom typing style instead of the plain dots",
+        description: "Show other people's custom typing styles. Off shows the plain dots everywhere, also where Discord draws styles itself.",
         default: true
     }
 });
@@ -267,11 +300,31 @@ interface TypingProps {
     typingUsers?: unknown[];
 }
 
+// Shows Discord's own dots or text if our part of the typing bar ever crashes.
+function ShowOriginal({ wrappedProps }: { wrappedProps: { original: ReactNode; }; }) {
+    return <>{wrappedProps.original}</>;
+}
+
 function styleFor(props: TypingProps) {
     if (!settings.store.showOthers || props.typingUsers?.length !== 1 || !props.channel) return null;
     const userId = soleTyperId(props.channel.id);
     const style = userId ? getUserStyle(userId) : null;
     return style && userId ? { style, userId, channel: props.channel } : null;
+}
+
+// Components, not plain calls, so they subscribe to Show Others and a typing bar that's already up redraws on toggle.
+function TypingGlyph({ props, dots }: { props: TypingProps; dots: ReactNode; }) {
+    settings.use(["showOthers"]);
+    const found = styleFor(props);
+    if (!found || found.style.emojis.length !== 3 || !emojisAllowed(found.style, found.channel, found.userId)) return <>{dots}</>;
+    return <Emojis style={found.style} size={14} live className={TypingClasses.customIndicatorGlyph} />;
+}
+
+function TypingText({ props, text }: { props: TypingProps; text: ReactNode; }) {
+    settings.use(["showOthers"]);
+    const found = styleFor(props);
+    if (!found?.style.typingSuggestion) return <>{text}</>;
+    return <>{suggestionText(found.style.typingSuggestion, props.typingUsers?.[0] as ReactNode)}</>;
 }
 
 migratePluginSettings("OfficialCustomTypingIndicator", "CustomTypingIndicator");
@@ -297,28 +350,45 @@ export default definePlugin({
                     replace: "$1$self.oneUserText(arguments[0],$2)"
                 }
             ]
+        },
+        // Kept apart from the typing bar patch so the bar still works if one of these stops matching.
+        {
+            find: "#{intl::SEVERAL_USERS_TYPING_STRONG}",
+            replacement: {
+                match: /(?<=let (\i)=\{\[\i\.\i\.UNSPECIFIED\]:[^}]+\})(?=,\i=\[)/,
+                replace: ",vcCtiMessages=$self.captureMessages($1)"
+            }
+        },
+        {
+            // Discord's own viewer (behind an experiment) reads styles in this selector. Show Others off blanks it too,
+            // except when Discord is previewing your own style.
+            find: "#{intl::SEVERAL_USERS_TYPING_STRONG}",
+            replacement: {
+                match: /(?<=if\(null==\i\|\|!\i)(?=\)return null;let \i=(\i)\?\i\.\i\.getUser\(\i\)\?\.typingIndicatorStyle)/,
+                replace: "||(!$1&&!$self.settings.store.showOthers)"
+            }
         }
     ],
 
+    captureMessages(messages: Record<number, unknown>) {
+        if (messages && typeof messages === "object") suggestionMessages = messages;
+        return messages;
+    },
+
     renderDots(props: TypingProps, dots: ReactNode, discordConfig?: unknown) {
-        try {
-            if (discordConfig != null) return dots;
-            const found = styleFor(props);
-            if (!found || found.style.emojis.length !== 3) return dots;
-            if (!emojisAllowed(found.style, found.channel, found.userId)) return dots;
-            return <ErrorBoundary noop><Emojis style={found.style} size={14} live /></ErrorBoundary>;
-        } catch {
-            return dots;
-        }
+        if (discordConfig != null) return dots;
+        return (
+            <ErrorBoundary fallback={ShowOriginal} wrappedProps={{ original: dots }}>
+                <TypingGlyph props={props} dots={dots} />
+            </ErrorBoundary>
+        );
     },
 
     oneUserText(props: TypingProps, text: ReactNode) {
-        try {
-            const found = styleFor(props);
-            if (!found?.style.typingSuggestion) return text;
-            return [<strong key="u">{props.typingUsers?.[0] as ReactNode}</strong>, ` ${verbFor(found.style.typingSuggestion)}`];
-        } catch {
-            return text;
-        }
+        return (
+            <ErrorBoundary fallback={ShowOriginal} wrappedProps={{ original: text }}>
+                <TypingText props={props} text={text} />
+            </ErrorBoundary>
+        );
     }
 });
