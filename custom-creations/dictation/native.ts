@@ -7,7 +7,7 @@
 import { DATA_DIR } from "@main/utils/constants";
 import { type ChildProcess, execFile, spawn } from "child_process";
 import { app, type IpcMainInvokeEvent } from "electron";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from "fs";
 import { createServer } from "net";
 import { cpus, totalmem } from "os";
 import { dirname, join } from "path";
@@ -87,8 +87,8 @@ const GRAMMAR = {
 };
 
 const GRAMMAR_PROMPT = [
-    "You fix dictated text. Correct grammar, punctuation (especially commas), capitalization, spelling and apostrophes.",
-    "Keep the speaker's words, meaning, tone and slang as much as possible. Do not add, remove or reorder ideas, and never answer or comment on the text.",
+    "You fix dictated text. Correct every grammar mistake, including subject-verb agreement and verb tense, even in very short text, plus punctuation (especially commas), capitalization, spelling and apostrophes.",
+    "Otherwise keep the speaker's words, meaning, tone and slang. Do not add, remove or reorder ideas, and never answer or comment on the text.",
     "Reply with the corrected text only.",
 ].join(" ");
 
@@ -99,6 +99,7 @@ interface Engine {
     ready: Promise<void>;
     idle?: NodeJS.Timeout;
     busy: number;
+    drained: (() => void)[];
 }
 
 let download: { label: string; received: number; total: number; } | null = null;
@@ -109,6 +110,11 @@ let grammar: Engine | null = null;
 let gpuVendors: Promise<number[]> | null = null;
 
 const ready = (dir: string) => existsSync(join(ROOT, dir, ".ready"));
+
+// Older versions wrote the speech engine's log here; nothing reads or replaces it any more.
+try {
+    rmSync(join(ROOT, "server.log"), { force: true });
+} catch { }
 const exe = (name: string) => IS_WIN ? `${name}.exe` : name;
 
 function findFile(dir: string, name: string): string | null {
@@ -158,10 +164,28 @@ export async function getStatus(_: IpcMainInvokeEvent, model: string) {
     };
 }
 
-async function fetchTo(url: string, label: string, file: string) {
+const gb = (bytes: number) => (bytes / 1024 ** 3).toFixed(1);
+
+function freeBytes(dir: string) {
+    try {
+        const { bavail, bsize } = statfsSync(dir);
+        return bavail * bsize;
+    } catch {
+        return Infinity;
+    }
+}
+
+// spaceFactor is how many times the download size must be free: an archive sits on disk next to what it unpacks to.
+async function fetchTo(url: string, label: string, file: string, spaceFactor = 1) {
     const res = await fetch(url, { redirect: "follow", headers: { "User-Agent": "Dictation" } });
     if (!res.ok || !res.body) throw new Error(`Download failed (${res.status}) for ${url}`);
-    download = { label, received: 0, total: Number(res.headers.get("content-length")) || 0 };
+    const total = Number(res.headers.get("content-length")) || 0;
+    const free = freeBytes(dirname(file));
+    if (total * spaceFactor > free) {
+        await res.body.cancel().catch(() => { });
+        throw new Error(`Not enough free disk space for the ${label}: it needs about ${gb(total * spaceFactor)} GB and ${gb(free)} GB is free.`);
+    }
+    download = { label, received: 0, total };
     const body = Readable.fromWeb(res.body as ReadableStream<Uint8Array> as import("stream/web").ReadableStream<Uint8Array>);
     body.on("data", (chunk: Buffer) => { if (download) download.received += chunk.length; });
     await pipeline(body, createWriteStream(file));
@@ -170,7 +194,7 @@ async function fetchTo(url: string, label: string, file: string) {
 
 async function fetchArchive(url: string, label: string, dir: string, into = ROOT) {
     const archive = join(ROOT, `${dir}.part`);
-    await fetchTo(url, label, archive);
+    await fetchTo(url, label, archive, 3);
     rmSync(join(ROOT, dir), { recursive: true, force: true });
     mkdirSync(into, { recursive: true });
 
@@ -245,6 +269,11 @@ function stopEngine(engine: Engine | null) {
     if (grammar === engine) grammar = null;
 }
 
+// Resolves once no request is using the engine, so switching models never cuts off a decode in progress.
+function drained(engine: Engine) {
+    return engine.busy ? new Promise<void>(resolve => engine.drained.push(resolve)) : Promise.resolve();
+}
+
 function touch(engine: Engine) {
     clearTimeout(engine.idle);
     if (engine.busy) return;
@@ -260,6 +289,7 @@ async function using<T>(engine: Engine, work: () => Promise<T>) {
     } finally {
         engine.busy--;
         touch(engine);
+        if (!engine.busy) engine.drained.splice(0).forEach(resolve => resolve());
     }
 }
 
@@ -287,6 +317,7 @@ function launch(key: string, name: string, file: string, args: (port: number) =>
             port,
             proc,
             busy: 0,
+            drained: [],
             ready: (async () => {
                 const deadline = Date.now() + 180_000;
                 while (Date.now() < deadline) {
@@ -306,35 +337,86 @@ function launch(key: string, name: string, file: string, args: (port: number) =>
     });
 }
 
+// Closing a socket that is still connecting fires its error event right away, so the handlers are dropped and the
+// promise settled before close() is called.
 function openSocket(port: number) {
     return new Promise<WebSocket>((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}`);
         ws.binaryType = "arraybuffer";
-        ws.onopen = () => resolve(ws);
-        ws.onerror = () => reject(new Error("connect failed"));
+        const fail = (message: string) => {
+            clearTimeout(timer);
+            ws.onopen = ws.onerror = null;
+            reject(new Error(message));
+            ws.close();
+        };
+        const timer = setTimeout(() => fail("The speech engine didn't accept the connection."), 10_000);
+        ws.onopen = () => {
+            clearTimeout(timer);
+            ws.onopen = ws.onerror = null;
+            resolve(ws);
+        };
+        ws.onerror = () => fail("Couldn't reach the speech engine.");
     });
 }
 
-let speechStarting: { model: SpeechModel; promise: Promise<Engine>; } | null = null;
+let speechWanted: SpeechModel = "cohere";
+let speechSwitch: Promise<Engine> | null = null;
+let speechLaunching: Engine | null = null;
+let speechCancelled = false;
 
-// Live previews and the warm up can ask at the same time, so they share one start.
+// Live previews, the warm up and the final decode can all ask at once, and the model can change while one is still
+// starting. Everyone waiting gets the engine for the model asked for last: a start nobody wants any more is stopped,
+// and a running engine is only replaced once its decodes finish.
 function startSpeech(model: SpeechModel) {
-    if (speechStarting?.model !== model) {
-        if (speech?.key === model) {
-            touch(speech);
-            return Promise.resolve(speech);
-        }
-        const promise = launchSpeech(model).finally(() => {
-            if (speechStarting?.promise === promise) speechStarting = null;
-        });
-        speechStarting = { model, promise };
+    speechWanted = model;
+    if (!speechSwitch && speech?.key === model) {
+        touch(speech);
+        return Promise.resolve(speech);
     }
-    return speechStarting.promise;
+    if (speechLaunching && speechLaunching.key !== model) {
+        speechCancelled = true;
+        speechLaunching.proc.kill();
+    }
+    if (!speechSwitch) {
+        const promise = switchSpeech().finally(() => {
+            if (speechSwitch === promise) speechSwitch = null;
+        });
+        speechSwitch = promise;
+    }
+    return speechSwitch;
+}
+
+async function switchSpeech(): Promise<Engine> {
+    for (;;) {
+        const want = speechWanted;
+        // A start can finish in the moment it was being stopped for a newer request.
+        if (speech?.proc.killed) stopEngine(speech);
+        if (speech && speech.key !== want) {
+            while (speech?.busy) await drained(speech);
+            if (want !== speechWanted) continue;
+        }
+        if (speech?.key === want) {
+            await speech.ready;
+            touch(speech);
+            return speech;
+        }
+        speechCancelled = false;
+        try {
+            const engine = await launchSpeech(want);
+            if (want === speechWanted && !engine.proc.killed) {
+                touch(engine);
+                return engine;
+            }
+        } catch (e) {
+            // A start stopped for a newer request goes round again, even if that request switched straight back.
+            if (want === speechWanted && !speechCancelled) throw e;
+        }
+    }
 }
 
 async function launchSpeech(model: SpeechModel) {
-    stopEngine(speech);
     if (!SHERPA_DIR || !ready(SHERPA_DIR) || !ready(SPEECH[model].dir)) throw new Error("The speech model isn't downloaded yet.");
+    stopEngine(speech);
 
     const file = join(ROOT, SHERPA_DIR, "bin", exe("sherpa-onnx-offline-websocket-server"));
     const engine = await launch(model, "speech engine", file, port => [
@@ -345,10 +427,15 @@ async function launchSpeech(model: SpeechModel) {
         "--max-batch-size=1",
     ], port => openSocket(port).then(ws => (ws.close(), true)));
     speech = engine;
-    await engine.ready.catch(e => {
+    speechLaunching = engine;
+    try {
+        await engine.ready;
+    } catch (e) {
         stopEngine(engine);
         throw e;
-    });
+    } finally {
+        if (speechLaunching === engine) speechLaunching = null;
+    }
     return engine;
 }
 
@@ -420,8 +507,14 @@ export async function warmUp(_: IpcMainInvokeEvent, model: string, withGrammar: 
     await Promise.all([startSpeech(model), withGrammar && startGrammar()]);
 }
 
-async function decode(port: number, samples: Float32Array) {
-    const ws = await openSocket(port);
+// A wedged engine would otherwise leave dictation waiting forever, so one that won't take the connection, or whose
+// reply takes far longer than the audio itself, is stopped; the next request starts a fresh one.
+async function decode(engine: Engine, samples: Float32Array) {
+    const ws = await openSocket(engine.port).catch(e => {
+        stopEngine(engine);
+        throw e;
+    });
+    let timer: NodeJS.Timeout | undefined;
     try {
         const header = new Uint8Array(8);
         const view = new DataView(header.buffer);
@@ -433,6 +526,10 @@ async function decode(port: number, samples: Float32Array) {
             ws.onmessage = ev => resolve(typeof ev.data === "string" ? ev.data : Buffer.from(ev.data as ArrayBuffer).toString("utf8"));
             ws.onclose = () => reject(new Error("The speech engine closed the connection."));
             ws.onerror = () => reject(new Error("The speech engine connection failed."));
+            timer = setTimeout(() => {
+                reject(new Error("The speech engine stopped answering. Try again."));
+                stopEngine(engine);
+            }, 60_000 + samples.length / SAMPLE_RATE * 4000);
         });
 
         const payload = new Uint8Array(header.length + body.length);
@@ -450,6 +547,7 @@ async function decode(port: number, samples: Float32Array) {
             return raw;
         }
     } finally {
+        clearTimeout(timer);
         ws.onclose = null;
         ws.close();
     }
@@ -487,7 +585,7 @@ export async function transcribe(_: IpcMainInvokeEvent, model: string, samples: 
     const parts: string[] = [];
     await using(engine, async () => {
         for (const piece of splitAtPauses(samples)) {
-            const text = (await decode(engine.port, piece)).trim();
+            const text = (await decode(engine, piece)).trim();
             if (text) parts.push(text);
         }
     });
@@ -514,7 +612,7 @@ export async function fixGrammar(_: IpcMainInvokeEvent, text: string) {
     if (!res.ok) throw new Error(`The grammar engine answered ${res.status}.`);
 
     const out = ((await res.json()) as { choices?: { message?: { content?: string; }; }[]; }).choices?.[0]?.message?.content ?? "";
-    const cleaned = out.replace(/<think>[\s\S]*?<\/think>/g, "").trim().replace(/^"([\s\S]*)"$/, "$1").replace(/\s*[—–]\s*/g, ", ").trim();
+    const cleaned = out.replace(/<think>[\s\S]*?<\/think>/g, "").trim().replace(/^"([\s\S]*)"$/, "$1").replace(/\s*—\s*|\s+–\s+/g, ", ").trim();
     if (!cleaned || cleaned.length > text.length * 1.5 + 20 || cleaned.length < text.length * 0.6) return text;
     return cleaned;
 }
