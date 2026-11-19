@@ -198,6 +198,7 @@ Newest changes come first, grouped under each date by plugin. The Cordmuffin Upd
 - Shorter setting names, and the ffmpeg path no longer shows your user folder.
 
 ### StreamTimeFarmer
+- The Add Streaming Time progress box no longer jumps around when you open a DM or a side panel. It stays top-right, you can drag it anywhere by its title, and it remembers the spot and size.
 - Equicord loads again on a fresh install. The plugin read Equicord's plugin list before it existed, which stopped all of Equicord from starting for anyone whose NoTrack blocks analytics (the default).
 - The farm window now starts from a script file instead of a command line that antivirus programs flag.
 - The farm window's game cover loads in the background, so a slow download can no longer freeze its clock.
