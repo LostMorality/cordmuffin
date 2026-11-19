@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
+import { CspPolicies, ImageSrc } from "@main/csp";
 import { DATA_DIR } from "@main/utils/constants";
 import { spawn } from "child_process";
+import { createHash } from "crypto";
 import { app, dialog, IpcMainInvokeEvent, shell } from "electron";
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "fs";
 import { mkdir, readdir, readFile, rename, rm, utimes, writeFile } from "fs/promises";
@@ -39,6 +41,9 @@ const removeTree = (path: string) => originalFs.promises.rm(path, { recursive: t
 
 const distDir = ["desktop", "equibop", "vesktop"].includes(basename(__dirname)) ? dirname(__dirname) : __dirname;
 
+// BetterDiscord store thumbnails; Discord's content policy blocks images from hosts it doesn't list.
+CspPolicies["betterdiscord.app"] = ImageSrc;
+
 export type BuildMode =
     | { kind: "source"; root: string; }
     | { kind: "cordmuffin"; root: string; work: string; node: string; }
@@ -68,6 +73,8 @@ export interface InstallRequest {
     sourceId: string;
     entryKey: string;
     version?: string;
+    /** Record the plugin folder's own fingerprint as its version, instead of `version`. */
+    fingerprint?: boolean;
 }
 
 function isEquicordSource(dir: string) {
@@ -237,6 +244,7 @@ export async function netFetch(_: IpcMainInvokeEvent, url: string, req: NetReque
 interface ZipEntry {
     method: number;
     size: number;
+    crc: number;
     data: Buffer;
 }
 
@@ -265,6 +273,7 @@ function readZip(zip: Buffer): RepoArchive {
     for (let i = 0; i < count; i++) {
         if (offset + 46 > zip.length || zip.readUInt32LE(offset) !== 0x02014b50) throw new Error("GitHub sent a broken download");
         const method = zip.readUInt16LE(offset + 10);
+        const crc = zip.readUInt32LE(offset + 16);
         const compressed = zip.readUInt32LE(offset + 20);
         const size = zip.readUInt32LE(offset + 24);
         const nameLength = zip.readUInt16LE(offset + 28);
@@ -276,7 +285,7 @@ function readZip(zip: Buffer): RepoArchive {
         if (local + 30 > zip.length) throw new Error("GitHub sent a broken download");
         const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
         if (start + compressed > zip.length) throw new Error("GitHub sent a broken download");
-        entries.set(name.split("/").slice(1).join("/"), { method, size, data: zip.subarray(start, start + compressed) });
+        entries.set(name.split("/").slice(1).join("/"), { method, size, crc, data: zip.subarray(start, start + compressed) });
     }
 
     return { commit: /^[0-9a-f]{40}$/.test(comment) ? comment : null, entries };
@@ -335,6 +344,27 @@ function cleanRepoPath(path: string) {
     return parts.join("/");
 }
 
+const pluginFiles = (archive: RepoArchive, prefix: string) => [...archive.entries].filter(([p]) => p.startsWith(prefix) && !p.includes("node_modules/"));
+
+// A short hash of a plugin folder's file names and CRCs: unlike the repo's commit, it only changes when that folder does.
+function folderFingerprint(archive: RepoArchive, path: string) {
+    const prefix = path ? path + "/" : "";
+    const lines = pluginFiles(archive, prefix).map(([p, e]) => `${p.slice(prefix.length)}:${e.crc}`).sort();
+    return createHash("sha1").update(lines.join("\n")).digest("hex").slice(0, 7);
+}
+
+export async function fingerprintRepo(_: IpcMainInvokeEvent, owner: string, repo: string, ref: string | undefined, dirs: string[]) {
+    const archive = await getRepo(owner, repo, ref || "HEAD");
+    const out: Record<string, string> = {};
+    for (const dir of Array.isArray(dirs) ? dirs.slice(0, 500) : []) {
+        if (typeof dir !== "string") continue;
+        try {
+            out[dir] = folderFingerprint(archive, cleanRepoPath(dir));
+        } catch { }
+    }
+    return out;
+}
+
 // Folders backed up since the last commit or rollback; any other backup on disk was left by a run that never finished.
 const backedUp = new Set<string>();
 
@@ -378,7 +408,7 @@ async function installInto(mode: Exclude<BuildMode, { kind: "none"; }>, req: Ins
     const path = cleanRepoPath(req.path);
     const archive = await getRepo(req.owner, req.repo, req.ref || "HEAD", true);
     const prefix = path ? path + "/" : "";
-    const files = [...archive.entries].filter(([p]) => p.startsWith(prefix) && !p.includes("node_modules/"));
+    const files = pluginFiles(archive, prefix);
     if (!files.length) throw new Error("Couldn't find that plugin's files in the repo");
     if (files.length > MAX_PLUGIN_FILES) throw new Error(`That plugin has ${files.length} files, which is more than a plugin should have`);
     const index = files.find(([p]) => /^index\.(t|j)sx?$/.test(p.slice(prefix.length)));
@@ -404,7 +434,7 @@ async function installInto(mode: Exclude<BuildMode, { kind: "none"; }>, req: Ins
             path,
             sourceId: req.sourceId,
             entryKey: req.entryKey,
-            version: req.version,
+            version: req.fingerprint ? folderFingerprint(archive, path) : req.version,
             track: req.ref || "HEAD",
             installedAt: Date.now(),
         };
@@ -568,14 +598,16 @@ async function buildIn(mode: Exclude<BuildMode, { kind: "none"; }>): Promise<Bui
         if (/Standalone: true/.test(banner)) flags.push("--standalone");
         if (IS_DEV) flags.push("--dev");
 
-        const dist = join(mode.root, "dist");
+        // Only the build this Discord loads (dist/desktop, where this file runs) needs to survive a failed build,
+        // not the rest of dist (browser builds, the installer and so on).
+        const live = __dirname;
         const backup = join(workDir(mode), "dist-backup");
         await removeTree(backup);
-        if (existsSync(dist)) await copyTree(dist, backup);
+        if (existsSync(live)) await copyTree(live, backup);
         try {
             const { code, log } = await run("pnpm", flags, mode.root, {}, true);
             if (code === 0) return { ok: true, log };
-            if (existsSync(backup)) await copyTree(backup, dist);
+            if (existsSync(backup)) await copyTree(backup, live);
             if (/not recognized|command not found|ENOENT/i.test(log))
                 return { ok: false, log: "pnpm wasn't found. Install it with \"npm i -g pnpm\" and try again.\n\n" + log };
             return { ok: false, log };
@@ -688,11 +720,12 @@ export async function readBdTree(_: IpcMainInvokeEvent) {
     return out;
 }
 
-function bdPath(rel: string) {
+// Plugin files themselves are only ever changed through Muffinshelf, but they can still be shown in Explorer.
+function bdPath(rel: string, allowPluginFile = false) {
     const full = resolve(BD_PLUGINS, rel);
     const inside = relative(BD_PLUGINS, full);
     if (!inside || inside.startsWith("..") || /^[A-Za-z]:/.test(inside)) throw new Error(`"${rel}" is outside the BetterDiscord plugins folder`);
-    if (!inside.includes("\\") && !inside.includes("/") && BD_FILE.test(inside)) throw new Error("Plugin files are installed through Muffinshelf");
+    if (!allowPluginFile && !inside.includes("\\") && !inside.includes("/") && BD_FILE.test(inside)) throw new Error("Plugin files are installed through Muffinshelf");
     return full;
 }
 
@@ -719,7 +752,7 @@ export async function bdFsRename(_: IpcMainInvokeEvent, from: string, to: string
 }
 
 export async function bdShowPath(_: IpcMainInvokeEvent, rel: string, reveal: boolean) {
-    const full = rel ? bdPath(rel) : BD_PLUGINS;
+    const full = rel ? bdPath(rel, true) : BD_PLUGINS;
     // Only folders are opened; a file is shown in Explorer instead of being run by its default handler.
     if (reveal || (rel && !(existsSync(full) && statSync(full).isDirectory()))) shell.showItemInFolder(full);
     else await shell.openPath(full);
