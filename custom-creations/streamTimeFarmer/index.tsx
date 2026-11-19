@@ -31,7 +31,7 @@ export const settings = definePluginSettings({
     },
     muteMic: {
         type: OptionType.BOOLEAN,
-        description: "Mute your mic when the farm joins the call. It's unmuted again when the farm stops.",
+        description: "Mute your mic when the farm joins the call. It's unmuted again when the farm stops. Deafen Both mutes it too, so this only matters with that off.",
         default: true
     },
     muteCallSounds: {
