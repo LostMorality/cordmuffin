@@ -10,9 +10,9 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { ChannelStore, GuildStore, Modal, openModal, SelectedChannelStore, SelectedGuildStore, useEffect, UserStore, useState } from "@webpack/common";
+import { Alerts, ChannelStore, GuildStore, Modal, openModal, SelectedChannelStore, SelectedGuildStore, useEffect, UserStore, useState } from "@webpack/common";
 
-import { isWrecked, openRevive } from "./aftermath";
+import { isWrecked, onWreckChange, openRevive } from "./aftermath";
 import { blockedReason, getStats, isRunning, jumpscare, onStatsChange, resetStats, showSign, type Stats } from "./challenge";
 import { clearFound, type FoundItem, getFound, hideHere, itemInfo, ITEMS, onFoundChange } from "./hunt";
 import { image, onImagesChange } from "./images";
@@ -35,10 +35,12 @@ export function TopGold() {
     const [gold, setGold] = useState<number | null>(null);
     const [up, setUp] = useState(0);
     const [, setImages] = useState(0);
+    const [wrecked, setWrecked] = useState(isWrecked);
     useEffect(() => onImagesChange(() => setImages(n => n + 1)), []);
+    useEffect(() => onWreckChange(() => setWrecked(isWrecked())), []);
     useEffect(() => {
         let alive = true;
-        void getStats().then(s => alive && setGold(s.goldFound));
+        void getStats().then(s => alive && setGold(s.goldFound), () => { });
         const off = onStatsChange(s => {
             setGold(old => {
                 if (old !== null && s.goldFound > old) setUp(n => n + 1);
@@ -51,8 +53,21 @@ export function TopGold() {
         };
     }, []);
     if (gold === null) return null;
+    const open = () => openRevive() || openPanel();
     return (
-        <div key={up} className={cl("topgold", up ? "topgold-up" : "")} title={isWrecked() ? "Revive Discord" : "Your gold"} role="button" tabIndex={0} onClick={() => openRevive() || openPanel()}>
+        <div
+            key={up}
+            className={cl("topgold", up ? "topgold-up" : "")}
+            title={wrecked ? "Revive Discord" : "Your gold"}
+            role="button"
+            tabIndex={0}
+            onClick={open}
+            onKeyDown={e => {
+                if (e.key !== "Enter" && e.key !== " ") return;
+                e.preventDefault();
+                open();
+            }}
+        >
             <img src={image("coin")} alt="" />
             {gold.toLocaleString()}
         </div>
@@ -74,7 +89,7 @@ function placeName(f: FoundItem) {
 function FoundTab() {
     const [found, setFound] = useState<FoundItem[]>();
     useEffect(() => {
-        const load = () => void getFound().then(setFound);
+        const load = () => void getFound().then(setFound, () => setFound([]));
         load();
         return onFoundChange(load);
     }, []);
@@ -115,7 +130,7 @@ function FoundTab() {
                     <Group places={places} />
                 </div>
             ))}
-            <Button size="small" variant="dangerSecondary" onClick={() => void clearFound()}>Forget everything found</Button>
+            <Button size="small" variant="dangerSecondary" title="Deletes every item you've found. This can't be undone." onClick={confirmClearFound}>Forget all finds</Button>
         </div>
     );
 }
@@ -133,9 +148,37 @@ function Group({ places }: { places: Map<string, FoundItem[]>; }) {
     );
 }
 
+function confirmClearFound() {
+    Alerts.show({
+        title: "Forget all finds?",
+        body: "Every hidden item you've found is deleted. This can't be undone.",
+        confirmText: "Forget them",
+        cancelText: "Keep them",
+        onConfirm: () => void clearFound().catch(() => notify("Couldn't delete your finds.", "critical"))
+    });
+}
+
+function confirmResetStats() {
+    Alerts.show({
+        title: "Reset your scores?",
+        body: "Every count on this tab goes back to 0. Your gold stays. This can't be undone.",
+        confirmText: "Reset",
+        cancelText: "Keep them",
+        onConfirm: () => void resetStats().catch(() => notify("Couldn't reset your scores.", "critical"))
+    });
+}
+
 function ScoresTab() {
     const [stats, setStats] = useState<Stats>();
-    useEffect(() => void getStats().then(setStats), []);
+    useEffect(() => {
+        let alive = true;
+        void getStats().then(s => alive && setStats(s), () => { });
+        const off = onStatsChange(s => setStats(s));
+        return () => {
+            alive = false;
+            off();
+        };
+    }, []);
     if (!stats) return null;
     const rows: [string, string | number][] = [
         ["Times Ransom showed up", stats.signs],
@@ -158,7 +201,7 @@ function ScoresTab() {
                     <b>{value}</b>
                 </div>
             ))}
-            <Button size="small" variant="secondary" onClick={() => void resetStats().then(() => getStats().then(setStats))}>Reset scores</Button>
+            <Button size="small" variant="secondary" title="Sets every score to 0. Your gold stays." onClick={confirmResetStats}>Reset scores</Button>
         </div>
     );
 }
@@ -218,9 +261,11 @@ export function SettingsButtons() {
                 if (!channelId) return notify("Open a DM or channel first.", "critical");
                 const guildId = SelectedGuildStore.getGuildId() ?? undefined;
                 if (!settings.store.hunt || (guildId ? !settings.store.huntServers : !settings.store.huntDMs)) return notify("Item hunting is off for this kind of chat. Turn it on in the settings first.", "critical");
-                void hideHere(channelId, guildId);
-                notify("Hid an item in the chat you have open.", "success");
-            }}>Hide an item in this chat</Button>
+                void hideHere(channelId, guildId).then(
+                    hid => hid ? notify("Hid an item in this chat.", "success") : notify("This chat has nowhere to hide an item.", "critical"),
+                    () => notify("Couldn't hide an item.", "critical")
+                );
+            }} title="Hides an item in the chat you have open">Hide an item here</Button>
         </div>
     );
 }
