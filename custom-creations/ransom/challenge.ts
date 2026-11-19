@@ -36,8 +36,14 @@ export interface Stats {
 const EMPTY_STATS: Stats = { signs: 0, stayedStill: 0, hunts: 0, won: 0, lost: 0, goldPaid: 0, goldFound: 0, honeyPots: 0, bestSeconds: 0, deaths: 0, revives: 0 };
 
 export async function getStats(): Promise<Stats> {
-    const saved = await DataStore.get<Partial<Stats>>(STATS_KEY);
-    return { ...EMPTY_STATS, ...saved };
+    const saved = await DataStore.get<Partial<Record<keyof Stats, unknown>>>(STATS_KEY);
+    const stats = { ...EMPTY_STATS };
+    // Only the counts kept today, so ones older versions saved (like "coins") are dropped on the next save.
+    for (const key of Object.keys(EMPTY_STATS) as (keyof Stats)[]) {
+        const value = saved?.[key];
+        if (typeof value === "number") stats[key] = value;
+    }
+    return stats;
 }
 
 const statsListeners = new Set<(stats: Stats) => void>();
@@ -61,12 +67,16 @@ function bumpStats(change: (stats: Stats) => void) {
     return run;
 }
 
+/** For changes nobody waits on. A failed save is lost either way, so it isn't left as an unhandled error. */
+const bump = (change: (stats: Stats) => void) => void bumpStats(change).catch(() => { });
+
+/** Clears the scores. Your gold is money, not a score, so it stays. */
 export function resetStats() {
-    return bumpStats(s => void Object.assign(s, EMPTY_STATS));
+    return bumpStats(s => void Object.assign(s, EMPTY_STATS, { goldFound: s.goldFound }));
 }
-export const addGoldFound = (amount: number) => bumpStats(s => void (s.goldFound += amount));
-export const addHoneyPot = () => bumpStats(s => void s.honeyPots++);
-export const addRevive = () => bumpStats(s => void s.revives++);
+export const addGoldFound = (amount: number) => bump(s => void (s.goldFound += amount));
+export const addHoneyPot = () => bump(s => void s.honeyPots++);
+export const addRevive = () => bump(s => void s.revives++);
 
 /** Empties your gold (a revive or a death) and says how much there was. */
 export async function takeAllGold() {
@@ -171,13 +181,14 @@ function setNext(wait: number) {
     ticker = setInterval(tick, 1000);
 }
 
+/** `first` is for when Ransom starts: Discord just opened, so the wait is never under 5 minutes. */
 export function scheduleNext(first = false) {
     if (first) stopped = false;
     else if (stopped) return;
     stopTicker();
     if (!settings.store.challenges) return;
     const [min, max] = FREQUENCY[settings.store.frequency] ?? FREQUENCY.sometimes;
-    setNext(first ? minutes(Math.max(10, min)) + rand(0, minutes(10)) : rand(minutes(min), minutes(max)));
+    setNext(rand(minutes(first ? Math.max(5, min) : min), minutes(max)));
 }
 
 function retryLater() {
@@ -318,7 +329,7 @@ export function showSign() {
     endAll();
     running = true;
     hideCreature(true);
-    void bumpStats(s => void s.signs++);
+    bump(s => void s.signs++);
 
     const vol = settings.store.soundVolume;
     const root = layer("vc-ransom-encounter");
@@ -379,7 +390,7 @@ export function showSign() {
         timers.push(setTimeout(() => {
             if (!watching) return;
             watching = false;
-            void bumpStats(s => void s.stayedStill++);
+            bump(s => void s.stayedStill++);
             root.classList.add("vc-ransom-leave");
             timers.push(setTimeout(() => finish(), 250));
         }, SIGN_MS));
@@ -403,7 +414,7 @@ function caughtScare() {
     const rare = Math.random() * 100 < settings.store.rareChance;
     const root = layer("vc-ransom-scare");
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const fuzz = noise("vc-ransom-fuzz", "red", 30, 6);
+    const fuzz = noise("vc-ransom-fuzz", "red", settings.store.calmEffects ? 8 : 30, 6);
     root.appendChild(fuzz.el);
     // As in the game: its face hangs small on red for a moment, then lunges at you full screen.
     const face = image("creature");
@@ -530,7 +541,7 @@ interface Round {
 
 /** `scale` multiplies what's owed: the rare EasterEgg asks for twice the normal ransom. */
 function newRound(scale = 1): Round {
-    void bumpStats(s => void s.hunts++);
+    bump(s => void s.hunts++);
     const gold = level().gold * scale;
     const started = Date.now();
     return { gold, owed: gold, started, deadline: started + SECONDS * 1000, over: false };
@@ -1049,7 +1060,7 @@ function startEasterEgg() {
 // Paid: the green "THANK YOU" screen.
 function paid(round: Round) {
     const seconds = Math.round((Date.now() - round.started) / 1000);
-    void bumpStats(s => {
+    bump(s => {
         s.won++;
         s.goldPaid += round.gold;
         if (!s.bestSeconds || seconds < s.bestSeconds) s.bestSeconds = seconds;
@@ -1088,11 +1099,11 @@ function paid(round: Round) {
 }
 
 function failed(round: Round, easterEgg = false) {
-    void bumpStats(s => void s.lost++);
+    bump(s => void s.lost++);
     cleanup?.();
     cleanup = undefined;
     stopAll();
-    const deleted = settings.store.takeItems ? takeFound(3).then(t => t.length) : Promise.resolve(0);
+    const deleted = settings.store.takeItems ? takeFound(3).then(t => t.length, () => 0) : Promise.resolve(0);
     jumpscare(false, deleted, true, easterEgg);
 }
 
@@ -1105,7 +1116,7 @@ export function jumpscare(test = false, deleted: Promise<number> = Promise.resol
     hideCreature(true);
     const root = layer("vc-ransom-scare vc-ransom-fail");
     const timers: ReturnType<typeof setTimeout>[] = [];
-    const fuzz = noise("vc-ransom-fuzz", "red", 30, 6);
+    const fuzz = noise("vc-ransom-fuzz", "red", settings.store.calmEffects ? 8 : 30, 6);
     root.appendChild(fuzz.el);
     const scary = settings.store.jumpscare ? image("jumpscare") : "";
     if (scary) {
