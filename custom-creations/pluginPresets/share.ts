@@ -125,10 +125,13 @@ export function parseShared(text: string) {
     if (!trimmed) throw new Error("Paste a preset code or choose a file first.");
     if (trimmed.length > MAX_TEXT) throw new Error("That's far too big to be a preset.");
 
+    const isCode = trimmed.startsWith(CODE_PREFIX);
     let raw: unknown;
     try {
-        raw = JSON.parse(trimmed.startsWith(CODE_PREFIX) ? fromBase64(trimmed.slice(CODE_PREFIX.length).replace(/\s+/g, "")) : trimmed);
+        raw = JSON.parse(isCode ? fromBase64(trimmed.slice(CODE_PREFIX.length).replace(/\s+/g, "")) : trimmed);
     } catch {
+        if (isCode) throw new Error("That code is damaged or cut off. Copy the whole code and try again.");
+        if (trimmed.startsWith("{")) throw new Error("That file is damaged or cut off. Export it again and try again.");
         throw new Error("That isn't a preset code. Codes start with PP1. and files are .json.");
     }
 
