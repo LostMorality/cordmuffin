@@ -11,30 +11,17 @@ import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { Flex } from "@components/Flex";
 import { FormSwitch } from "@components/FormSwitch";
+import { Switch } from "@components/Switch";
 import { Logger as VcLogger } from "@utils/Logger";
-import { findByCodeLazy } from "@webpack";
-import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, showToast as equicordShowToast, Slider, TextInput, Tooltip, useState } from "@webpack/common";
+import { Alerts, ContextMenuApi, Menu, Modal, openModal, React, ReactDOM, Select, Slider, TextInput, Tooltip, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
 import { notify } from "../notify";
 import { Native } from "../settings";
-import { animate, boundCommands, cache, Commands, getType, Inputs, Modal as BdModal, NodePatcher, openFloatingWindow, showBdNotification, showInviteModal, Spinner, Store, useForceUpdate, useStateFromStores, wrapInHooks } from "./extras";
-import { makePatcher } from "./patcher";
+import { animate, boundCommands, cache, Commands, getType, Inputs, Modal as BdModal, NodePatcher, openFloatingWindow, showBdNotification, showInviteModal, Spinner, Store, Text, useForceUpdate, useStateFromStores, wrapInHooks } from "./extras";
+import { callerFile, makePatcher } from "./patcher";
 import * as Runtime from "./runtime";
 import { forceLoad, loadEntry, mapObject, Webpack } from "./webpack";
-
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
-
-function showToast(options: Parameters<typeof equicordShowToast>[0]) {
-    for (const show of [equicordShowToast, discordToast]) {
-        try {
-            show(options);
-            return;
-        } catch { }
-    }
-}
 
 const logger = new VcLogger("Muffinshelf");
 const STYLE_ROOT_ID = "vc-muffinshelf-bd-styles";
@@ -83,6 +70,8 @@ const DOM = {
         const style = document.createElement("style");
         style.id = cssId(id);
         style.textContent = css;
+        const owner = callerFile();
+        if (owner) style.dataset.owner = owner;
         styleRoot().append(style);
     },
     removeStyle(id = "unnamed") {
@@ -150,6 +139,15 @@ const DOM = {
     },
 };
 
+// Styles a plugin file added under any id, legacy injectCSS ids included, except ones named after another loaded
+// plugin (a library adding them for it).
+export function removeStylesOf(file: string, keepNames: Set<string>) {
+    const keep = new Set([...keepNames].map(cssId));
+    for (const style of document.getElementById(STYLE_ROOT_ID)?.querySelectorAll("style") ?? []) {
+        if (style.dataset.owner === file && !keep.has(style.id)) style.remove();
+    }
+}
+
 export function toNode(content: any): ReactNode {
     if (content == null) return null;
     if (typeof content === "string") return content.split("\n").map((line, i) => <BaseText key={i} size="md" weight="normal">{line}</BaseText>);
@@ -171,9 +169,7 @@ const toastVariant = (type?: string) => type === "success" ? "success" : type ==
 
 const UI = {
     showToast(content: string, options: { type?: string; timeout?: number; } = {}) {
-        const text = String(content);
-        if (text.length > 50) return notify(text, toastVariant(options.type), "BetterDiscord plugin");
-        showToast({ text, variant: toastVariant(options.type), duration: options.timeout });
+        notify(String(content), toastVariant(options.type), "BetterDiscord plugin", options.timeout);
     },
     alert(title: string, content: any) {
         Alerts.show({ title, body: toNode(content) });
@@ -554,14 +550,12 @@ const Components = {
     get Tooltip() {
         return Tooltip;
     },
-    get Text() {
-        return Text;
-    },
+    Text,
     Button,
     Flex,
     ErrorBoundary,
     SwitchInput: ({ value, onChange, disabled }: { value: boolean; onChange(v: boolean): void; disabled?: boolean; }) =>
-        <FormSwitch title="" value={value} onChange={onChange} disabled={disabled} hideBorder />,
+        <Switch checked={!!value} onChange={onChange} disabled={disabled} />,
     SettingItem: ({ name, note, children }: { name?: string; note?: string; children?: ReactNode; }) => (
         <div className="vc-muffinshelf-setting">
             <BaseText size="md" weight="semibold">{name}</BaseText>
