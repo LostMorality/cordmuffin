@@ -140,11 +140,25 @@ export function savedPending(): PendingCredit[] {
     return settings.store.pending.map(e => ({ at: e.at, hours: e.hours, games: e.games, baseHours: e.baseHours, baseGames: e.baseGames }));
 }
 
-export function getPending(badges: Partial<Record<BadgeKind, BadgeProgress>>) {
+type Badges = Partial<Record<BadgeKind, BadgeProgress>>;
+
+function stillPending(saved: PendingCredit[], badges: Badges) {
     const now = Date.now();
+    return saved.filter(e => now - e.at < FORGET_AFTER_MS && !(isCounted(e, badges, "time") && isCounted(e, badges, "variety")));
+}
+
+// Drops entries that expired or were counted. Kept apart from getPending so rendering never writes settings.
+export function prunePending(badges: Badges) {
     const saved = savedPending();
-    const kept = saved.filter(e => now - e.at < FORGET_AFTER_MS && !(isCounted(e, badges, "time") && isCounted(e, badges, "variety")));
+    const kept = stillPending(saved, badges);
     if (kept.length !== saved.length) settings.store.pending = kept;
+}
+
+export function getPending(badges: Badges) {
+    return summarize(stillPending(savedPending(), badges), badges);
+}
+
+function summarize(kept: PendingCredit[], badges: Badges) {
     return {
         hours: kept.reduce((sum, e) => sum + (isCounted(e, badges, "time") ? 0 : e.hours), 0),
         games: kept.reduce((sum, e) => sum + (isCounted(e, badges, "variety") ? 0 : e.games), 0),
@@ -153,10 +167,11 @@ export function getPending(badges: Partial<Record<BadgeKind, BadgeProgress>>) {
     };
 }
 
-export function recordCredit(hours: number, games: number, badges: Partial<Record<BadgeKind, BadgeProgress>> | null) {
+export function recordCredit(hours: number, games: number, badges: Badges | null) {
     if (hours <= 0 && games <= 0) return;
-    const pending = badges ? getPending(badges) : null;
-    settings.store.pending = [...savedPending(), {
+    const kept = badges ? stillPending(savedPending(), badges) : savedPending();
+    const pending = badges ? summarize(kept, badges) : null;
+    settings.store.pending = [...kept, {
         at: Date.now(),
         hours,
         games,
