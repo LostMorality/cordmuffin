@@ -90,9 +90,10 @@ interface ServerStyle {
     typing_suggestion?: number;
 }
 
+// Same shape Discord's own serializer sends; the server works out "animated" itself.
 function toServer(style: TypingStyle): ServerStyle {
     return {
-        emojis: style.emojis.map(e => e.id ? { custom_emoji_id: e.id, animated: !!e.animated } : { unicode_emoji: e.name }),
+        emojis: style.emojis.map(e => e.id ? { custom_emoji_id: e.id } : { unicode_emoji: e.name }),
         animation: style.animation,
         typing_suggestion: style.typingSuggestion
     };
@@ -197,11 +198,12 @@ export function errorText(e: any): string {
     return firstFieldError(body?.errors) || body?.message || e?.message || "Discord refused the change.";
 }
 
-// The typing bar only gets names, so find the one person typing the same way Discord's hook does.
+// The typing bar only gets names, so find the one person typing the same way Discord's hook does,
+// including its skip of users it hasn't loaded (it shows no name for them).
 export function soleTyperId(channelId: string): string | null {
     const me = AuthenticationStore.getId();
     const ids = Object.keys(TypingStore.getTypingUsers(channelId) ?? {})
-        .filter(id => id !== me && !RelationshipStore.isBlockedOrIgnored(id));
+        .filter(id => id !== me && !RelationshipStore.isBlockedOrIgnored(id) && UserStore.getUser(id) != null);
     return ids.length === 1 ? ids[0] : null;
 }
 
