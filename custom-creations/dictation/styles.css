@@ -21,11 +21,15 @@
     }
 }
 
-.vc-dictation-shortcut {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
+/* Equicord only dims descriptions of inline rows, so the Speech Model dropdown's description came out brighter. */
+.vc-plugins-settings:has(.vc-dictation-shortcut-button) .vc-plugins-setting-description {
+    color: var(--text-subtle);
+}
+
+.vc-dictation-shortcut-button {
+    flex-shrink: 0;
+    margin-left: 16px;
+    white-space: nowrap;
 }
 
 .vc-dictation-live {
