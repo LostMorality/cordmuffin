@@ -8,9 +8,8 @@ import "./styles.css";
 
 import { ChatBarButton, type ChatBarButtonFactory } from "@api/ChatButtons";
 import { definePluginSettings } from "@api/Settings";
-import { BaseText } from "@components/BaseText";
 import { Button } from "@components/Button";
-import { Paragraph } from "@components/Paragraph";
+import { SettingsSection } from "@components/settings/tabs/plugins/components/Common";
 import { classNameFactory } from "@utils/css";
 import { insertTextIntoChatInputBox } from "@utils/discord";
 import { Logger } from "@utils/Logger";
@@ -40,18 +39,38 @@ let activeChannel: string | null = null;
 const anchors = new Map<string, Element>();
 let holding = false;
 
-const keyName = (code: string) => code.replace(/^Key|^Digit/, "").replace(/^Numpad/, "Num ");
-const formatShortcut = (combo: string[]) => combo.length
-    ? combo.map(k => MODIFIERS.includes(k as typeof MODIFIERS[number]) ? k[0].toUpperCase() + k.slice(1) : keyName(k)).join(" + ")
-    : "Not set";
+const KEY_NAMES: Record<string, string> = {
+    Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";", Quote: "'",
+    Comma: ",", Period: ".", Slash: "/", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right",
+    PageUp: "PgUp", PageDown: "PgDn", NumpadAdd: "Num +", NumpadSubtract: "Num -", NumpadMultiply: "Num *",
+    NumpadDivide: "Num /", NumpadDecimal: "Num .", NumpadEnter: "Num Enter",
+};
+const isModifier = (k: string) => MODIFIERS.includes(k as typeof MODIFIERS[number]);
+const keyName = (code: string) => KEY_NAMES[code] ?? code.replace(/^Key|^Digit/, "").replace(/^Numpad/, "Num ");
+const shortcutNames = (combo: string[]) => combo.map(k => isModifier(k) ? k[0].toUpperCase() + k.slice(1) : keyName(k));
+// A bare or Shift-only letter would be swallowed every time it's typed, so a shortcut needs Ctrl, Alt or Meta
+// unless it's an F key.
+const validShortcut = (combo: string[]) => combo.length > 0 && (combo.some(k => k === "ctrl" || k === "alt" || k === "meta") || /^F\d{1,2}$/.test(combo[combo.length - 1]));
+const BUTTON_MAX = 21;
+
+function shortcutLabel(combo: string[]) {
+    if (!combo.length) return "Not set";
+    const names = shortcutNames(combo);
+    const spaced = names.join(" + ");
+    if (spaced.length <= BUTTON_MAX) return spaced;
+    const compact = names.join("+");
+    return compact.length <= BUTTON_MAX ? compact : compact.slice(0, BUTTON_MAX - 1) + "…";
+}
 
 function ShortcutRecorder() {
     const [listening, setListening] = useState(false);
+    const [needsModifier, setNeedsModifier] = useState(false);
     const { shortcut } = settings.use(SHORTCUT_KEYS);
 
     useEffect(() => {
         if (!listening) return;
         capturingShortcut = true;
+        setNeedsModifier(false);
 
         function onKeyDown(e: KeyboardEvent) {
             e.preventDefault();
@@ -63,7 +82,9 @@ function ShortcutRecorder() {
             }
             if (e.key in MODIFIER_KEYS) return;
 
-            settings.store.shortcut = [...MODIFIERS.filter(m => e[`${m}Key`]), e.code];
+            const combo = [...MODIFIERS.filter(m => e[`${m}Key`]), e.code];
+            if (!validShortcut(combo)) return setNeedsModifier(true);
+            settings.store.shortcut = combo;
             setListening(false);
         }
 
@@ -81,15 +102,21 @@ function ShortcutRecorder() {
     }, [listening]);
 
     return (
-        <div className={cl("shortcut")}>
-            <div>
-                <BaseText size="md" weight="semibold">Hold to talk shortcut</BaseText>
-                <Paragraph>Hold these keys while you talk, and let go to insert the text. Press Backspace while setting it to turn it off.</Paragraph>
-            </div>
-            <Button variant="secondary" onClick={() => setListening(true)}>
-                {listening ? "Press keys..." : formatShortcut(shortcut)}
+        <SettingsSection
+            id="shortcut"
+            name="Hold to talk shortcut"
+            description="Hold these keys while you talk, and let go to insert the text. Use Ctrl, Alt or Meta with a key (Shift can be added), or an F key on its own. Press Backspace while setting it to turn it off."
+            inlineSetting
+        >
+            <Button
+                variant="secondary"
+                className={cl("shortcut-button")}
+                title={shortcut.length ? shortcutNames(shortcut).join(" + ") : undefined}
+                onClick={() => setListening(true)}
+            >
+                {listening ? needsModifier ? "Use Ctrl/Alt + a key" : "Press keys..." : shortcutLabel(shortcut)}
             </Button>
-        </div>
+        </SettingsSection>
     );
 }
 
@@ -111,16 +138,16 @@ const settings = definePluginSettings({
         description: "Fix grammar too, using a small AI model that runs on your PC. It's downloaded the first time you turn this on, and the size is picked for your computer.",
         default: false,
         onChange: (on: boolean) => {
-            if (on) ensureGrammar();
+            if (on) ensureGrammar().catch(e => logger.error("Couldn't set up grammar fixing", e));
         },
     },
     speechModel: {
         type: OptionType.SELECT,
-        description: "Which speech model to use.",
+        description: "Which speech model to use. Most accurate needs a stronger PC; Fastest is fine on older ones. Sizes are disk space after the download, and a model you switch away from stays on disk.",
         options: [
             { label: "Pick for my computer", value: "auto", default: true },
-            { label: "Most accurate (1.6 GB, needs a stronger PC)", value: "cohere" },
-            { label: "Fastest (460 MB, fine on older PCs)", value: "parakeet" },
+            { label: "Most accurate, 2.8 GB", value: "cohere" },
+            { label: "Fastest, 0.7 GB", value: "parakeet" },
         ],
     },
     liveText: {
@@ -216,7 +243,11 @@ function confirm(title: string, body: string, confirmText: string) {
 }
 
 async function download(what: "cohere" | "parakeet" | "grammar", title: string, body: string, doneText: string) {
-    if (phase !== "idle" || !await confirm(title, body, "Download") || phase !== "idle") return false;
+    if (phase !== "idle" || !await confirm(title, body, "Download")) return false;
+    if (phase !== "idle") {
+        notify(phase === "downloading" ? "Wait for the other download to finish." : "Finish dictating first, then try again.", "default");
+        return false;
+    }
 
     // The download keeps going if the plugin stops, but a stopped plugin stays quiet about it.
     const gen = generation;
@@ -225,15 +256,14 @@ async function download(what: "cohere" | "parakeet" | "grammar", title: string, 
     let done = false;
     job.finally(() => done = true).catch(() => { });
 
-    while (!done) {
-        const { download } = await Native.getStatus(currentModel());
-        if (gen !== generation) break;
-        if (download?.total) setPhase("downloading", `Downloading ${download.label}: ${Math.floor(download.received / download.total * 100)}%`);
-        else if (download?.label) setPhase("downloading", `Unpacking ${download.label}`);
-        await sleep(1000);
-    }
-
     try {
+        while (!done) {
+            const { download } = await Native.getStatus(currentModel());
+            if (gen !== generation) break;
+            if (download?.total) setPhase("downloading", `Downloading ${download.label}: ${Math.floor(download.received / download.total * 100)}%`);
+            else if (download?.label) setPhase("downloading", `Unpacking ${download.label}`);
+            await sleep(1000);
+        }
         await job;
         if (gen === generation) notify(doneText, "success");
         return true;
@@ -250,12 +280,12 @@ async function ensureGrammar() {
     const status = await Native.getStatus(currentModel());
     if (!status.grammarSupported) {
         settings.store.grammar = false;
-        return notify("Grammar fixing isn't available on this kind of computer.", "critical");
+        return notify("Grammar fixing isn't available on this PC.", "critical");
     }
     if (status.grammarInstalled) return;
     if (phase !== "idle") {
         settings.store.grammar = false;
-        return notify("Finish dictating first, then turn on grammar fixing.", "default");
+        return notify("Finish dictating, then turn on grammar.", "default");
     }
 
     const ok = await download(
@@ -270,6 +300,8 @@ async function ensureGrammar() {
 function fixMishears(text: string) {
     return text.replace(/\bMike(?= (?:test|check|testing)\b)/g, (_, offset: number) => offset === 0 || /[.!?]\s*$/.test(text.slice(0, offset)) ? "Mic" : "mic");
 }
+
+const applyPunctuation = (text: string) => settings.store.punctuation ? text : text.replace(/[.,!?;:]+(?=\s|$)/g, "");
 
 // Both models are set to English, so text in another alphabet is the model making things up from noise.
 function cleanText(text: string) {
@@ -384,7 +416,7 @@ async function pumpPreview(rec: Recording) {
     rec.busy = true;
     if (!commit) rec.lastPreview = end;
     try {
-        const text = cleanText((await Native.transcribe(currentModel(), samplesOf(rec, start, end))).trim());
+        const text = applyPunctuation(cleanText((await Native.transcribe(currentModel(), samplesOf(rec, start, end))).trim()));
         if (recording !== rec) return;
         if (commit) rec.texts[commit.index] = text;
         else if (start === rec.segStart) rec.tentative = text;
@@ -402,13 +434,13 @@ async function startRecording() {
     const gen = generation;
     const model = currentModel();
     const status = await Native.getStatus(model);
-    if (!status.supported) return notify("Dictation isn't available on this kind of computer yet.", "critical");
+    if (!status.supported) return notify("Dictation isn't available on this PC yet.", "critical");
     if (!status.speechInstalled) {
         await download(
             model,
             "Download the speech model?",
             `Dictation needs a one time download of about ${status.speechSizeMb.toLocaleString()} MB. It's free and runs fully on your PC, so your voice never leaves it.`,
-            "Speech model ready. Click the mic or hold your shortcut to talk."
+            "Speech model ready. Click the mic to talk."
         );
         return;
     }
@@ -484,6 +516,8 @@ async function discordMicConstraints(): Promise<MediaTrackConstraints> {
 // Discord's own mic menu shares this navId, so the flag lives exactly as long as this menu is on screen,
 // however it gets closed (item, Escape, outside click or another menu opening).
 function MicMenu() {
+    // The menu stays open after a checkbox click, so it re-renders (and re-runs the patch below) on every change.
+    settings.use(["punctuation", "grammar", "speechModel"]);
     useEffect(() => {
         fromDictation = true;
         return () => void (fromDictation = false);
@@ -510,7 +544,7 @@ function releaseRecording() {
     recording = null;
     clearTimeout(rec.timer);
     rec.stream.getTracks().forEach(t => t.stop());
-    rec.ctx.close();
+    rec.ctx.close().catch(() => { });
     showLevel(0, false);
     return rec;
 }
@@ -537,7 +571,7 @@ async function stopRecording() {
     const range = voicedRange(rec);
     if (!range) {
         finish();
-        return notify("Didn't hear you talking, so nothing was added. Check that your mic is on.", "default");
+        return notify("Didn't hear you. Is your mic on?", "default");
     }
 
     // Stopping the plugin mid-way drops the result quietly instead of typing or warning from a disabled plugin.
@@ -557,7 +591,7 @@ async function stopRecording() {
             });
             if (gen !== generation) return;
         }
-        if (!settings.store.punctuation) text = text.replace(/[.,!?;:]+(?=\s|$)/g, "");
+        text = applyPunctuation(text);
 
         insertInto(activeChannel, text + " ");
     } catch (e) {
@@ -596,7 +630,7 @@ function onClick(channelId: string) {
 
 function matchesShortcut(e: KeyboardEvent) {
     const combo = settings.store.shortcut;
-    return combo.length > 0 && e.code === combo[combo.length - 1] && MODIFIERS.every(m => e[`${m}Key`] === combo.includes(m));
+    return validShortcut(combo) && e.code === combo[combo.length - 1] && MODIFIERS.every(m => e[`${m}Key`] === combo.includes(m));
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -632,7 +666,18 @@ const meterRef = (el: HTMLElement | SVGElement | null) => {
 };
 
 function LiveBubble({ anchor }: { anchor: Element | null; }) {
-    const box = anchor?.closest("form")?.getBoundingClientRect() ?? anchor?.getBoundingClientRect();
+    const forceUpdate = useForceUpdater();
+    const form = anchor?.closest("form") ?? anchor;
+
+    // The chat box grows with a reply bar, attachments or a longer draft, and narrows when a side panel opens.
+    useEffect(() => {
+        if (!form) return;
+        const observer = new ResizeObserver(() => forceUpdate());
+        observer.observe(form);
+        return () => observer.disconnect();
+    }, [form]);
+
+    const box = form?.getBoundingClientRect();
     if (!box) return null;
 
     return ReactDOM.createPortal(
@@ -706,8 +751,8 @@ export default definePlugin({
             const { punctuation, grammar, speechModel } = settings.store;
             children.push(
                 <Menu.MenuGroup key="vc-dictation">
-                    <Menu.MenuCheckboxItem id="vc-dictation-punctuation" label="Add Punctuation" checked={punctuation} action={() => settings.store.punctuation = !punctuation} />
-                    <Menu.MenuCheckboxItem id="vc-dictation-grammar" label="Fix Grammar" subtext="Uses a small AI model on your PC" checked={grammar} action={() => settings.store.grammar = !grammar} />
+                    <Menu.MenuCheckboxItem id="vc-dictation-punctuation" label="Add Punctuation" checked={punctuation} action={() => settings.store.punctuation = !settings.store.punctuation} />
+                    <Menu.MenuCheckboxItem id="vc-dictation-grammar" label="Fix Grammar" subtext="Uses a small AI model on your PC" checked={grammar} action={() => settings.store.grammar = !settings.store.grammar} />
                     <Menu.MenuItem id="vc-dictation-model" label="Speech Model" subtext={speechModel === "cohere" ? "Most accurate" : speechModel === "parakeet" ? "Fastest" : "Picked for your computer"}>
                         {([["auto", "Pick for my computer"], ["cohere", "Most accurate"], ["parakeet", "Fastest"]] as const).map(([value, label]) => (
                             <Menu.MenuRadioItem key={value} id={`vc-dictation-model-${value}`} group="vc-dictation-model" label={label} checked={speechModel === value} action={() => settings.store.speechModel = value} />
@@ -719,7 +764,11 @@ export default definePlugin({
     },
 
     start() {
-        Native.recommendedSpeechModel().then(m => recommended = m);
+        // Left behind by an older version that had a separate fast-model switch.
+        const stored = settings.store as unknown as Record<string, unknown>;
+        if ("fastModel" in stored) delete stored.fastModel;
+
+        Native.recommendedSpeechModel().then(m => recommended = m).catch(e => logger.warn("Couldn't pick a speech model", e));
         document.addEventListener("keydown", onKeyDown, true);
         document.addEventListener("keyup", onKeyUp, true);
         window.addEventListener("blur", release);
@@ -733,6 +782,6 @@ export default definePlugin({
         generation++;
         releaseRecording();
         finish();
-        Native.unload();
+        Native.unload().catch(e => logger.warn("Couldn't stop the engines", e));
     },
 });
