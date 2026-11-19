@@ -41,6 +41,19 @@ let generation = 0;
 /** True while Discord is broken or a revive or death is playing out. */
 export const isWrecked = () => wrecked;
 
+const wreckListeners = new Set<() => void>();
+
+export function onWreckChange(listener: () => void) {
+    wreckListeners.add(listener);
+    return () => void wreckListeners.delete(listener);
+}
+
+function setWrecked(next: boolean) {
+    if (wrecked === next) return;
+    wrecked = next;
+    wreckListeners.forEach(l => l());
+}
+
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 const pick = <T,>(list: readonly T[]) => list[Math.floor(Math.random() * list.length)];
 
@@ -80,29 +93,30 @@ async function mend() {
     removeCard();
     repairUI();
     decryptUI();
-    wrecked = false;
+    setWrecked(false);
     easterEggLoss = false;
-    await DataStore.del(WRECK_KEY);
+    await DataStore.del(WRECK_KEY).catch(() => { });
 }
 
 /** Called once the lost ransom's jumpscare is over, with Discord still broken and encrypted. */
 export async function afterLoss(easterEgg = false) {
     const mine = ++generation;
     active = true;
-    wrecked = true;
+    setWrecked(true);
     easterEggLoss = easterEgg;
-    await DataStore.set(WRECK_KEY, easterEgg ? "easterEgg" : true);
+    // If it can't be saved, Discord still breaks; it just won't come back broken after a restart.
+    await DataStore.set(WRECK_KEY, easterEgg ? "easterEgg" : true).catch(() => { });
     if (mine !== generation) return;
     // Turning "Discord falls apart" or challenges off is always a way out.
     clearInterval(watch);
     watch = setInterval(() => {
         if (!scene && (!settings.store.breakUI || !settings.store.challenges)) void mend().then(() => { if (active) scheduleNext(); });
     }, 1000);
-    const { goldFound } = await getStats();
+    const goldFound = await getStats().then(s => s.goldFound, () => 0);
     if (mine !== generation) return;
     if (goldFound >= REVIVE_MIN) {
         wreckUI();
-        encryptUI(easterEgg ? "BEGGAR" : "RANSOM");
+        encryptUI(easterEgg ? "BEGGAR" : "RANSOM", true);
         showRevive();
     } else kill();
 }
@@ -110,10 +124,10 @@ export async function afterLoss(easterEgg = false) {
 /** Brings the broken state back after Discord restarts, so a lost ransom can't be undone with a reload. */
 export async function resumeAftermath() {
     const mine = generation;
-    const kind = await DataStore.get(WRECK_KEY);
+    const kind = await DataStore.get(WRECK_KEY).catch(() => undefined);
     if (mine !== generation) return;
     if (kind !== true && kind !== "easterEgg") return;
-    if (!settings.store.breakUI || !settings.store.challenges) return void DataStore.del(WRECK_KEY);
+    if (!settings.store.breakUI || !settings.store.challenges) return void DataStore.del(WRECK_KEY).catch(() => { });
     void afterLoss(kind === "easterEgg");
 }
 
@@ -139,10 +153,10 @@ function showRevive() {
         amount.textContent = reviveCost(gold).toLocaleString();
         yes.disabled = gold < REVIVE_MIN;
     };
-    void getStats().then(s => show(s.goldFound));
+    void getStats().then(s => show(s.goldFound), () => { });
     offStats = onStatsChange(s => show(s.goldFound));
 
-    yes.addEventListener("click", () => void revive());
+    yes.addEventListener("click", () => void revive().catch(() => { }));
     // Like skipping the revive in DOORS: Ransom finishes you off.
     no.addEventListener("click", () => {
         if (!scene && !reviving) kill();
@@ -169,8 +183,8 @@ async function revive() {
         removeCard();
         await takeAllGold();
         // Paid for: a restart during the light shouldn't bring the broken Discord (and a death) back.
-        void DataStore.del(WRECK_KEY);
-        void addRevive();
+        void DataStore.del(WRECK_KEY).catch(() => { });
+        addRevive();
         if (active) lightEnding();
     } finally {
         reviving = false;
@@ -233,7 +247,7 @@ function kill() {
     };
     scene = end;
     // Dying settles it: a restart from here on shouldn't bring the broken Discord (or another death) back.
-    void DataStore.del(WRECK_KEY);
+    void DataStore.del(WRECK_KEY).catch(() => { });
     // If saving fails the death screen still plays, so the screen never sticks on black.
     void Promise.all([takeAllGold(), addDeath()]).catch(() => [0, 1]).then(([lost, deaths]) => {
         if (!active) return end();
@@ -380,7 +394,8 @@ function deathScreen(deaths: number, goldLost: number) {
         text.remove();
         hint.remove();
         name.remove();
-        const stats = await getStats();
+        // The overview always shows, even if the scores can't be read.
+        const stats = await getStats().catch(() => ({ won: 0, honeyPots: 0 }));
         if (ended) return;
         const panel = el("div", "vc-ransom-overview");
         const head = el("div", "vc-ransom-overview-head", "OVERVIEW");
@@ -459,6 +474,6 @@ export function stopAftermath() {
     removeCard();
     repairUI();
     decryptUI();
-    wrecked = false;
+    setWrecked(false);
     easterEggLoss = false;
 }
