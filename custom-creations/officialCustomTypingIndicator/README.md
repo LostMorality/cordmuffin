@@ -34,10 +34,11 @@ Open the plugin's settings:
 
 ## Good to know
 
-- **How saving works:** Discord only accepts this setting from its phone app. On that one save, the plugin tells Discord the request comes from the Android app. Nothing else you do in Discord is changed.
+- **How saving works:** so far Discord only accepts this setting from its phone app. On that one save, the plugin tells Discord the request comes from the Android app. Nothing else you do in Discord is changed. Discord's desktop app has started getting its own code for saving it, so once Discord ships its own desktop editor this may not be needed any more.
 - **Captcha:** Discord sometimes asks for a captcha when you save. Solve it and the save goes through. Saving a lot in a short time makes it ask more often.
 - If it says **"Discord didn't save it"** and you have full Nitro: your account may not have the feature yet, or Discord now needs a newer app version than the plugin sends. Report it so the version can be bumped.
-- **Show other people's** is on by default. Turn it off to see plain dots everywhere.
+- **Show Others** is on by default. Turn it off to see plain dots everywhere, also where Discord draws the styles itself.
+- The word ("is yapping…") shows in your Discord language, using Discord's own translations.
 - Animated emoji play only if Discord's **Play animated emoji** setting is on. They stop when Discord's window isn't focused. **Reduced Motion** (Accessibility) stops all the motion.
 
 ## What this plugin loads and calls out to
