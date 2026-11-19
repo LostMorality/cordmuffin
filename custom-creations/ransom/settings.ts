@@ -9,14 +9,21 @@ import { OptionType } from "@utils/types";
 
 import { SettingsButtons } from "./Panel";
 
-let onCreatureChange = () => { };
-let onScheduleChange = () => { };
-let onDoorsChange = () => { };
+const none = () => { };
 
-export function bindSettings(creature: () => void, schedule: () => void, doors: () => void) {
+let onCreatureChange = none;
+let onScheduleChange = none;
+let onDoorsChange = none;
+let onHuntChange = none;
+let onLooseGoldChange = none;
+
+/** What the settings call when they change while Ransom is on. With no arguments, nothing (Ransom is off). */
+export function bindSettings(creature = none, schedule = none, doors = none, hunt = none, looseGold = none) {
     onCreatureChange = creature;
     onScheduleChange = schedule;
     onDoorsChange = doors;
+    onHuntChange = hunt;
+    onLooseGoldChange = looseGold;
 }
 
 export const settings = definePluginSettings({
@@ -109,7 +116,8 @@ export const settings = definePluginSettings({
             { label: "Off", value: "off" },
             { label: "Now and then (every few minutes)", value: "sometimes", default: true },
             { label: "Often (about every minute)", value: "often" }
-        ]
+        ],
+        onChange: () => onLooseGoldChange()
     },
     takeItems: {
         type: OptionType.BOOLEAN,
@@ -159,17 +167,20 @@ export const settings = definePluginSettings({
     hunt: {
         type: OptionType.BOOLEAN,
         description: "Hidden items: sometimes a small spooky item hides in a DM or server channel when you open it. Click it to collect it.",
-        default: true
+        default: true,
+        onChange: () => onHuntChange()
     },
     huntDMs: {
         type: OptionType.BOOLEAN,
         description: "Hide items in DMs.",
-        default: true
+        default: true,
+        onChange: () => onHuntChange()
     },
     huntServers: {
         type: OptionType.BOOLEAN,
         description: "Hide items in server channels.",
-        default: true
+        default: true,
+        onChange: () => onHuntChange()
     },
     huntChance: {
         type: OptionType.SLIDER,
@@ -181,7 +192,8 @@ export const settings = definePluginSettings({
     huntHint: {
         type: OptionType.BOOLEAN,
         description: "Show a small hint at the top of the chat when something is hiding there.",
-        default: true
+        default: true,
+        onChange: () => onHuntChange()
     },
     warned: {
         type: OptionType.BOOLEAN,
