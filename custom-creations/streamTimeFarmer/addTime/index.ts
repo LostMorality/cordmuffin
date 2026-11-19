@@ -6,6 +6,8 @@
 
 import "./styles.css";
 
+import { Logger } from "@utils/Logger";
+
 import { currentUserId } from "../profile";
 import { claimSeconds, currentJob, hoursText, jobId, loadJob, noteResult, notify, onJob, reconcileJob, sendsTotal, sentSeconds, setPluginRunning } from "./job";
 import { mountJobBox, unmountJobBox } from "./JobBox";
@@ -16,6 +18,8 @@ import { noteSendResult, noteStreamerReport, startScheduler, stopScheduler, whyN
 
 export { openAddStreamTime } from "./AddStreamTime";
 export { Panel as AddTimePanel } from "./Panel";
+
+const logger = new Logger("StreamTimeFarmer");
 
 let running = false;
 let offJob: (() => void) | undefined;
@@ -66,7 +70,7 @@ export function startAddTime() {
         syncJob();
         if (job && IS_DISCORD_DESKTOP && currentUserId() === job.userId)
             notify(`Continuing to add streaming time: ${hoursText(sentSeconds(job))} of ${hoursText(job.total)} h sent (${job.sent.length} of ${sendsTotal(job)}).`);
-    });
+    }).catch(e => logger.error("Couldn't pick up the kept job", e));
     lateSync = setTimeout(syncJob, 0);
 }
 
