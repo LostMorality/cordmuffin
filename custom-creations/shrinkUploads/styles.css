@@ -11,7 +11,7 @@
     flex-direction: column;
     gap: 8px;
     width: min(320px, calc(100vw - 32px));
-    max-height: calc(100vh - 140px);
+    max-height: var(--vc-shrink-max, calc(100vh - 140px));
     overflow-y: auto;
     pointer-events: auto;
 }
@@ -139,6 +139,12 @@
         animation: none;
         opacity: 0.4;
     }
+}
+
+.reduce-motion .vc-shrink-job[data-busy="true"] .vc-shrink-fill {
+    width: 100% !important;
+    animation: none;
+    opacity: 0.4;
 }
 
 .vc-shrink-job[data-state="failed"] .vc-shrink-track {
