@@ -39,13 +39,17 @@ export function hasConsentStore() {
 // NoTrack's "Allow Badge Tracking" keeps Discord's own reporting while "Disable Analytics" is on and lets through only
 // the stream and game events badges count (a stream report as the streamer, never as a viewer). A NoTrack without
 // that switch blocks everything while "Disable Analytics" is on.
-const hasBadgeSwitch = () => !!plugins.NoTrack?.settings?.def && "allowBadgeTracking" in plugins.NoTrack.settings.def;
+// Read lazily: this file loads while Equicord is still building its plugin list, so `plugins` doesn't exist yet then.
+const hasBadgeSwitch = () => !!plugins?.NoTrack?.settings?.def && "allowBadgeTracking" in plugins.NoTrack.settings.def;
 const analyticsOff = () => Settings.plugins.NoTrack?.disableAnalytics !== false;
 const badgeOnly = () => analyticsOff() && hasBadgeSwitch() && Settings.plugins.NoTrack?.allowBadgeTracking !== false;
 const noTrackBlocks = () => analyticsOff() && !badgeOnly();
-// NoTrack picks how Discord reports while Discord loads, so either switch only takes effect after a restart.
-const blockedAtStart = noTrackBlocks();
-const badgeOnlyAtStart = badgeOnly();
+// NoTrack picks how Discord reports while Discord loads, so either switch only takes effect after a restart. The
+// switches are saved as they were at load; whether NoTrack has the badge switch is looked up later, once it exists.
+const analyticsOffAtStart = analyticsOff();
+const allowBadgeAtStart = Settings.plugins.NoTrack?.allowBadgeTracking !== false;
+const badgeOnlyAtStart = () => analyticsOffAtStart && hasBadgeSwitch() && allowBadgeAtStart;
+const blockedAtStart = () => analyticsOffAtStart && !badgeOnlyAtStart();
 const loadedAt = Date.now();
 
 const BLOCKER = /(do[\s_-]*not|dont|no|anti|stop)[\s_-]*track|tracking|analytics|telemetry/i;
@@ -94,7 +98,7 @@ export function trackingState(): TrackingState {
         if (consents?.[USAGE]) usageData = consents[USAGE].consented === true;
         if (consents?.[PERSONALIZE]) personalized = consents[PERSONALIZE].consented === true;
     } catch { }
-    return { blocked: noTrackBlocks(), blockedAtStart, badgeOnlyAtStart, badgeSwitch: hasBadgeSwitch(), usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
+    return { blocked: noTrackBlocks(), blockedAtStart: blockedAtStart(), badgeOnlyAtStart: badgeOnlyAtStart(), badgeSwitch: hasBadgeSwitch(), usageData, personalized, blockers: trackingBlockers(), lastReportAt, loadedAt };
 }
 
 // A report Discord accepted since this page loaded proves this client still sends them. NoTrack's switch, its state
@@ -164,7 +168,7 @@ export async function allowTracking(): Promise<{ restart: boolean; }> {
     }
     // Either switch only applies after a restart, so one is needed exactly when NoTrack was blocking at startup.
     // Reports already getting through mean NoTrack isn't in the way, so there's nothing a restart would change.
-    return { restart: blockedAtStart && !reportsGetThrough(trackingState()) };
+    return { restart: blockedAtStart() && !reportsGetThrough(trackingState()) };
 }
 
 // The settings above can look right while something else stops the reports, which is how 40 hours once went missing
