@@ -99,6 +99,7 @@ export async function loadDoors(announce = false) {
     if (!announce) return;
     const total = IMAGES.length + POPUPS.length + SOUNDS.length;
     if (missing === total) notify("Couldn't download the DOORS files, so Ransom uses plain stand-ins.", "critical");
+    else if (missing === 1) notify("1 DOORS file couldn't be downloaded. Ransom uses a stand-in for it.");
     else if (missing) notify(`${missing} DOORS files couldn't be downloaded. Ransom uses stand-ins for those.`);
     else notify("DOORS sounds and art are ready.", "success");
 }
