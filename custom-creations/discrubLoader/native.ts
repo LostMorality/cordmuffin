@@ -33,7 +33,7 @@ const TIMEOUT = 60_000;
 const VERSION = /^\d{1,5}(\.\d{1,5}){1,3}$/;
 const DOWNLOAD_HOSTS = [".googleusercontent.com", ".google.com", ".gvt1.com"];
 
-export type View = "web" | "classic";
+export type View = "ask" | "web" | "classic";
 
 interface State {
     active?: string;
@@ -44,6 +44,12 @@ interface State {
     latest?: string;
     lastCheck?: number;
     lastError?: string;
+    // Why Discrub had to go back a version or couldn't load. Kept apart from lastError so a later check doesn't wipe it.
+    notice?: string;
+    noticeShown?: boolean;
+    // The notice is a load failure, not a rollback, so a later load that works makes it stale.
+    noticeIsLoadFailure?: boolean;
+    declined?: string;
 }
 
 export interface Status {
@@ -53,6 +59,9 @@ export interface Status {
     latest: string | null;
     lastCheck: number | null;
     lastError: string | null;
+    notice: string | null;
+    noticeShown: boolean;
+    declined: string | null;
     justUpdated: string | null;
     loaded: string | null;
     bad: string[];
@@ -76,6 +85,8 @@ const state: State = readState();
 let loaded: { id: string; version: string; } | null = null;
 let lastRelease: Release | null = null;
 let busy: Promise<unknown> = Promise.resolve();
+// Whether the plugin is on. Nothing gets loaded into the session while it's off.
+let wanted = Boolean(RendererSettings.store.plugins?.DiscrubLoader?.enabled);
 
 function readState(): State {
     try {
@@ -123,6 +134,9 @@ function status(): Status {
         latest: state.latest ?? null,
         lastCheck: state.lastCheck ?? null,
         lastError: state.lastError ?? null,
+        notice: state.notice ?? null,
+        noticeShown: Boolean(state.noticeShown),
+        declined: state.declined ?? null,
         justUpdated: state.justUpdated ?? null,
         loaded: loaded?.version ?? null,
         bad: [...state.bad],
@@ -238,6 +252,20 @@ function safeName(name: string) {
     return name.split("/").every(part => part && part !== "." && part !== "..");
 }
 
+const UPDATE_URL = String.raw`"update_url"\s*:\s*"(?:[^"\\]|\\.)*"`;
+
+// The store adds "update_url" to manifest.json; without it the file is byte-for-byte the one Discrub built.
+// Try the store's text with that key cut out, then the usual ways a build writes JSON. The hash still has to match exactly.
+function manifestCandidates(text: string, manifest: Record<string, unknown>) {
+    const after = new RegExp(String.raw`,\s*` + UPDATE_URL);
+    const cut = after.test(text) ? text.replace(after, "") : text.replace(new RegExp(UPDATE_URL + String.raw`\s*,\s*`), "");
+    const bases = [cut, ...[2, 4, "\t", 0].map(indent => JSON.stringify(manifest, null, indent || undefined))];
+    return [...new Set(bases.flatMap(b => {
+        const body = b.trimEnd();
+        return [b, body, body + "\n", body.replace(/\r?\n/g, "\r\n") + "\r\n"];
+    }))];
+}
+
 // Unpacks the store package and checks every file against the SHA-256 list Discrub publishes on GitHub for that version.
 function checkedFiles(archive: Buffer, hashes: Hashes) {
     let count = 0, total = 0;
@@ -257,12 +285,16 @@ function checkedFiles(archive: Buffer, hashes: Hashes) {
         files.set(name, data);
     }
 
-    // The store adds "update_url" to manifest.json; without it the file is byte-for-byte the one Discrub built.
     const manifestRaw = files.get("manifest.json");
     if (!manifestRaw) throw new Error("The package has no manifest.json.");
-    const manifest = JSON.parse(Buffer.from(manifestRaw).toString("utf8"));
+    const manifestText = Buffer.from(manifestRaw).toString("utf8");
+    const manifest = JSON.parse(manifestText);
     delete manifest.update_url;
-    files.set("manifest.json", Buffer.from(JSON.stringify(manifest, null, 2), "utf8"));
+    if (Object.hasOwn(hashes.files, "manifest.json")) {
+        const match = manifestCandidates(manifestText, manifest).find(c => sha256(c) === hashes.files["manifest.json"]);
+        if (!match) throw new Error("manifest.json doesn't match the copy Discrub published on GitHub, even with the store's update_url taken out.");
+        files.set("manifest.json", Buffer.from(match, "utf8"));
+    }
 
     const extra = [...files.keys()].filter(n => !Object.hasOwn(hashes.files, n));
     if (extra.length) throw new Error(`The package has files GitHub doesn't list: ${extra.slice(0, 3).join(", ")}`);
@@ -373,7 +405,9 @@ async function loadActive() {
 async function rollbackNow(reason: string) {
     if (!state.previous || !state.active) throw new Error(reason);
     state.bad = [...new Set([...state.bad, state.active])];
-    state.lastError = `Discrub v${state.active} didn't start (${reason}). Went back to v${state.previous}.`;
+    state.notice = `Discrub v${state.active} didn't start (${reason}). Went back to v${state.previous}.`;
+    state.noticeShown = false;
+    state.noticeIsLoadFailure = undefined;
     state.active = state.previous;
     state.previous = undefined;
     state.justUpdated = undefined;
@@ -387,6 +421,14 @@ async function promoteStaged() {
     state.active = state.staged;
     state.staged = undefined;
     state.justUpdated = state.active;
+    if (state.declined === state.active) state.declined = undefined;
+    await saveState();
+}
+
+async function clearLoadFailure() {
+    if (!state.noticeIsLoadFailure) return;
+    state.notice = undefined;
+    state.noticeIsLoadFailure = undefined;
     await saveState();
 }
 
@@ -395,20 +437,29 @@ async function boot() {
     CspPolicies["chrome-extension:"] = ["frame-src", "img-src"];
     if (!state.active && !state.staged) return;
     await promoteStaged();
+    if (state.declined && state.declined === state.active) {
+        state.declined = undefined;
+        await saveState();
+    }
     try {
         await loadActive();
+        await clearLoadFailure();
     } catch (e) {
         await rollbackNow(e instanceof Error ? e.message : String(e));
     }
     await prune();
 }
 
-if (RendererSettings.store.plugins?.DiscrubLoader?.enabled) {
-    app.whenReady().then(() => serial(boot)).catch(e => {
-        state.lastError = `Couldn't load Discrub: ${e instanceof Error ? e.message : e}`;
-        saveState().catch(() => { });
-        console.error("[DiscrubLoader]", e);
-    });
+async function loadFailed(e: unknown) {
+    state.notice = `Couldn't load Discrub: ${e instanceof Error ? e.message : e}`;
+    state.noticeShown = false;
+    state.noticeIsLoadFailure = true;
+    await saveState().catch(() => { });
+    console.error("[DiscrubLoader]", e);
+}
+
+if (wanted) {
+    app.whenReady().then(() => serial(boot)).catch(loadFailed);
 }
 
 // ---- IPC
@@ -418,13 +469,15 @@ export function getStatus(_: IpcMainInvokeEvent) {
 }
 
 export function start(_: IpcMainInvokeEvent) {
+    wanted = true;
     return serial(async () => {
         CspPolicies["chrome-extension:"] = ["frame-src", "img-src"];
-        if (!loaded && state.active) {
+        if (!loaded && state.active && wanted) {
             try {
                 await loadActive();
+                await clearLoadFailure();
             } catch (e) {
-                await rollbackNow(e instanceof Error ? e.message : String(e));
+                await rollbackNow(e instanceof Error ? e.message : String(e)).catch(loadFailed);
             }
         }
         return status();
@@ -432,6 +485,7 @@ export function start(_: IpcMainInvokeEvent) {
 }
 
 export function stop(_: IpcMainInvokeEvent) {
+    wanted = false;
     return serial(async () => {
         await unloadNow();
         return status();
@@ -477,11 +531,14 @@ export function install(_: IpcMainInvokeEvent, version: string) {
             await writeFile(hashesFile(version), JSON.stringify(hashes));
 
             state.bad = state.bad.filter(v => v !== version);
+            if (state.declined === version) state.declined = undefined;
             state.lastError = undefined;
+            state.notice = undefined;
+            state.noticeIsLoadFailure = undefined;
             if (!state.active) {
                 state.active = version;
                 await saveState();
-                await loadActive();
+                if (wanted) await loadActive();
             } else {
                 state.staged = version;
                 await saveState();
@@ -499,7 +556,7 @@ export function install(_: IpcMainInvokeEvent, version: string) {
 // Swaps in the downloaded update now. The page still has to reload for Discrub's scripts to run.
 export function applyStaged(_: IpcMainInvokeEvent) {
     return serial(async () => {
-        if (!state.staged) return status();
+        if (!state.staged || !wanted) return status();
         await promoteStaged();
         try {
             await loadActive();
@@ -522,19 +579,58 @@ export function confirmStarted(_: IpcMainInvokeEvent) {
     return serial(async () => {
         if (state.justUpdated) {
             state.justUpdated = undefined;
+            state.notice = undefined;
+            state.noticeIsLoadFailure = undefined;
             await saveState();
         }
         return status();
     });
 }
 
+export function markNoticeShown(_: IpcMainInvokeEvent) {
+    return serial(async () => {
+        if (state.notice && !state.noticeShown) {
+            state.noticeShown = true;
+            await saveState();
+        }
+        return status();
+    });
+}
+
+// "Not now" on an update: don't offer that version again on its own. "Check now" still does.
+export function decline(_: IpcMainInvokeEvent, version: string) {
+    return serial(async () => {
+        if (typeof version !== "string" || !VERSION.test(version)) throw new Error("That isn't a Discrub version.");
+        state.declined = version;
+        await saveState();
+        return status();
+    });
+}
+
+// Discrub's start screen remembers the last pick and launches it after a 5 s countdown. For "ask", forget that pick and
+// stop a countdown that already started (the dropdown's own mousedown handler pauses it), so the user always chooses.
+const askScript = `(async () => {
+    await chrome.storage.local.remove(${JSON.stringify(LAUNCHER_PREF)});
+    const select = document.getElementById("version-select");
+    const countdown = document.getElementById("countdown-text");
+    if (!select || !countdown) return false;
+    for (let i = 0; i < 30; i++) {
+        if (countdown.textContent.startsWith("Launching in")) {
+            select.dispatchEvent(new MouseEvent("mousedown"));
+            return true;
+        }
+        await new Promise(r => setTimeout(r, 100));
+    }
+    return true;
+})()`;
+
 // Picks New or Classic on Discrub's own start screen, the same as choosing it in the dropdown and pressing Launch.
 export async function chooseView(e: IpcMainInvokeEvent, view: View) {
-    if (view !== "web" && view !== "classic") return false;
+    if (view !== "ask" && view !== "web" && view !== "classic") return false;
     const id = loaded?.id;
     if (!id) return false;
     const launcher = `chrome-extension://${id}/launcher.html`;
-    const script = `(async () => {
+    const script = view === "ask" ? askScript : `(async () => {
         const view = ${JSON.stringify(view)};
         await chrome.storage.local.set({ ${JSON.stringify(LAUNCHER_PREF)}: view });
         const select = document.getElementById("version-select");
@@ -552,7 +648,7 @@ export async function chooseView(e: IpcMainInvokeEvent, view: View) {
         const frame = e.sender.mainFrame.framesInSubtree.find(f => f.url.startsWith(launcher));
         if (frame) {
             // Give the start screen a moment to read its saved choice first.
-            await new Promise(r => setTimeout(r, 250));
+            if (view !== "ask") await new Promise(r => setTimeout(r, 250));
             try {
                 return Boolean(await frame.executeJavaScript(script, true));
             } catch {
