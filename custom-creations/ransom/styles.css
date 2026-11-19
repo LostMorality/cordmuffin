@@ -4,7 +4,8 @@
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 2147483000;
+    /* Over Discord itself but under its modals and popouts (their layers sit at 1002). */
+    z-index: 1001;
     background-size: 100% 100%;
     image-rendering: pixelated;
     pointer-events: none;
@@ -375,7 +376,8 @@
 
 .vc-ransom-enc-bar {
     position: fixed;
-    z-index: 2147483050;
+    /* Over the message box but under Discord's modals and popouts (1002), so it never hides a window's buttons. */
+    z-index: 1001;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -462,7 +464,7 @@
 .vc-ransom-loot-field {
     position: fixed;
     inset: 0;
-    z-index: 2147483000;
+    z-index: 1001;
     pointer-events: none;
 }
 
