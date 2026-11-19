@@ -17,7 +17,7 @@ import { startCreature, stopCreature } from "./creature";
 import { loadDoors, unloadDoors } from "./doors";
 import { onChannelSelect, refreshHunt, stopHunt } from "./hunt";
 import { onImagesChange } from "./images";
-import { dropGold, startLoot, stopLoot } from "./loot";
+import { clearLooseGold, dropGoldByHand, startLoot, stopLoot } from "./loot";
 import { openPanel, StopIcon, TopGold, tryChallenge } from "./Panel";
 import { bindSettings, settings } from "./settings";
 import { closeAudio, openAudio } from "./sound";
@@ -74,36 +74,42 @@ export default definePlugin({
     toolboxActions: {
         "Open Ransom": openPanel,
         "Try a challenge": tryChallenge,
-        "Drop some gold": dropGold
+        "Drop some gold": dropGoldByHand
     },
 
     flux: {
         CHANNEL_SELECT({ channelId, guildId }: { channelId?: string | null; guildId?: string | null; }) {
-            void onChannelSelect(channelId, guildId);
+            onChannelSelect(channelId, guildId);
         }
     },
 
     start() {
         active = true;
         openAudio();
-        bindSettings(loadCreature, () => scheduleNext(true), () => settings.store.doorsAssets ? void loadDoors(true) : unloadDoors());
+        bindSettings(
+            loadCreature,
+            () => scheduleNext(),
+            () => settings.store.doorsAssets ? void loadDoors(true) : unloadDoors(),
+            () => onChannelSelect(SelectedChannelStore.getChannelId(), SelectedGuildStore.getGuildId()),
+            () => settings.store.looseGold === "off" && clearLooseGold()
+        );
         offImages = onImagesChange(loadCreature);
         // Ransom used to take custom packs; drop one left saved from back then.
-        void DataStore.del("Ransom_pack");
+        void DataStore.del("Ransom_pack").catch(() => { });
         if (settings.store.doorsAssets) void loadDoors();
         loadCreature();
         document.addEventListener("keydown", onKey, true);
         window.addEventListener("resize", onResize);
         scheduleNext(true);
         startLoot();
-        void onChannelSelect(SelectedChannelStore.getChannelId(), SelectedGuildStore.getGuildId());
+        onChannelSelect(SelectedChannelStore.getChannelId(), SelectedGuildStore.getGuildId());
         startTimers.push(setTimeout(warnOnce, 3000), setTimeout(() => void resumeAftermath(), 2500));
     },
 
     stop() {
         active = false;
         startTimers.splice(0).forEach(clearTimeout);
-        bindSettings(() => { }, () => { }, () => { });
+        bindSettings();
         unloadDoors();
         offImages?.();
         offImages = undefined;
