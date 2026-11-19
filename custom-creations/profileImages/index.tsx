@@ -11,6 +11,7 @@ import type { Guild } from "@vencord/discord-types";
 import type { ReactNode } from "react";
 
 import { BannerOverlay, GuildBannerPills, ProfileButtons } from "./components";
+import { clearBannerColors } from "./images";
 import { settings } from "./settings";
 
 export default definePlugin({
@@ -21,7 +22,11 @@ export default definePlugin({
     searchTerms: ["ViewIcons", "avatar", "banner", "pfp"],
     settings,
 
-    renderOverlay(original: ReactNode, props: any) {
+    stop() {
+        clearBannerColors();
+    },
+
+    renderOverlay(original: ReactNode, props: any, colorReady?: boolean) {
         return (
             <>
                 {original}
@@ -30,6 +35,8 @@ export default definePlugin({
                     guildId={props.guildId}
                     displayProfile={props.displayProfile}
                     themeType={props.vcThemeType}
+                    colorReady={colorReady !== false}
+                    preview={props.pendingAccentColor != null}
                 />
             </>
         );
@@ -59,8 +66,10 @@ export default definePlugin({
             find: ".themePadding:0",
             replacement: [
                 {
-                    match: /overlay:(\i),(?=onInteractionStart:)/,
-                    replace: "overlay:$self.renderOverlay($1,arguments[0]),"
+                    // The lookbehind also passes on whether the banner colour has loaded (it's a grey placeholder
+                    // until then). Its empty branch keeps the overlay working if Discord changes that part.
+                    match: /(?<=backgroundColor:("COMPLETE"===\i\|\|\i)\?.{0,200}?|)overlay:(\i),(?=onInteractionStart:)/,
+                    replace: "overlay:$self.renderOverlay($2,arguments[0],$1),"
                 },
                 {
                     match: /themePadding:\i\?\i\.themePadding:0(?=\})/,
@@ -78,7 +87,7 @@ export default definePlugin({
         },
         // Full profile: the Message / Add Friend / More row
         {
-            find: '"UserProfileModalV2Buttons"',
+            find: ".profileButtons,children:",
             replacement: {
                 match: /(className:\i\.profileButtons,children:)(\(0,\i\.jsx\)\(\i,(\{user:\i,[^}]*?\})\))/,
                 replace: "$1$self.renderRow($2,$3)"
