@@ -46,10 +46,10 @@
 
 .vc-rpcshare-import-row > :first-child {
     flex: 1;
+    min-width: 0;
 }
 
-.vc-rpcshare-code textarea,
-textarea.vc-rpcshare-code {
+.vc-rpcshare-code textarea {
     font-family: var(--font-code);
     font-size: 12px;
     word-break: break-all;
@@ -65,6 +65,11 @@ textarea.vc-rpcshare-code {
 }
 
 .vc-rpcshare-chip {
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 13px;
