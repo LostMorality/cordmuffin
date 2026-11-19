@@ -53,6 +53,11 @@ export const settings = definePluginSettings({
         description: "",
         default: [] as string[],
     },
+    bdDeclarationSeen: {
+        type: OptionType.CUSTOM,
+        description: "",
+        default: "{}" as string,
+    },
 });
 
 export interface BrokenMark {
