@@ -3,6 +3,8 @@
     display: inline-flex;
     justify-content: center;
     align-items: center;
+    /* room around the art and eye button when a tier pick scrolls it back into view */
+    scroll-margin: 16px 0;
 }
 
 .vc-btv-hero-locked img {
@@ -19,8 +21,8 @@
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--background-base-low, rgb(0 0 0 / 60%));
-    color: var(--text-default);
+    background: rgb(0 0 0 / 60%);
+    color: #fff;
     pointer-events: none;
 }
 
@@ -50,14 +52,25 @@
 }
 
 .vc-btv-eye:focus-visible,
-[data-btv-tier]:focus-visible {
+.vc-btv-tier-button:focus-visible {
     outline: 2px solid var(--focus-primary);
     outline-offset: 2px;
 }
 
 [data-btv-tier] {
-    cursor: pointer;
+    position: relative;
     border-radius: 8px;
+}
+
+.vc-btv-tier-button {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    padding: 0;
+    border: 0;
+    border-radius: inherit;
+    background: none;
+    cursor: pointer;
 }
 
 [data-btv-tier]:hover {
@@ -82,4 +95,9 @@
     font-size: 12px;
     line-height: 16px;
     color: var(--text-muted);
+}
+
+/* a status-row item that wrapped onto a new line: hide the dot in front of it (marked by NeedText) */
+[data-btv-line-start] > [class*="badgeAccessoryDot_"] {
+    visibility: hidden;
 }
