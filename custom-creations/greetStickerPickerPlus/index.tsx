@@ -8,24 +8,24 @@
 import { definePluginSettings, migratePluginSetting, migratePluginSettings, Settings } from "@api/Settings";
 import { FormSwitch } from "@components/FormSwitch";
 import { Devs } from "@utils/constants";
+import { Logger } from "@utils/Logger";
 import { openModal } from "@utils/modal";
 import definePlugin, { OptionType } from "@utils/types";
 import type { Channel, Message, RenderModalProps } from "@vencord/discord-types";
-import { findByCodeLazy } from "@webpack";
-import { ChannelStore, ContextMenuApi, FluxDispatcher, GuildStore, Menu, MessageActions, Modal, React, SelectedChannelStore, showToast as equicordShowToast, StickersStore, TextInput, UserStore } from "@webpack/common";
+import { PremiumType } from "@vencord/discord-types/enums";
+import { findByCodeLazy, findComponentByCodeLazy } from "@webpack";
+import { ChannelStore, ContextMenuApi, ExpressionPickerStore, FluxDispatcher, GuildStore, Menu, MessageActions, Modal, PermissionsBits, PermissionStore, React, SelectedChannelStore, showToast, StickersStore, TextInput, UserStore } from "@webpack/common";
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+const logger = new Logger("GreetStickerPicker+");
 
-function showToast(options: Parameters<typeof equicordShowToast>[0]) {
-    for (const show of [equicordShowToast, discordToast]) {
-        try {
-            show(options);
-            return;
-        } catch { }
-    }
-}
+// Discord's own checks, so the plugin agrees with the native sticker picker and the chat box.
+const getStickerSendability: (sticker: any, user: any, channel: Channel) => number = findByCodeLazy("canUseCustomStickersEverywhere(", "USE_EXTERNAL_STICKERS");
+const validateMessage: (options: any) => Promise<{ valid: boolean; }> = findByCodeLazy(".getSlowmodeCooldownGuess(", "respectCooldown:");
+const StickerRenderer = findComponentByCodeLazy("enlargeScaleFactor:", "enlargeOnInteraction:");
+
+const SENDABLE = 0;
+const STICKERS_EVERYWHERE_TIERS = [PremiumType.TIER_0, PremiumType.TIER_2];
+const SEARCH_LIMIT = 100;
 
 // Takes over the original plugin's settings (and switches it off), so the two never patch the same button.
 migratePluginSettings("GreetStickerPicker+", "GreetStickerPicker");
@@ -49,6 +49,7 @@ interface GuildSticker {
 }
 
 const StickerExt = [, "png", "png", null, "gif"] as const;
+const LOTTIE = 3;
 
 function getStickerThumbUrl(sticker: { id: string; format_type: number; }, size = 40): string | null {
     const env = (window as any).GLOBAL_ENV ?? {};
@@ -60,9 +61,23 @@ function getStickerThumbUrl(sticker: { id: string; format_type: number; }, size 
     return `https://${env.CDN_HOST}/stickers/${sticker.id}.${ext}?size=${size}&lossless=true`;
 }
 
-function StickerThumb(sticker: { id: string; format_type: number; }) {
-    const url = getStickerThumbUrl(sticker);
-    return function StickerThumbIcon() {
+type ThumbSticker = { id: string; format_type: number; name?: string; };
+
+// One component per sticker, reused across renders, so menu thumbnails don't remount on every keystroke.
+const thumbCache = new Map<string, React.ComponentType>();
+
+function StickerThumb(sticker: ThumbSticker) {
+    // Keyed by format too: a sticker first seen as an unknown fallback must not keep that wrong thumbnail.
+    const key = `${sticker.id}:${sticker.format_type}`;
+    const cached = thumbCache.get(key);
+    if (cached) return cached;
+
+    // Lottie stickers have no image on the CDN, only animation JSON, so Discord's own renderer draws them.
+    const lottie = sticker.format_type === LOTTIE ? { id: sticker.id, format_type: LOTTIE, name: sticker.name ?? "" } : null;
+    const url = lottie ? null : getStickerThumbUrl(sticker);
+
+    const StickerThumbIcon = () => {
+        if (lottie) return <StickerRenderer sticker={lottie} size={24} disableAnimation />;
         if (!url) return null;
         return (
             <img
@@ -74,9 +89,12 @@ function StickerThumb(sticker: { id: string; format_type: number; }) {
             />
         );
     };
+
+    thumbCache.set(key, StickerThumbIcon);
+    return StickerThumbIcon;
 }
 
-function thumbProps(sticker: { id: string; format_type: number; }) {
+function thumbProps(sticker: ThumbSticker) {
     const Icon = StickerThumb(sticker);
     return { icon: Icon, leadingAccessory: { type: "icon" as const, icon: Icon } };
 }
@@ -85,10 +103,10 @@ const settings = definePluginSettings({
     greetMode: {
         type: OptionType.SELECT,
         options: [
-            { label: "Greet (you can only greet 3 times)", value: GreetMode.Greet, default: true },
-            { label: "Normal Message (you can greet spam)", value: GreetMode.NormalMessage }
+            { label: "Greet (max 3)", value: GreetMode.Greet, default: true },
+            { label: "Normal message", value: GreetMode.NormalMessage }
         ],
-        description: "Send mode for welcome stickers and the default greet sticker"
+        description: "How welcome stickers are sent (list menu, Multi-Greet and a welcome default sticker). Greet is Discord's real greet, limited to 3 per message; Normal message sends a reply with no limit. Other stickers always go out as a reply."
     },
     useNativePicker: {
         type: OptionType.BOOLEAN,
@@ -103,7 +121,7 @@ const settings = definePluginSettings({
     onlyCurrentGuildStickers: {
         type: OptionType.BOOLEAN,
         default: false,
-        description: "Only list stickers from the server this message is in (ignore cross-guild Nitro stickers)"
+        description: "Only list stickers from the server this message is in (ignore cross-guild Nitro stickers). Has no effect in DMs, which have no server of their own."
     },
     enableMultiGreet: {
         type: OptionType.BOOLEAN,
@@ -118,7 +136,29 @@ const settings = definePluginSettings({
 let WELCOME_STICKERS: any;
 let NativeStickerPicker: any;
 
-function greet(channel: Channel, message: Message | null, stickers: string[], forceMessage = false) {
+function isWelcomeSticker(id: string) {
+    return (WELCOME_STICKERS ?? []).some((x: any) => x.id === id);
+}
+
+// The same pre-send check Discord's own welcome button runs (slowmode, full send queue).
+async function passesSendCheck(channel: Channel) {
+    try {
+        const { valid } = await validateMessage({ type: {}, content: "", channel, hasStickers: true });
+        return valid;
+    } catch (e) {
+        logger.error("Pre-send check failed, sending anyway", e);
+        return true;
+    }
+}
+
+function onSendError(e: any) {
+    if (e?.status === 429) showToast({ text: "Rate limited, try again in a moment.", variant: "critical" });
+    else logger.error("Failed to send greet sticker", e);
+}
+
+async function greet(channel: Channel, message: Message | null, stickers: string[], forceMessage = false) {
+    if (!(await passesSendCheck(channel))) return;
+
     const options: any = message
         ? MessageActions.getSendMessageOptionsForReply({
             channel,
@@ -142,26 +182,38 @@ function greet(channel: Channel, message: Message | null, stickers: string[], fo
             validNonShortcutEmojis: []
         };
 
-        MessageActions._sendMessage(channel.id, msg, options);
+        await MessageActions._sendMessage(channel.id, msg, options);
     } else {
-        MessageActions.sendGreetMessage(channel.id, stickers[0], options);
+        await MessageActions.sendGreetMessage(channel.id, stickers[0], options);
     }
 }
 
-function canSendSticker(sticker: GuildSticker, channelGuildId: string | null, premiumType: number) {
-    if (sticker.available === false) return false;
-
-    const hasNitro = premiumType === 2;
-
-    if (sticker.type === 2)
-        return sticker.guild_id === channelGuildId || hasNitro;
-
-    return hasNitro;
+function sendGreet(...args: Parameters<typeof greet>) {
+    greet(...args).catch(onSendError);
 }
 
-function getSendableStickers(channelGuildId: string | null) {
-    const premiumType = UserStore.getCurrentUser()?.premiumType ?? 0;
-    const onlyCurrent = settings.store.onlyCurrentGuildStickers;
+function getChannelGuildId(channel: Channel): string | null {
+    return channel.getGuildId?.() ?? (channel as any).guild_id ?? null;
+}
+
+function canSendSticker(sticker: GuildSticker, channel: Channel) {
+    const user = UserStore.getCurrentUser();
+    try {
+        return getStickerSendability(sticker, user, channel) === SENDABLE;
+    } catch {
+        // Discord's check wasn't found, so mirror its rules: own server always, otherwise Nitro plus permission.
+        if (sticker.available === false || !GuildStore.getGuild(sticker.guild_id ?? "")) return false;
+
+        const channelGuildId = getChannelGuildId(channel);
+        if (channelGuildId && sticker.guild_id === channelGuildId) return true;
+        if (!STICKERS_EVERYWHERE_TIERS.includes(user?.premiumType ?? PremiumType.NONE)) return false;
+        return !channelGuildId || PermissionStore.can(PermissionsBits.USE_EXTERNAL_STICKERS, channel);
+    }
+}
+
+function getSendableStickers(channel: Channel, onlyCurrentGuild: boolean) {
+    const channelGuildId = getChannelGuildId(channel);
+    const onlyCurrent = onlyCurrentGuild && channelGuildId != null;
 
     const groups: { guildId: string; guildName: string; stickers: GuildSticker[]; }[] = [];
 
@@ -190,7 +242,7 @@ function getSendableStickers(channelGuildId: string | null) {
         if (!Array.isArray(stickers)) continue;
         if (onlyCurrent && guildId !== channelGuildId) continue;
 
-        const sendable = stickers.filter(s => canSendSticker(s, channelGuildId, premiumType));
+        const sendable = stickers.filter(s => canSendSticker(s, channel));
         if (!sendable.length) continue;
 
         groups.push({
@@ -218,6 +270,35 @@ function extractStickerId(args: any[]): string | null {
     return null;
 }
 
+function describeSticker(id: string): { id: string; name: string; format_type: number; } {
+    const welcome = (WELCOME_STICKERS ?? []).find((x: any) => x.id === id);
+    if (welcome) return { id, name: welcome.description.split(" ")[0], format_type: welcome.format_type };
+
+    const known = StickersStore.getStickerById?.(id);
+    if (known) return { id, name: known.name ?? id, format_type: known.format_type };
+
+    return { id, name: "Unknown sticker", format_type: 1 };
+}
+
+function CurrentDefault({ id }: { id?: string; }) {
+    const sticker = id ? describeSticker(id) : null;
+    const url = sticker && sticker.name !== "Unknown sticker" ? getStickerThumbUrl(sticker, 64) : null;
+
+    return (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0 10px", color: "var(--text-default)" }}>
+            {sticker?.format_type === LOTTIE
+                ? <StickerRenderer sticker={sticker} size={32} disableAnimation />
+                : url && <img src={url} width={32} height={32} style={{ borderRadius: 4, objectFit: "contain" }} />}
+            <span style={{ fontSize: 14 }}>
+                {sticker ? <>Default: <b>{sticker.name}</b></> : "No default greet sticker"}
+            </span>
+        </div>
+    );
+}
+
+const PICKER_MAX_HEIGHT = 460;
+const PICKER_MIN_HEIGHT = 240;
+
 function PickerModal({ modalProps, channel, message }: { modalProps: RenderModalProps; channel: Channel; message: Message | null; }) {
     const [setDefaultMode, setSetDefaultMode] = React.useState(false);
     const { defaultStickerId } = settings.use(["defaultStickerId"]);
@@ -227,9 +308,36 @@ function PickerModal({ modalProps, channel, message }: { modalProps: RenderModal
         if (!id) return;
 
         if (setDefaultMode) settings.store.defaultStickerId = id;
-        else greet(channel, message, [id], true);
+        else sendGreet(channel, message, [id], true);
         modalProps.onClose();
     };
+
+    React.useEffect(() => clearPickerSearch, []);
+
+    // The picker needs a fixed height; shrink it to fit the modal body instead of adding a second scrollbar.
+    // Every fit starts again from the max height, so a content-sized body can't feed its own rounding back in.
+    const pickerRef = React.useRef<HTMLDivElement>(null);
+
+    React.useLayoutEffect(() => {
+        const picker = pickerRef.current;
+        let scroller = picker?.parentElement ?? null;
+        while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement;
+        if (!picker) return;
+        const body = scroller;
+
+        const fit = () => {
+            picker.style.height = `${PICKER_MAX_HEIGHT}px`;
+            if (!body || body.scrollHeight <= body.clientHeight) return;
+
+            const offset = picker.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+            const free = body.clientHeight - offset - (parseFloat(getComputedStyle(body).paddingBottom) || 0);
+            picker.style.height = `${Math.max(PICKER_MIN_HEIGHT, Math.min(PICKER_MAX_HEIGHT, Math.floor(free)))}px`;
+        };
+
+        fit();
+        window.addEventListener("resize", fit);
+        return () => window.removeEventListener("resize", fit);
+    }, [defaultStickerId]);
 
     return (
         <Modal
@@ -238,33 +346,49 @@ function PickerModal({ modalProps, channel, message }: { modalProps: RenderModal
             title="Greet Sticker Picker"
             actionBarInput={<FormSwitch title="Set as default" value={setDefaultMode} onChange={setSetDefaultMode} hideBorder />}
             actions={defaultStickerId
-                ? [{ text: "Clear default greet sticker", variant: "secondary", onClick: () => { settings.store.defaultStickerId = undefined; } }]
+                ? [{ text: "Clear default", variant: "secondary", onClick: () => { settings.store.defaultStickerId = undefined; } }]
                 : []}
         >
-            <div style={{ height: 460, display: "flex", flexDirection: "column" }}>
+            <CurrentDefault id={defaultStickerId} />
+            <div ref={pickerRef} className="vc-gsp-native-picker" style={{ display: "flex", flexDirection: "column" }}>
+                {/* Discord's sticker panel is a grid that only grows to its search bar unless its parent stretches it. */}
+                <style>{".vc-gsp-native-picker>[role=tabpanel]{flex:1 1 auto;min-height:0}"}</style>
                 <NativeStickerPicker channel={channel} onSelectSticker={onSelect} closePopout={modalProps.onClose} />
             </div>
         </Modal>
     );
 }
 
+// Discord's sticker panel keeps its search text in the shared expression picker store, so without this the
+// modal reopens on the last search. Cleared when the modal opens and closes; Discord's own picker isn't open then.
+function clearPickerSearch() {
+    try {
+        ExpressionPickerStore.setSearchQuery("");
+    } catch (e) {
+        logger.warn("Couldn't clear the sticker search", e);
+    }
+}
+
 function openNativePicker(channel: Channel, message: Message | null) {
     if (!NativeStickerPicker) return false;
+    clearPickerSearch();
     openModal(modalProps => <PickerModal modalProps={modalProps} channel={channel} message={message} />);
     return true;
 }
 
 function GreetMenu({ channel, message }: { message: Message | null, channel: Channel; }) {
-    const s = settings.use(["greetMode", "multiGreetChoices", "enableServerStickers", "enableMultiGreet", "defaultStickerId"]);
-    const { greetMode, multiGreetChoices = [], defaultStickerId } = s;
+    const s = settings.use(["greetMode", "multiGreetChoices", "enableServerStickers", "enableMultiGreet", "defaultStickerId", "onlyCurrentGuildStickers"]);
+    const { greetMode, multiGreetChoices = [], defaultStickerId, onlyCurrentGuildStickers } = s;
     // Discord's welcome sticker list is grabbed by a patch; until that module loads it's missing.
     const welcomeStickers: any[] = WELCOME_STICKERS ?? [];
 
     const [query, setQuery] = React.useState("");
     const q = query.trim().toLowerCase();
 
-    const channelGuildId = channel.getGuildId?.() ?? (channel as any).guild_id ?? null;
-    const serverStickerGroups = getSendableStickers(channelGuildId);
+    const serverStickerGroups = React.useMemo(
+        () => getSendableStickers(channel, onlyCurrentGuildStickers),
+        [channel, onlyCurrentGuildStickers]
+    );
 
     const defaultSticker: { id: string; name: string; format_type: number; } | null = (() => {
         if (!defaultStickerId) return null;
@@ -282,13 +406,16 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
         return { id: defaultStickerId, name: defaultStickerId, format_type: 1 };
     })();
 
-    const matches = q
-        ? serverStickerGroups
-            .flatMap(g => g.stickers
+    const allMatches = React.useMemo(
+        () => q
+            ? serverStickerGroups.flatMap(g => g.stickers
                 .filter(st => st.name.toLowerCase().includes(q))
                 .map(st => ({ st, guildName: g.guildName })))
-            .slice(0, 100)
-        : [];
+            : [],
+        [serverStickerGroups, q]
+    );
+    const matches = allMatches.slice(0, SEARCH_LIMIT);
+    const hiddenMatches = allMatches.length - matches.length;
 
     return (
         <Menu.Menu
@@ -326,17 +453,17 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
                         id={"greet-" + sticker.id}
                         label={sticker.description.split(" ")[0]}
                         {...thumbProps(sticker)}
-                        action={() => greet(channel, message, [sticker.id])}
+                        action={() => sendGreet(channel, message, [sticker.id])}
                     />
                 ))}
             </Menu.MenuGroup>
 
             <Menu.MenuSeparator />
 
-            <Menu.MenuGroup label="Default Greet (left-click)">
+            <Menu.MenuGroup label="Left-click default">
                 <Menu.MenuItem
                     id="greet-default-set"
-                    label="Set Default Greet Sticker"
+                    label="Set Default Sticker"
                 >
                     <Menu.MenuGroup label={defaultSticker ? "Current default" : "No default set"}>
                         {defaultSticker && (
@@ -411,7 +538,7 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
                                     <TextInput
                                         value={query}
                                         onChange={(v: string) => setQuery(v)}
-                                        placeholder="Find the perfect sticker"
+                                        placeholder="Search stickers"
                                         autoFocus
                                     />
                                 </div>
@@ -422,16 +549,26 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
                             matches.length === 0 ? (
                                 <Menu.MenuItem id="greet-server-nomatch" label="No matches" disabled />
                             ) : (
-                                matches.map(({ st, guildName }) => (
-                                    <Menu.MenuItem
-                                        key={st.id}
-                                        id={"greet-server-sticker-" + st.id}
-                                        label={st.name}
-                                        subtext={guildName}
-                                        {...thumbProps(st)}
-                                        action={() => greet(channel, message, [st.id], true)}
-                                    />
-                                ))
+                                <>
+                                    {matches.map(({ st, guildName }) => (
+                                        <Menu.MenuItem
+                                            key={st.id}
+                                            id={"greet-server-sticker-" + st.id}
+                                            label={st.name}
+                                            subtext={guildName}
+                                            {...thumbProps(st)}
+                                            action={() => sendGreet(channel, message, [st.id], true)}
+                                        />
+                                    ))}
+                                    {hiddenMatches > 0 && (
+                                        <Menu.MenuItem
+                                            id="greet-server-more"
+                                            label={`${hiddenMatches} more`}
+                                            subtext="Keep typing to narrow"
+                                            disabled
+                                        />
+                                    )}
+                                </>
                             )
                         ) : serverStickerGroups.length === 0 ? (
                             <Menu.MenuItem
@@ -452,7 +589,7 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
                                             id={"greet-server-sticker-" + sticker.id}
                                             label={sticker.name}
                                             {...thumbProps(sticker)}
-                                            action={() => greet(channel, message, [sticker.id], true)}
+                                            action={() => sendGreet(channel, message, [sticker.id], true)}
                                         />
                                     ))}
                                 </Menu.MenuItem>
@@ -493,7 +630,7 @@ function GreetMenu({ channel, message }: { message: Message | null, channel: Cha
                         <Menu.MenuItem
                             id="multi-greet-submit"
                             label="Send Greets"
-                            action={() => greet(channel, message, [...multiGreetChoices])}
+                            action={() => sendGreet(channel, message, [...multiGreetChoices])}
                             disabled={multiGreetChoices.length === 0}
                         />
                     </Menu.MenuItem>
@@ -517,12 +654,13 @@ export default definePlugin({
 
     patches: [
         {
+            // On the wave button itself, not its full-width wrapper row.
             find: "#{intl::WELCOME_CTA_LABEL}",
             predicate: () => !originalOn(),
             all: true,
             replacement: {
-                match: /className:\i\.\i,(?=.{0,40}?"sticker")(?<={channel:\i(?:,message:\i)?}=(\i).+?)/g,
-                replace: "$&onContextMenu:(vcEvent)=>$self.pickSticker(vcEvent, $1),onClickCapture:(vcEvent)=>$self.onGreetClick(vcEvent, $1),"
+                match: /icon:\{type:"sticker",(?<=\{channel:\i,message:\i\}=(\i)[^]{0,1500}?)/g,
+                replace: "onContextMenu:vcE=>$self.pickSticker(vcE,$1),onClickCapture:vcE=>$self.onGreetClick(vcE,$1),$&"
             }
         },
         {
@@ -534,12 +672,12 @@ export default definePlugin({
             }
         },
         {
+            // Grabs the sticker tab panel where it's defined, so it's ready before the chat-bar picker is ever opened.
             find: "#{intl::EXPRESSION_PICKER_CATEGORIES_A11Y_LABEL}",
             predicate: () => !originalOn(),
-            noWarn: true,
             replacement: {
-                match: /(\i===\i\.\i\.STICKER&&\i\?\([^()]{1,12}\)\()([\w$.]+)(,\{)/,
-                replace: "$1($self.NativeStickerPicker=$2)$3"
+                match: /(?<=[,;\s]\i=)(?=function\(\i\)\{let\{ref:\i,\.\.\.\i\}=\i;return\(0,\i\.\i\)\(\),\(0,\i\.jsx\)\("div",\{[^{}]{0,120}?role:"tabpanel")/,
+                replace: "$self.NativeStickerPicker="
             }
         },
         {
@@ -547,12 +685,12 @@ export default definePlugin({
             predicate: () => !originalOn(),
             replacement: [
                 {
-                    match: /onClick:\i,(children:\[\(0,\i\.jsx\)\(\i\.\i,\{sticker:)/,
-                    replace: "onContextMenu:vcE=>$self.pickStickerDM(vcE),onClickCapture:vcE=>$self.onGreetClickDM(vcE),$&"
+                    match: /onClick:\i,(?=children:\[\(0,\i\.jsx\)\(\i\.\i,\{sticker:)(?<=let\{channel:(\i)\}=\i[^]{0,3000}?)/,
+                    replace: "onContextMenu:vcE=>$self.pickStickerDM(vcE,$1),onClickCapture:vcE=>$self.onGreetClickDM(vcE,$1),$&"
                 },
                 {
-                    match: /(variant:"primary",size:"md",)onClick:/,
-                    replace: "$1onContextMenu:vcE=>$self.pickStickerDM(vcE),onClickCapture:vcE=>$self.onGreetClickDM(vcE),onClick:"
+                    match: /(?<=let\{channel:(\i)\}=\i[^]{0,3000}?variant:"primary",size:"md",)(?=onClick:)/,
+                    replace: "onContextMenu:vcE=>$self.pickStickerDM(vcE,$1),onClickCapture:vcE=>$self.onGreetClickDM(vcE,$1),"
                 }
             ]
         }
@@ -575,7 +713,18 @@ export default definePlugin({
 
         event.preventDefault();
         event.stopPropagation();
-        greet(props.channel, props.message ?? null, [id], true);
+
+        const welcome = isWelcomeSticker(id);
+        if (!welcome) {
+            const sticker = StickersStore.getStickerById?.(id);
+            if (!sticker || !canSendSticker(sticker, props.channel)) {
+                showToast({ text: "Your default sticker can't be sent here. Right-click to pick another.", variant: "critical" });
+                return;
+            }
+        }
+
+        // Welcome stickers follow the greet mode; any other sticker can only go out as a reply.
+        sendGreet(props.channel, props.message ?? null, [id], !welcome);
     },
 
     pickSticker(
@@ -588,7 +737,12 @@ export default definePlugin({
         if ((props.message as any)?.deleted) return;
 
         const wantNative = settings.store.useNativePicker && !(event as React.MouseEvent).shiftKey;
-        if (wantNative && openNativePicker(props.channel, props.message ?? null)) return;
+        if (wantNative && openNativePicker(props.channel, props.message ?? null)) {
+            // Keeps the message row's own context menu from opening on top of the picker.
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
 
         ContextMenuApi.openContextMenu(event, () => <GreetMenu channel={props.channel} message={props.message ?? null} />);
     },
@@ -598,13 +752,13 @@ export default definePlugin({
         return id ? ChannelStore.getChannel(id) : null;
     },
 
-    pickStickerDM(event: React.UIEvent) {
-        const channel = this.getCurrentChannel();
+    pickStickerDM(event: React.UIEvent, channel?: Channel) {
+        channel ??= this.getCurrentChannel() ?? undefined;
         if (channel) this.pickSticker(event, { channel });
     },
 
-    onGreetClickDM(event: React.MouseEvent) {
-        const channel = this.getCurrentChannel();
+    onGreetClickDM(event: React.MouseEvent, channel?: Channel) {
+        channel ??= this.getCurrentChannel() ?? undefined;
         if (channel) this.onGreetClick(event, { channel });
     }
 });
