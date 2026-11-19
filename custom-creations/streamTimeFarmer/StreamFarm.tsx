@@ -40,7 +40,7 @@ function SourcePicker({ streamSource }: { streamSource: string; }) {
         .catch(() => setNames([]));
     useEffect(() => void refresh(), []);
 
-    const options = [{ label: canUseFarmWindow() ? "Its own window (recommended)" : "A random open window", value: FARM_SOURCE }, { label: "Entire screen", value: "screen" }, ...names.map(n => ({ label: n, value: n }))];
+    const options = [{ label: canUseFarmWindow() ? "Its own window (recommended)" : "Its own window (can't run here)", value: FARM_SOURCE }, { label: "Entire screen", value: "screen" }, ...names.map(n => ({ label: n, value: n }))];
     // "random" was the old default and is shown as the farm window, so it isn't listed as a window of its own.
     if (streamSource && streamSource !== "random" && !options.some(o => o.value === streamSource)) options.push({ label: `${streamSource} (not open)`, value: streamSource });
 
@@ -115,7 +115,7 @@ function GamePicker({ game }: { game: FarmGame | null; }) {
             <span className={cl("stream-label")}>Show it as a game (optional)</span>
             <div className={cl("stream-row")}>
                 <span className={cl("stream-grow")}>{game ? `Streaming ${game.name}` : "Not a game: it streams as itself."}</span>
-                {game && <Button size="small" variant="secondary" onClick={() => pick(null)}>Stop showing as a game</Button>}
+                {game && <Button size="small" variant="secondary" onClick={() => pick(null)}>Don't show as a game</Button>}
             </div>
             {game && gameSlotTaken() && (
                 <div className={cl("stream-note")}>gameSessionSpoofer is showing a game right now, so the farm window streams as itself until that ends.</div>
