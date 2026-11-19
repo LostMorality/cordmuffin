@@ -5,23 +5,20 @@
  */
 
 import { showNotification } from "@api/Notifications";
+import type { ToastData } from "@vencord/discord-types";
 import { findByCodeLazy } from "@webpack";
-import { showToast } from "@webpack/common";
 
-type ToastOptions = Parameters<typeof showToast>[0];
+// Discord's own toast function, looked up directly. Equicord's showToast never throws: when its lookup fails it just
+// logs the text, so nothing would ever show. This lookup throws instead, and the message falls back to a notification.
+const discordToast: (data: ToastData) => void = findByCodeLazy("currentToastMap.get(", "queuedToastsMap");
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: (options: ToastOptions) => void = findByCodeLazy("currentToastMap.get(", "toastKey");
-
-function toast(options: ToastOptions) {
-    for (const show of [showToast, discordToast]) {
-        try {
-            show(options);
-            return true;
-        } catch { }
+function toast(data: ToastData) {
+    try {
+        discordToast(data);
+        return true;
+    } catch {
+        return false;
     }
-    return false;
 }
 
 // Discord's toasts cut text off after about two lines, so longer messages go to a notification that shows all of it.
