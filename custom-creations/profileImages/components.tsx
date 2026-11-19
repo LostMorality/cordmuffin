@@ -8,7 +8,7 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { copyToClipboard } from "@utils/clipboard";
 import type { Guild, User } from "@vencord/discord-types";
 import { findCssClassesLazy } from "@webpack";
-import { ContextMenuApi, GuildMemberStore, GuildStore, Menu, Tooltip, useEffect, useLayoutEffect, useRef, UserProfileStore, useState, useStateFromStores } from "@webpack/common";
+import { ContextMenuApi, GuildMemberStore, GuildStore, Menu, ReactDOM, Tooltip, useEffect, useLayoutEffect, useRef, UserProfileStore, useState, useStateFromStores } from "@webpack/common";
 import type { MouseEvent, ReactNode } from "react";
 
 import { collectGuildImages, collectImages, openGallery, type ProfileImage, type ProfileImages, setBannerColor, subscribeBannerColors } from "./images";
@@ -57,6 +57,29 @@ function ServerIcon({ size = 16 }: { size?: number; }) {
     );
 }
 
+// Set once the full-profile row patch has rendered our square buttons. Until then the full profile keeps its Avatar pill,
+// so a Discord update that breaks the row patch never leaves that profile without an avatar button.
+let rowPatched = false;
+const rowListeners = new Set<() => void>();
+
+function markRowPatched() {
+    if (rowPatched) return;
+    rowPatched = true;
+    rowListeners.forEach(fn => fn());
+}
+
+function useRowPatched() {
+    const [patched, setPatched] = useState(rowPatched);
+    useLayoutEffect(() => {
+        // The row may have marked itself between our render and this effect, so catch up instead of waiting for a call.
+        if (rowPatched) return void setPatched(true);
+        const fn = () => setPatched(true);
+        rowListeners.add(fn);
+        return () => void rowListeners.delete(fn);
+    }, []);
+    return patched;
+}
+
 function useImages({ user, guildId, displayProfile }: Target): ProfileImages {
     const gid = guildId ?? displayProfile?.guildId ?? null;
     // Re-render when the profile or member loads, the images come from these stores.
@@ -66,6 +89,14 @@ function useImages({ user, guildId, displayProfile }: Target): ProfileImages {
     const [, bump] = useState(0);
     useEffect(() => subscribeBannerColors(() => bump(n => n + 1)), []);
     return collectImages(user, guildId, displayProfile);
+}
+
+async function openInBrowser(url: string) {
+    try {
+        await VencordNative.native.openExternal(url);
+    } catch {
+        notify("Couldn't open the browser", "critical");
+    }
 }
 
 async function copy(text: string, what: string) {
@@ -78,17 +109,15 @@ async function copy(text: string, what: string) {
 }
 
 function imageItems(prefix: string, images: ProfileImage[], all: ProfileImage[]) {
-    return images.map(img => (
-        <Menu.MenuItem
-            key={`${prefix}-${img.label}`}
-            id={`vc-pimg-${prefix}-${img.label.toLowerCase().replace(/\s+/g, "-")}`}
-            label={`View ${img.label}`}
-            action={() => openGallery(all, all.indexOf(img))}
-        >
-            <Menu.MenuItem id={`vc-pimg-${prefix}-${img.label}-copy`} label="Copy Link" action={() => copy(img.original, "link")} />
-            <Menu.MenuItem id={`vc-pimg-${prefix}-${img.label}-open`} label="Open in Browser" action={() => VencordNative.native.openExternal(img.original)} />
-        </Menu.MenuItem>
-    ));
+    return images.map(img => {
+        const id = `vc-pimg-${prefix}-${img.label.toLowerCase().replace(/\s+/g, "-")}`;
+        return (
+            <Menu.MenuItem key={id} id={id} label={`View ${img.label}`} action={() => openGallery(all, all.indexOf(img))}>
+                <Menu.MenuItem id={`${id}-copy`} label="Copy Link" action={() => copy(img.original, "link")} />
+                <Menu.MenuItem id={`${id}-open`} label="Open in Browser" action={() => openInBrowser(img.original)} />
+            </Menu.MenuItem>
+        );
+    });
 }
 
 function openMenu(e: MouseEvent, kind: "avatar" | "banner", images: ProfileImages) {
@@ -105,7 +134,7 @@ function openMenu(e: MouseEvent, kind: "avatar" | "banner", images: ProfileImage
                 <Menu.MenuGroup>
                     {imageItems("banner", images.banners, images.banners)}
                     {images.color && (
-                        <Menu.MenuItem id="vc-pimg-copy-color" label={`Copy Banner Colour (${images.color})`} action={() => copy(images.color!, "banner colour")} />
+                        <Menu.MenuItem id="vc-pimg-copy-color" label={`Copy Colour ${images.color}`} action={() => copy(images.color!, "banner colour")} />
                     )}
                 </Menu.MenuGroup>
             )}
@@ -160,6 +189,7 @@ function ImageButton({ kind, images, className, children }: ImageButtonProps) {
 export const ProfileButtons = ErrorBoundary.wrap((target: Target) => {
     const { avatarButton, bannerButton, profileRow } = settings.use(["avatarButton", "bannerButton", "profileRow", "noBanner"]);
     const images = useImages(target);
+    useLayoutEffect(markRowPatched, []);
     if (!profileRow) return null;
 
     return (
@@ -198,6 +228,9 @@ function avoidOverlap(el: HTMLElement, corner: string) {
         const r = b.getBoundingClientRect();
         // Only small corner buttons, never clickable layers that cover the whole banner
         if (!r.width || r.width > me.height * 4 || r.height > me.height * 3 || r.bottom <= me.top || r.top >= me.bottom || r.right <= me.left || r.left >= me.right) continue;
+        // Skip buttons hidden behind this surface, like chat under a popout: the topmost thing there that isn't ours must be the button.
+        const top = document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2).find(x => !el.contains(x));
+        if (!top || !b.contains(top)) continue;
         shift = Math.max(shift, corner === "left" ? r.right - me.left : me.right - r.left);
     }
     if (shift) el.style.setProperty("--vc-pimg-shift", `${Math.ceil(shift / scale) + 6}px`);
@@ -205,37 +238,50 @@ function avoidOverlap(el: HTMLElement, corner: string) {
 
 interface BannerProps extends Target {
     themeType?: string;
+    // false while Discord still paints its loading grey instead of the real banner colour
+    colorReady: boolean;
+    // the profile editor's unsaved colour preview
+    preview: boolean;
 }
 
-export const BannerOverlay = ErrorBoundary.wrap(({ themeType, ...target }: BannerProps) => {
+export const BannerOverlay = ErrorBoundary.wrap(({ themeType, colorReady, preview, ...target }: BannerProps) => {
     const s = settings.use(["avatarButton", "bannerButton", "profileRow", "pillsPopout", "pillsModal", "pillsSidebar", "pillCorner", "noBanner"]);
-    const ref = useRef<HTMLElement>(null);
+    // Sits in the banner fill, which holds the banner colour.
+    const anchor = useRef<HTMLSpanElement>(null);
+    const pills = useRef<HTMLDivElement>(null);
+    const [host, setHost] = useState<HTMLElement | null>(null);
     const images = useImages(target);
+    const rowShown = useRowPatched();
+
+    const key = themeType ? SURFACE[themeType as keyof typeof SURFACE] : undefined;
+    const isModal = key === "pillsModal";
+    const avatar = !!key && s[key] && s.avatarButton && !(isModal && s.profileRow && rowShown);
+    const banner = !!key && s[key] && s.bannerButton && showBanner(images);
+
+    // The banner fill is masked (for the avatar cutout), which traps anything inside it under the profile effect layer.
+    // Its parent is the same size and isn't masked, so the pills go there and can sit above the effect.
+    useLayoutEffect(() => {
+        setHost(anchor.current?.parentElement?.parentElement ?? null);
+    }, []);
 
     useLayoutEffect(() => {
-        const bg = ref.current?.parentElement?.style.backgroundColor;
+        if (!colorReady || preview) return;
+        const bg = anchor.current?.parentElement?.style.backgroundColor;
         const hex = bg ? rgbToHex(bg) : null;
-        if (hex) setBannerColor(target.user.id, hex);
+        if (hex) setBannerColor(target.user.id, target.guildId, target.displayProfile, hex);
     });
 
     useEffect(() => {
-        const el = ref.current;
-        if (!el?.classList.contains("vc-pimg-pills")) return;
+        const el = pills.current;
+        if (!el) return;
         avoidOverlap(el, s.pillCorner);
         // Popouts animate in and load their buttons late, so check again once they settle.
         const t = setTimeout(() => avoidOverlap(el, s.pillCorner), 400);
         return () => clearTimeout(t);
-    });
+    }, [s.pillCorner, avatar, banner, images.banners.length, images.color, host]);
 
-    const key = themeType ? SURFACE[themeType as keyof typeof SURFACE] : undefined;
-    const isModal = key === "pillsModal";
-    const avatar = !!key && s[key] && s.avatarButton && !(isModal && s.profileRow);
-    const banner = !!key && s[key] && s.bannerButton && showBanner(images);
-    // Still rendered when empty so the banner colour gets read for the square buttons.
-    if (!avatar && !banner) return <span ref={ref} hidden />;
-
-    return (
-        <div ref={ref as any} className={`vc-pimg-pills vc-pimg-${s.pillCorner}`} onMouseDown={e => e.stopPropagation()}>
+    const content = (avatar || banner) && (
+        <div ref={pills} className={`vc-pimg-pills vc-pimg-profile vc-pimg-${s.pillCorner}`} onMouseDown={e => e.stopPropagation()}>
             {avatar && (
                 <ImageButton kind="avatar" images={images} className="vc-pimg-pill">
                     <PersonIcon size={12} />
@@ -246,10 +292,18 @@ export const BannerOverlay = ErrorBoundary.wrap(({ themeType, ...target }: Banne
                 <ImageButton kind="banner" images={images} className="vc-pimg-pill">
                     {images.banners.length
                         ? <><PictureIcon size={12} /><span>Banner</span></>
-                        : <><span className="vc-pimg-swatch vc-pimg-swatch-sm" style={{ backgroundColor: images.color! }} /><span>{images.color}</span></>}
+                        : <><span className="vc-pimg-swatch vc-pimg-swatch-sm" style={{ backgroundColor: images.color! }} /><span className="vc-pimg-hex">{images.color}</span></>}
                 </ImageButton>
             )}
         </div>
+    );
+
+    // The anchor is always rendered so the banner colour gets read for the square buttons.
+    return (
+        <>
+            <span ref={anchor} hidden />
+            {content && (host ? ReactDOM.createPortal(content, host) : content)}
+        </>
     );
 }, { noop: true });
 
@@ -284,17 +338,62 @@ function GuildPill({ image, children }: { image: ProfileImage; children: ReactNo
     );
 }
 
+// Keeps server-banner pills that were moved out of the banner lined up with it, and hides them once the banner
+// starts fading as the channel list scrolls, so they never sit over the channels.
+function trackBanner(el: HTMLElement, banner: HTMLElement, animated: HTMLElement, host: HTMLElement) {
+    const place = () => {
+        const b = banner.getBoundingClientRect();
+        const h = host.getBoundingClientRect();
+        const scale = host.offsetWidth ? h.width / host.offsetWidth : 1;
+        el.style.top = `${(b.bottom - h.top) / scale - 10}px`;
+        el.style.right = `${(h.right - b.right) / scale + 10}px`;
+        const { opacity } = animated.style;
+        el.classList.toggle("vc-pimg-faded", !b.height || (opacity !== "" && Number(opacity) < 1));
+    };
+    place();
+    const mo = new MutationObserver(place);
+    mo.observe(animated, { attributes: true, attributeFilter: ["style"] });
+    const ro = new ResizeObserver(place);
+    ro.observe(banner);
+    ro.observe(host);
+    return () => {
+        mo.disconnect();
+        ro.disconnect();
+    };
+}
+
 export const GuildBannerPills = ErrorBoundary.wrap(({ guild }: { guild: Guild; }) => {
     const { guildHeader } = settings.use(["guildHeader", "format", "animatedFormat", "imgSize"]);
     // The banner component gets a trimmed guild, so read the full one for its icon.
     const full = useStateFromStores([GuildStore], () => GuildStore.getGuild(guild.id)) ?? guild;
-    if (!guildHeader) return null;
+    const anchor = useRef<HTMLSpanElement>(null);
+    const pills = useRef<HTMLDivElement>(null);
+    const [host, setHost] = useState<HTMLElement | null>(null);
 
     const { icon, banner } = collectGuildImages(full);
-    if (!icon && !banner) return null;
+    const shown = guildHeader && !!(icon || banner);
 
-    return (
-        <div className="vc-pimg-pills vc-pimg-guild" onMouseDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+    // The banner sits in a transformed layer under the channel list, which takes every click there, so the pills are
+    // moved up into the header container where they sit above the list.
+    useLayoutEffect(() => {
+        setHost(anchor.current?.closest<HTMLElement>("[class*='animatedContainer_']")?.parentElement ?? null);
+    }, []);
+
+    useEffect(() => {
+        const el = pills.current;
+        const bannerEl = anchor.current?.parentElement;
+        const animated = anchor.current?.closest<HTMLElement>("[class*='animatedContainer_']");
+        if (!el || !host || !bannerEl || !animated) return;
+        return trackBanner(el, bannerEl, animated, host);
+    }, [host, shown]);
+
+    const content = shown && (
+        <div
+            ref={pills}
+            className={host ? "vc-pimg-pills vc-pimg-guild vc-pimg-lifted" : "vc-pimg-pills vc-pimg-guild"}
+            onMouseDown={e => e.stopPropagation()}
+            onKeyDown={e => e.stopPropagation()}
+        >
             {icon && (
                 <GuildPill image={icon}>
                     <ServerIcon size={12} />
@@ -308,5 +407,12 @@ export const GuildBannerPills = ErrorBoundary.wrap(({ guild }: { guild: Guild; }
                 </GuildPill>
             )}
         </div>
+    );
+
+    return (
+        <>
+            <span ref={anchor} hidden />
+            {content && (host ? ReactDOM.createPortal(content, host) : content)}
+        </>
     );
 }, { noop: true });
