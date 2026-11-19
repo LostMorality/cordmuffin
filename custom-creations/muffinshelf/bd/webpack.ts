@@ -120,16 +120,20 @@ function declarationsOf(module: any) {
     return declarations;
 }
 
+// Everything the runtime changed on Discord's modules, so stopping it puts them back the way they were.
+const addedDeclarations: [module: any, get: () => any][] = [];
+const addedAliases: [exports: any, name: string, value: string][] = [];
+const madeWritable: [exports: any, key: string, original: PropertyDescriptor][] = [];
+
 function addDeclarations(module: any) {
     if (!module || typeof module !== "object" || Object.prototype.hasOwnProperty.call(module, "declarations")) return;
     let cached: Record<string, any> | undefined;
-    Object.defineProperty(module, "declarations", {
-        get: () => {
-            learnModule(module.id);
-            return cached ??= declarationsOf(module);
-        },
-        configurable: true,
-    });
+    const get = () => {
+        learnModule(module.id);
+        return cached ??= declarationsOf(module);
+    };
+    Object.defineProperty(module, "declarations", { get, configurable: true });
+    addedDeclarations.push([module, get]);
 }
 
 // --- Learning which modules plugins want private variables from ---
@@ -141,15 +145,63 @@ const MAX_FINDS = 300;
 const learnedIds = new Set<PropertyKey>();
 let restartNoticeShown = false;
 
-// Plain text strings outlast Discord updates better than fragments of minified code.
+// Plain text (a log message, say) outlasts Discord updates best; asset paths, hashes and CSS class names change with them.
 const READABLE = /^"[\w .,:'!?#/-]+"$/;
+const HASHED = /[0-9a-f]{8}|\/assets\/|_[\w-]{6}"$/i;
+const stability = (literal: string) => !READABLE.test(literal) ? 0 : HASHED.test(literal) ? 1 : literal.includes(" ") ? 3 : 2;
+// Scanned left to right, so the code between two strings is never taken for a string.
+const STRING_LITERAL = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
+// Any quoted-looking stretch, code between two strings included. Its mangled names and module ids change with
+// every Discord update, so it's only used for modules with no unique string of their own (and pruned once dead).
+const QUOTED_STRETCH = /"[^"\\\n]{12,80}"/g;
+
+function stringLiterals(source: string) {
+    const found = new Set<string>();
+    for (const [literal] of source.matchAll(STRING_LITERAL)) {
+        if (literal[0] === "\"" && literal.length >= 14 && literal.length <= 82 && !literal.includes("\\")) found.add(literal);
+    }
+    return [...found].sort((a, b) => stability(b) - stability(a) || b.length - a.length).slice(0, 15);
+}
 
 function uniqueFind(id: PropertyKey) {
     const source = fnSource(wreq.m[id as any]);
-    const candidates = [...new Set([...source.matchAll(/"[^"\\\n]{12,80}"/g)].map(m => m[0]))].sort((a, b) => Number(READABLE.test(b)) - Number(READABLE.test(a)) || b.length - a.length).slice(0, 15);
-    if (!candidates.length) return null;
+    const literals = stringLiterals(source);
+    const stretches = [...new Set([...source.matchAll(QUOTED_STRETCH)].map(m => m[0]))].filter(s => !literals.includes(s)).sort((a, b) => b.length - a.length).slice(0, 15);
+    if (!literals.length && !stretches.length) return null;
     const others = Object.keys(wreq.m).filter(k => k !== String(id)).map(k => fnSource(wreq.m[k]));
-    return candidates.find(c => !others.some(o => o.includes(c))) ?? null;
+    const unique = (c: string) => !others.some(o => o.includes(c));
+    return literals.find(unique) ?? stretches.find(unique) ?? null;
+}
+
+const SEEN_KEY = "bdDeclarationSeen";
+const FIND_KEPT_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Drops learned finds that no loaded Discord module has contained for two weeks (Discord changed that module).
+// The wait covers modules in chunks that only load later.
+export function pruneDeclarationFinds() {
+    setTimeout(() => {
+        try {
+            const store = Settings.plugins.Muffinshelf as Record<string, any>;
+            const finds: string[] = Array.isArray(store[DECLARATION_FINDS_KEY]) ? store[DECLARATION_FINDS_KEY] : [];
+            let seen: Record<string, number> = {};
+            try {
+                const parsed = JSON.parse(typeof store[SEEN_KEY] === "string" ? store[SEEN_KEY] : "{}");
+                if (parsed && typeof parsed === "object") seen = parsed;
+            } catch { }
+            const sources = finds.length ? Object.keys(wreq.m).map(k => fnSource(wreq.m[k])) : [];
+            const now = Date.now();
+            const next: Record<string, number> = {};
+            const kept = finds.filter(find => {
+                const last = sources.some(src => src.includes(find)) ? now : typeof seen[find] === "number" ? seen[find] : now;
+                if (now - last > FIND_KEPT_MS) return false;
+                next[find] = last;
+                return true;
+            });
+            if (kept.length !== finds.length) store[DECLARATION_FINDS_KEY] = kept;
+            const json = JSON.stringify(next);
+            if (json !== store[SEEN_KEY]) store[SEEN_KEY] = json;
+        } catch { }
+    }, 5000);
 }
 
 function learnModule(id: PropertyKey) {
@@ -192,6 +244,7 @@ function aliasClassNames(exports: any) {
     for (const name of Object.keys(view)) {
         if (name in exports) continue;
         Object.defineProperty(exports, name, { value: view[name], enumerable: false, configurable: true, writable: true });
+        addedAliases.push([exports, name, view[name]]);
     }
 }
 
@@ -201,6 +254,7 @@ function writableExports(exports: any) {
     for (const key of Object.keys(exports)) {
         const desc = Object.getOwnPropertyDescriptor(exports, key);
         if (!desc?.get || desc.set || !desc.configurable) continue;
+        madeWritable.push([exports, key, desc]);
         Object.defineProperty(exports, key, {
             get: desc.get,
             set(value) {
@@ -237,6 +291,18 @@ export function makeExportsWritable() {
 export function unhookExports() {
     moduleListeners.delete(onModuleLoaded);
     exportsHooked = false;
+    for (const [exports, key, original] of madeWritable.splice(0)) {
+        try {
+            Object.defineProperty(exports, key, original);
+        } catch { }
+    }
+    for (const [exports, name, value] of addedAliases.splice(0)) {
+        const desc = Object.getOwnPropertyDescriptor(exports, name);
+        if (desc && !desc.enumerable && desc.value === value) delete exports[name];
+    }
+    for (const [module, get] of addedDeclarations.splice(0)) {
+        if (Object.getOwnPropertyDescriptor(module, "declarations")?.get === get) delete module.declarations;
+    }
 }
 
 // --- React element types, unwrapped like BetterDiscord's getType ---
