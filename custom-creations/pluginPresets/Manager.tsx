@@ -13,26 +13,24 @@ import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { copyWithToast } from "@utils/discord";
+import { Logger } from "@utils/Logger";
 import { chooseFile, saveFile } from "@utils/web";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { findByCodeLazy } from "@webpack";
 import { Modal, openModal, showToast as equicordShowToast, TextArea, TextInput, useMemo, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
-import { addPreset, applyPreset, ApplyResult, captureCurrent, deletePreset, isManaged, planApply, Preset, renamePreset, savePreset, usePresets } from "./presets";
+import { addPreset, applyPreset, ApplyResult, captureCurrent, deletePreset, isManaged, planApply, Preset, renamePreset, savePreset, SELF, usePresets } from "./presets";
 import { Removed } from "./scrub";
 import { buildExport, fileNameFor, ImportReport, prepareImport, toCode, toFileText } from "./share";
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
-const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
+const logger = new Logger(SELF);
 
+// A failed toast must never break what the plugin was doing.
 function showToast(options: Parameters<typeof equicordShowToast>[0]) {
-    for (const show of [equicordShowToast, discordToast]) {
-        try {
-            show(options);
-            return;
-        } catch { }
+    try {
+        equicordShowToast(options);
+    } catch (e) {
+        logger.error("Couldn't show a toast", options.text, e);
     }
 }
 
@@ -150,6 +148,7 @@ function PreviewModal({ modalProps, preset }: { modalProps: RenderModalProps; pr
             <Names title="Turns on" names={plan.turnOn} tone="on" />
             <Names title="Turns off" names={plan.turnOff} tone="off" />
             <Names title="Changes settings in" names={changedSettings} />
+            <Names title="Settings the plugin won't accept, skipped" names={plan.invalidSettings} tone="warn" />
             <Names title="BetterDiscord plugins on" names={plan.bdOn} tone="on" />
             <Names title="BetterDiscord plugins off" names={plan.bdOff} tone="off" />
             <Names title="Not installed, skipped" names={plan.missing} tone="warn" />
@@ -185,11 +184,15 @@ function ExportModal({ modalProps, preset }: { modalProps: RenderModalProps; pre
     const { data, removed } = useMemo(() => buildExport(preset), [preset]);
     const code = useMemo(() => toCode(data), [data]);
 
-    function saveJson() {
-        const bytes = new TextEncoder().encode(toFileText(data));
-        const name = fileNameFor(data.name);
-        if (IS_DISCORD_DESKTOP) DiscordNative.fileManager.saveWithDialog(bytes, name);
-        else saveFile(new File([bytes], name, { type: "application/json" }));
+    async function saveJson() {
+        try {
+            const bytes = new TextEncoder().encode(toFileText(data));
+            const name = fileNameFor(data.name);
+            if (IS_DISCORD_DESKTOP) await DiscordNative.fileManager.saveWithDialog(bytes, name);
+            else saveFile(new File([bytes], name, { type: "application/json" }));
+        } catch (e) {
+            failed("save the file", e);
+        }
     }
 
     return (
@@ -213,7 +216,9 @@ function ExportModal({ modalProps, preset }: { modalProps: RenderModalProps; pre
                 : <Notice.Positive className={cl("notice")}>Nothing private found, so nothing was left out.</Notice.Positive>}
             <RemovedList items={removed} />
             <Heading tag="h5" className={cl("label")}>Preset code</Heading>
-            <TextArea value={code} onChange={() => { }} readOnly rows={4} className={cl("code")} />
+            <div className={cl("code")}>
+                <TextArea value={code} onChange={() => { }} readOnly rows={4} />
+            </div>
         </Modal>
     );
 }
@@ -246,7 +251,7 @@ function ImportModal({ modalProps }: { modalProps: RenderModalProps; }) {
                 if (file) content = await file.text();
             }
             if (content === null) return;
-            setText(content.length > 20000 ? content.slice(0, 20000) + "\n..." : content);
+            setText(content);
             check(content);
         } catch (e) {
             setError(`Couldn't read that file: ${e instanceof Error ? e.message : String(e)}`);
@@ -280,20 +285,21 @@ function ImportModal({ modalProps }: { modalProps: RenderModalProps; }) {
             ]}
         >
             <div className={cl("import-row")}>
-                <TextArea
-                    value={text}
-                    onChange={v => { setText(v); setReport(null); setError(null); }}
-                    placeholder="PP1...."
-                    rows={4}
-                    className={cl("code")}
-                />
+                <div className={cl("code")}>
+                    <TextArea
+                        value={text}
+                        onChange={v => { setText(v); setReport(null); setError(null); }}
+                        placeholder="PP1...."
+                        rows={4}
+                    />
+                </div>
                 <Button size="small" variant="secondary" onClick={pickFile}>Choose File</Button>
             </div>
             {error && <Notice.Danger className={cl("notice")}>{error}</Notice.Danger>}
             {report && (
                 <>
                     <Paragraph className={cl("label")}>"{report.preset.name}"</Paragraph>
-                    <Names title="Official plugins it turns on" names={report.enable} tone="on" />
+                    <Names title="Official plugins it has on" names={report.enable} tone="on" />
                     {report.unofficial.length + report.betterDiscord.length > 0 && (
                         <Notice.Warning className={cl("notice")}>
                             These aren't official Equicord or Vencord plugins. They will NOT be turned on, even though the
@@ -325,8 +331,10 @@ function ImportModal({ modalProps }: { modalProps: RenderModalProps; }) {
 }
 
 function RenameModal({ modalProps, preset }: { modalProps: RenderModalProps; preset: Preset; }) {
+    const presets = usePresets();
     const [name, setName] = useState(preset.name);
     const trimmed = name.trim();
+    const taken = !!trimmed && !!presets?.some(p => p.id !== preset.id && p.name.toLowerCase() === trimmed.toLowerCase());
     return (
         <Modal
             {...modalProps}
@@ -334,10 +342,11 @@ function RenameModal({ modalProps, preset }: { modalProps: RenderModalProps; pre
             title="Rename Preset"
             actions={[
                 { text: "Cancel", variant: "secondary", onClick: modalProps.onClose },
-                { text: "Save", variant: "primary", disabled: !trimmed, onClick: () => renamePreset(preset.id, trimmed).then(modalProps.onClose, e => failed("rename", e)) },
+                { text: "Save", variant: "primary", disabled: !trimmed || taken, onClick: () => renamePreset(preset.id, trimmed).then(modalProps.onClose, e => failed("rename", e)) },
             ]}
         >
             <TextInput value={name} onChange={v => setName(cleanInput(v))} placeholder="Preset name" autoFocus />
+            {taken && <Paragraph className={cl("hint")}>Another preset already has this name.</Paragraph>}
         </Modal>
     );
 }
@@ -363,8 +372,9 @@ function open(render: (props: RenderModalProps) => ReactNode) {
 
 function PresetRow({ preset }: { preset: Preset; }) {
     const settingsCount = Object.keys(preset.settings).length;
+    const unofficial = preset.imported ? preset.imported.unofficial.length + preset.imported.betterDiscord.length : 0;
     const extra = preset.imported
-        ? `imported${preset.imported.unofficial.length + preset.imported.betterDiscord.length ? `, ${preset.imported.unofficial.length + preset.imported.betterDiscord.length} unofficial left off` : ""}`
+        ? `imported${unofficial ? `, ${unofficial} unofficial never turned on` : ""}`
         : `saved ${new Date(preset.created).toLocaleDateString()}`;
     return (
         <div className={cl("row")}>
