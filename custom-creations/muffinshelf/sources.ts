@@ -31,7 +31,8 @@ export interface ShelfEntry {
     image?: string;
     homepage?: string;
     hidden?: boolean;
-    userplugin?: GithubPath & { folder: string; dependencies: string[]; };
+    /** fingerprint: the version is the plugin folder's own fingerprint (see native.ts), not a release number. */
+    userplugin?: GithubPath & { folder: string; dependencies: string[]; fingerprint?: boolean; };
     bd?: { url: string; file: string; };
 }
 
@@ -190,6 +191,10 @@ async function loadGithubRepo(sourceId: string, gh: GithubPath, force: boolean):
         roots.push(dir);
     }
 
+    // Every plugin in a repo shares the repo's commit, so each one's version is its own folder's fingerprint instead:
+    // a commit that doesn't touch a plugin doesn't offer an update for it.
+    const prints: Record<string, string> = roots.length ? await Native.fingerprintRepo(gh.owner, gh.repo, ref, roots).catch(() => ({})) : {};
+
     const userplugins = roots.map(dir => {
         const index = files.find(p => p.startsWith(dir ? dir + "/" : "") && /^index\.(t|j)sx?$/.test(p.slice(dir ? dir.length + 1 : 0)));
         const info: { name?: string; description?: string; } = index && texts[index] ? readPluginInfo(texts[index]) : {};
@@ -200,11 +205,11 @@ async function loadGithubRepo(sourceId: string, gh: GithubPath, force: boolean):
             name: info.name ?? folder,
             description: info.description ?? "",
             author: gh.owner,
-            version: commit?.slice(0, 7),
+            version: prints[dir],
             kind: "userplugin",
             hidden: folder.startsWith("_"),
             homepage: `https://github.com/${gh.owner}/${gh.repo}/tree/${ref}/${dir}`,
-            userplugin: { owner: gh.owner, repo: gh.repo, ref, path: dir, folder, dependencies: [] },
+            userplugin: { owner: gh.owner, repo: gh.repo, ref, path: dir, folder, dependencies: [], fingerprint: true },
         } satisfies ShelfEntry;
     });
 
