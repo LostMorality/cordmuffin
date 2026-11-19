@@ -5,7 +5,7 @@
  */
 
 import { currentNotice, noticesQueue, popNotice, showNotice } from "@api/Notices";
-import { showNotification } from "@api/Notifications";
+import { type NotificationData, showNotification } from "@api/Notifications";
 import { definePluginSettings } from "@api/Settings";
 import { Button } from "@components/Button";
 import { Card } from "@components/Card";
@@ -20,6 +20,7 @@ import { Logger } from "@utils/Logger";
 import { Margins } from "@utils/margins";
 import { removeFromArray } from "@utils/misc";
 import { relaunch } from "@utils/native";
+import { promptToRestart } from "@utils/promptToRestart";
 import definePlugin, { OptionType, type PluginNative } from "@utils/types";
 import { React, Select, SettingsRouter } from "@webpack/common";
 
@@ -80,10 +81,17 @@ const pluginNames: Record<string, string> = {
     officialcustomtypingindicator: "OfficialCustomTypingIndicator",
     platformspooferplus: "PlatformSpoofer+",
     shrinkuploads: "ShrinkUploads",
+    discrubloader: "Discrub Loader",
+    hideclientbadges: "HideClientBadges",
+    noquestsonstartup: "NoQuestsOnStartup",
+    pluginpresets: "PluginPresets",
+    profileimages: "ProfileImages",
+    ransom: "Ransom",
+    translateitall: "TranslateItAll",
 };
 const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
 // Every plugin in custom-creations/, so changelog lines about one can be hidden from people who don't have it.
-const cordmuffinPlugins = ["badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
+const cordmuffinPlugins = ["badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "noQuestsOnStartup", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
@@ -105,7 +113,8 @@ function describe(r: CheckResult, auto: boolean) {
         ...(r.installer ? [`the installer (v${r.installer})`] : []),
     ];
     const dueAt = equicordDueAt(r);
-    const equicordNow = !!r.equicordOutdated && (!auto || fixes.length > 0 || Date.now() >= dueAt);
+    // A half-finished earlier update is rebuilt right away, whatever the Equicord schedule says.
+    const equicordNow = !!r.repair || (!!r.equicordOutdated && (!auto || fixes.length > 0 || Date.now() >= dueAt));
     return {
         what: equicordNow ? ["Equicord", ...fixes] : fixes,
         heldBack: r.equicordOutdated && !equicordNow ? dueAt : 0,
@@ -120,8 +129,8 @@ function heldBackLine(dueAt: number) {
 const equicordOptions = [
     { label: "Once a day", value: "daily", default: true },
     { label: "Once a week", value: "weekly" },
-    { label: "Whenever Equicord changes (can mean a restart several times a day)", value: "always" },
-    { label: "Only together with a plugin update", value: "withPlugins" },
+    { label: "On every change", value: "always" },
+    { label: "With plugin updates", value: "withPlugins" },
 ];
 
 // Shown on the Cordmuffin Updater page in Equicord's settings, not in the plugin list.
@@ -167,8 +176,30 @@ const settings = definePluginSettings({
     },
 });
 
+// Timers, the notice bar and buttons don't await these, so nothing they throw goes unhandled.
+const run = (task: Promise<unknown>) => void task.catch(e => logger.error("Unexpected error:", e));
+
+function notify(data: NotificationData) {
+    run(showNotification(data));
+}
+
+function confirmRestart() {
+    promptToRestart("relaunch", {
+        title: "Restart Discord?",
+        subtitle: "The Cordmuffin update is used after a restart. Calls, streams and unsent messages are dropped.",
+        confirmText: "Restart now",
+        cancelText: "Later",
+    });
+}
+
+function retryLater() {
+    if (!started || !settings.store.checkForUpdates) return;
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => run(checkNow(true)), RETRY_MS);
+}
+
 async function checkNow(auto: boolean) {
-    if (status.phase === "checking" || status.phase === "updating") return;
+    if (!started || status.phase === "checking" || status.phase === "updating") return;
     // Closed with its X, the bar is gone without us knowing; a later check may show it again.
     if (notice !== undefined && currentNotice?.[1] !== notice && !noticesQueue.some(n => n[1] === notice)) notice = undefined;
     setStatus({ phase: "checking", message: "" });
@@ -178,6 +209,11 @@ async function checkNow(auto: boolean) {
     } catch (e) {
         r = { supported: true, error: String(e) };
     }
+    // Stopped while GitHub was being asked: nothing more may start.
+    if (!started) {
+        setStatus({ phase: "idle" });
+        return;
+    }
     if (!r.supported) {
         setStatus({ phase: "unsupported", message: r.reason ?? "", info: r });
         return;
@@ -186,10 +222,7 @@ async function checkNow(auto: boolean) {
     if (r.error) {
         logger.warn("Update check failed:", r.error);
         setStatus({ phase: "error", message: r.error });
-        if (auto && started && settings.store.checkForUpdates) {
-            clearTimeout(retryTimer);
-            retryTimer = setTimeout(() => checkNow(true), RETRY_MS);
-        }
+        if (auto) retryLater();
         return;
     }
     settings.store.lastChecked = Date.now();
@@ -207,7 +240,7 @@ async function checkNow(auto: boolean) {
         await updateNow(auto);
     } else if (auto && notice === undefined) {
         notice = `A Cordmuffin update is ready: ${joinNames(what)}.`;
-        showNotice(notice, "Update now", () => updateNow(false));
+        showNotice(notice, "Update now", () => run(updateNow(false)));
     }
 }
 
@@ -224,7 +257,7 @@ function closeNotice() {
 
 async function updateNow(auto: boolean) {
     // A check that's still running would overwrite the status; it starts the update itself if there is one.
-    if (status.phase === "updating" || status.phase === "checking") return;
+    if (!started || status.phase === "updating" || status.phase === "checking") return;
     closeNotice();
     setStatus({ phase: "updating", message: "" });
     let r: UpdateResult;
@@ -238,16 +271,19 @@ async function updateNow(auto: boolean) {
     if (!r.ok) {
         logger.error("Update failed:", r.error);
         setStatus({ phase: "error", message: r.error ?? "The update failed." });
+        // Automatic retries that keep failing only say so once, until an update works again.
         if (!auto || !failureShown) {
             failureShown = true;
-            showNotification({
+            notify({
                 title: "Cordmuffin couldn't update",
-                body: `${r.error ?? "Something went wrong."}${r.partial ? "" : " Nothing was changed."} Click for details.`,
+                body: `${r.error ?? "Something went wrong."}${r.partial ? "" : " Discord keeps the version it has."} Click for details.`,
                 onClick: openSettings,
             });
         }
+        if (auto) retryLater();
         return;
     }
+    failureShown = false;
     const skipped = r.skipped?.length ? ` ${joinNames(r.skipped)} stayed on the old version, because the new one doesn't build.` : "";
     if (r.upToDate) {
         setStatus(restartPending ? { phase: "updated" } : { phase: "upToDate", what: [], whatsNew: [], message: skipped.trim() });
@@ -260,19 +296,19 @@ async function updateNow(auto: boolean) {
         // An earlier update in this session may still be waiting for a restart.
         if (restartPending) {
             setStatus({ phase: "updated", what, message: skipped.trim() });
-            showNotification({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}.${skipped} An earlier update still needs a restart: click here to restart Discord, or it's used the next time Discord starts.`, onClick: relaunch });
+            notify({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}.${skipped} An earlier update still needs a restart: click here to restart Discord, or it's used the next time Discord starts.`, onClick: confirmRestart });
             return;
         }
         setStatus({ phase: "upToDate", what: [] });
-        showNotification({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}. Nothing else to do.`, onClick: openSettings });
+        notify({ title: "Cordmuffin updated", body: `Updated ${joinNames(what)}. Nothing else to do.`, onClick: openSettings });
         return;
     }
     restartPending = true;
     setStatus({ phase: "updated", what, message: skipped.trim() });
-    showNotification({
+    notify({
         title: "Cordmuffin updated",
         body: `Updated ${joinNames(what)}.${skipped} Click here to restart Discord and use the new version, or it's used the next time Discord starts.`,
-        onClick: relaunch,
+        onClick: confirmRestart,
     });
 }
 
@@ -284,9 +320,11 @@ function schedule() {
     unschedule();
     // Settings change handlers also run while the plugin is turned off.
     if (!started || !settings.store.checkForUpdates) return;
-    firstTimer = setTimeout(() => checkNow(true), FIRST_CHECK_MS);
+    firstTimer = setTimeout(() => run(checkNow(true)), FIRST_CHECK_MS);
     // While a finished update waits for a restart, there's nothing more to fetch.
-    interval = setInterval(() => !restartPending && checkNow(true), CHECK_EVERY_MS);
+    interval = setInterval(() => {
+        if (!restartPending) run(checkNow(true));
+    }, CHECK_EVERY_MS);
 }
 
 function unschedule() {
@@ -316,10 +354,9 @@ function relevant(sections: ChangelogSection[], installed: string[]) {
         .map(s => ({
             ...s,
             items: s.items.filter(item => {
-                const m = /^([^:]{1,40}):\s+(.*)/s.exec(item);
-                const subject = m?.[1].trim().toLowerCase();
-                // "X: new plugin." announces X, so it shows for people who don't have X yet.
-                return !subject || !known.has(subject) || have.has(subject) || /^new plugin\b/i.test(m?.[2] ?? "");
+                const subject = /^([^:]{1,40}):\s/.exec(item)?.[1].trim().toLowerCase();
+                // Announcements ("New plugin: X. ...") have no plugin as their subject, so everyone sees them.
+                return !subject || !known.has(subject) || have.has(subject);
             }),
         }))
         .filter(s => s.items.length);
@@ -339,9 +376,11 @@ function Changelog({ title, sections }: { title: string; sections: ChangelogSect
     );
 }
 
-function statusLine(s: Status) {
+function statusLine(s: Status, autoChecks: boolean) {
     switch (s.phase) {
-        case "idle": return "Hasn't checked yet. The first check runs shortly after Discord starts.";
+        case "idle":
+            if (!autoChecks) return "Automatic checks are off. Check now still looks for updates.";
+            return s.checkedAt > 0 ? "A new check runs shortly after Discord starts." : "Hasn't checked yet. The first check runs shortly after Discord starts.";
         case "checking": return "Checking for updates...";
         case "upToDate": return s.message ? `Everything else is up to date. ${s.message}` : "Everything is up to date.";
         case "available": return `Update ready: ${joinNames(s.what)}.`;
@@ -400,7 +439,7 @@ function UpdaterPage() {
                     hideBorder
                 />
                 <FormSwitch
-                    title="Update Muffinshelf plugins"
+                    title="Muffinshelf updates"
                     description="Also update the plugins you installed with Muffinshelf, from the GitHub repos they came from."
                     value={prefs.muffinshelfUpdates}
                     onChange={(v: boolean) => prefs.muffinshelfUpdates = v}
@@ -422,6 +461,10 @@ function UpdaterPage() {
                     hideBorder
                 />
             </div>
+            <Paragraph className={Margins.bottom8} color="text-subtle">
+                How often Equicord's own changes go in. On every change can mean a restart several times a day; with plugin
+                updates waits for the next cordmuffin plugin or installer update.
+            </Paragraph>
             <Select
                 options={equicordOptions}
                 closeOnSelect
@@ -435,7 +478,7 @@ function UpdaterPage() {
 
             <Heading className={Margins.top20}>Updates</Heading>
             <Card variant={variant} className={Margins.top8} defaultPadding>
-                <Paragraph>{statusLine(s)}</Paragraph>
+                <Paragraph>{statusLine(s, prefs.checkForUpdates)}</Paragraph>
                 <Paragraph color="text-subtle">
                     {s.checkedAt > 0 ? `Last checked ${ago(s.checkedAt)}.` : "Not checked yet."}
                     {info?.builtAt && !Number.isNaN(Date.parse(info.builtAt)) ? ` Last updated ${when(Date.parse(info.builtAt))}.` : ""}
@@ -445,9 +488,9 @@ function UpdaterPage() {
                         {s.phase === "updated" || restartPending
                             ? <Button size="small" onClick={relaunch}>Restart Discord</Button>
                             : s.phase === "available"
-                                ? <Button size="small" disabled={busy} onClick={() => updateNow(false)}>Update now</Button>
+                                ? <Button size="small" disabled={busy} onClick={() => run(updateNow(false))}>Update now</Button>
                                 : null}
-                        <Button size="small" variant="secondary" disabled={busy} onClick={() => checkNow(false)}>
+                        <Button size="small" variant="secondary" disabled={busy} onClick={() => run(checkNow(false))}>
                             {s.phase === "checking" ? "Checking..." : "Check now"}
                         </Button>
                     </div>
@@ -475,8 +518,9 @@ function UpdaterPage() {
             <Paragraph className={Margins.bottom8}>
                 Your other plugins, themes and settings stay as they are. Before a plugin is replaced, its old copy is saved in
                 %LOCALAPPDATA%\Cordmuffin\plugin-backups. If a Muffinshelf plugin's new version doesn't build, it stays on
-                the old one and everything else still updates. If something goes wrong nothing is changed, and the details
-                are in %LOCALAPPDATA%\Cordmuffin\update.log.
+                the old one and everything else still updates. If an update fails, Discord keeps the version it has (the
+                message says so when the new files were only partly put in place, and the next update finishes it). The
+                details are in %LOCALAPPDATA%\Cordmuffin\update.log.
             </Paragraph>
             <Paragraph color="text-subtle">
                 It talks to GitHub (api.github.com, codeload.github.com, and github.com and
