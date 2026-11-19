@@ -22,6 +22,8 @@
     margin: 0;
     padding: 0;
     list-style: none;
+    font-size: 14px;
+    line-height: 20px;
     color: var(--text-normal, var(--text-default));
 }
 
@@ -33,6 +35,7 @@
 
 .vc-platform-spoofer-os {
     color: var(--text-muted);
+    text-transform: capitalize;
 }
 
 .vc-platform-spoofer-tag {
