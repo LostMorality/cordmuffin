@@ -52,9 +52,14 @@ function GM_xmlhttpRequest(o) {
 // Discord's web app raises desktop notifications and sets the app badge. The second account's window belongs to the
 // same Electron app as the user's own Discord, so its unread count lands on that same taskbar badge and its toasts
 // look like the user's own. This keeps both quiet inside that window: the account still receives everything, it just
-// doesn't announce it here. Injected ahead of the web build so it covers the login page too.
+// doesn't announce it here. Injected ahead of the web build so it covers the login page too. The page's own
+// Notification is kept aside the first time, so turning the setting off can put it back without a reload.
+const LOUD_KEY = "__streamTimeFarmerLoud";
 const SILENCE = `(() => {
     const quiet = () => Promise.resolve();
+    try {
+        if (!window.${LOUD_KEY}) Object.defineProperty(window, "${LOUD_KEY}", { configurable: true, value: { Notification: window.Notification } });
+    } catch (e) { }
     try {
         navigator.setAppBadge = quiet;
         navigator.clearAppBadge = quiet;
@@ -69,16 +74,27 @@ const SILENCE = `(() => {
     } catch (e) { }
 })();
 `;
+// Undoes SILENCE in a page that's already open: the badge calls go back to the browser's own, and so does Notification.
+const LOUD = `(() => {
+    try {
+        delete navigator.setAppBadge;
+        delete navigator.clearAppBadge;
+    } catch (e) { }
+    try {
+        const saved = window.${LOUD_KEY};
+        if (saved?.Notification) Object.defineProperty(window, "Notification", { configurable: true, writable: true, value: saved.Notification });
+    } catch (e) { }
+})();
+`;
 
 // Whether that silencing is on. Defaults to on, so a freshly linked account is quiet from its first call.
 let quiet = true;
 
 export function setSecondAccountQuiet(_: IpcMainInvokeEvent, on: boolean) {
     quiet = on;
-    if (!on) return; // Turning it back on takes effect the next time that window loads; nothing here undoes it.
-    clearBadge();
-    // Apply it to the window already open, so the setting works without interrupting a call in progress.
-    if (win && !win.isDestroyed()) void win.webContents.executeJavaScript(SILENCE).catch(() => { });
+    if (on) clearBadge();
+    // Applied to the window already open too, so the setting works both ways without interrupting a call in progress.
+    if (win && !win.isDestroyed()) void win.webContents.executeJavaScript(on ? SILENCE : LOUD).catch(() => { });
 }
 
 // A badge the second account already set stays until something clears it, so silencing clears it once.
@@ -199,7 +215,8 @@ export function refetchWeb(_: IpcMainInvokeEvent): Promise<string> {
 
 app.on("before-quit", () => quitting = true);
 
-const APP_URL = "https://discord.com/app";
+// "/app" now redirects to the Quests page; land on DMs like Vesktop does (Vencord/Vesktop 11b074a).
+const APP_URL = "https://discord.com/channels/@me";
 // How long after a page fails to load (no internet, Discord down) it's loaded again.
 const RELOAD_AFTER_MS = 10_000;
 
@@ -248,10 +265,13 @@ ipcMain.on(CODE_CHANNEL, e => {
 
 function create(partition: string) {
     const ses = session.fromPartition(partition);
-    // The web app needs the microphone to join a call (it stays muted); nothing else is granted, and only to Discord.
-    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(permission === "media" && isDiscord(details.requestingUrl || contents.getURL())));
+    // The web app needs the microphone to join a call (it stays muted). Desktop notifications are allowed only while
+    // Quiet Second Account is off; `quiet` is read on every check, so toggling it applies without reopening the window.
+    // Nothing else is granted, and only to Discord.
+    const allowed = (permission: string) => permission === "media" || (permission === "notifications" && !quiet);
+    ses.setPermissionRequestHandler((contents, permission, callback, details) => callback(allowed(permission) && isDiscord(details.requestingUrl || contents.getURL())));
     ses.setPermissionCheckHandler((contents, permission, origin, details) =>
-        permission === "media" && isDiscord(origin || details.securityOrigin || details.requestingUrl || contents?.getURL() || ""));
+        allowed(permission) && isDiscord(origin || details.securityOrigin || details.requestingUrl || contents?.getURL() || ""));
 
     const preload = join(app.getPath("userData"), "streamtimefarmer-second-account-preload.js");
     writeFileSync(preload, PRELOAD);
@@ -514,19 +534,27 @@ $form.Controls.Add($track)
 $form.Controls.Add($name)
 $name.BringToFront()
 $ticks = 0
-# The cover is fetched after the window is up, with a short time limit, so a slow download never holds up Go Live.
+# The cover is fetched in the background once the window is up, so a slow download never freezes the clock or holds
+# up Go Live. Its answer comes back on this window's own thread; one that takes too long is given up on a check.
+$coverClient = $null
+$coverDeadline = [DateTime]::MaxValue
 function Add-Cover {
     if (-not $env:STF_IMAGE) { return }
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $request = [Net.WebRequest]::Create($env:STF_IMAGE)
-        $request.Timeout = 5000
-        $response = $request.GetResponse()
-        $data = New-Object IO.MemoryStream
-        $response.GetResponseStream().CopyTo($data)
-        $response.Close()
-        $data.Position = 0
-        $image = [Drawing.Image]::FromStream($data)
+        $client = New-Object Net.WebClient
+        $client.add_DownloadDataCompleted({ param($s, $e) Show-Cover $e })
+        $script:coverClient = $client
+        $script:coverDeadline = (Get-Date).AddSeconds(15)
+        $client.DownloadDataAsync([Uri]$env:STF_IMAGE)
+    } catch { $script:coverClient = $null }
+}
+function Show-Cover($done) {
+    if ($script:coverClient) { $script:coverClient.Dispose() }
+    $script:coverClient = $null
+    if ($done.Cancelled -or $done.Error) { return }
+    try {
+        $image = [Drawing.Image]::FromStream([IO.MemoryStream]::new($done.Result))
         $cover = New-Object Windows.Forms.PictureBox
         $cover.Dock = "Fill"
         $cover.SizeMode = "Zoom"
@@ -548,6 +576,7 @@ $tick = {
     $gone = $true
     try { $gone = [Diagnostics.Process]::GetProcessById($parent).StartTime -ne $parentStart } catch { }
     if ($gone) { [Windows.Forms.Application]::Exit(); return }
+    if ($script:coverClient -and (Get-Date) -gt $script:coverDeadline) { $script:coverClient.CancelAsync() }
     # Go Live only lists ordinary app windows, so the window stays one and just its taskbar button is taken off.
     # Explorer puts buttons back when it restarts, so this runs every check, and so does making it see-through.
     [StfFarm.Win]::HideButton($form.Handle)
@@ -564,6 +593,21 @@ $form.add_FormClosing({ param($s, $e) if ($e.CloseReason -eq "UserClosing") { $e
 [Windows.Forms.Application]::Run($form)
 `;
 
+// Run from a file next to the second account's files, not passed on the command line: a hidden PowerShell given its
+// script encoded on the command line is exactly what antivirus treats as malware. Unsigned local scripts are allowed
+// for this one process only, which is all -ExecutionPolicy changes.
+const farmScript = () => join(webDir(), "farm-window.ps1");
+
+function writeFarmScript() {
+    const path = farmScript();
+    try {
+        if (readFileSync(path, "utf8") === FARM_WINDOW_SCRIPT) return path;
+    } catch { /* not written yet */ }
+    mkdirSync(webDir(), { recursive: true });
+    writeFileSync(path, FARM_WINDOW_SCRIPT);
+    return path;
+}
+
 let farmProcess: ChildProcess | null = null;
 
 function stopFarmProcess() {
@@ -577,11 +621,17 @@ process.once("exit", stopFarmProcess);
 export function startFarmWindow(_: IpcMainInvokeEvent, title: string, imageUrl = "", startedAt = Date.now()): Promise<number> {
     stopFarmProcess();
     if (process.platform !== "win32") return Promise.reject(new Error("The farm window only works on Windows."));
+    let script: string;
+    try {
+        script = writeFarmScript();
+    } catch (e) {
+        return Promise.reject(e);
+    }
     // The full path, so a powershell.exe in Discord's working folder can never be picked up instead.
     const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const child = spawn(
         powershell,
-        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", Buffer.from(FARM_WINDOW_SCRIPT, "utf16le").toString("base64")],
+        ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-File", script],
         {
             windowsHide: true,
             stdio: "ignore",
