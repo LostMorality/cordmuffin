@@ -8,16 +8,18 @@ import { Button } from "@components/Button";
 import ErrorBoundary from "@components/ErrorBoundary";
 import { GameControllerIcon } from "@components/Icons";
 import { classNameFactory } from "@utils/css";
+import { Logger } from "@utils/Logger";
 import type { RenderModalProps } from "@vencord/discord-types";
-import { findByPropsLazy } from "@webpack";
+import { extractAndLoadChunks, findByPropsLazy } from "@webpack";
 import { Modal, openModal, RunningGameStore, Select, TextInput, useEffect, useMemo, useRef, useState } from "@webpack/common";
 
-import { DetectableApp, isSpoofing, loadDetectable, settings } from ".";
+import { DetectableApp, isSpoofing, loadDetectable, settings, stopRotation } from ".";
 import { openAddTime } from "./AddTime";
 import { Conflicts } from "./conflicts";
 import { notify } from "./notify";
 
 const cl = classNameFactory("vc-gts-");
+const logger = new Logger("GameTimeSpoof");
 const GameProfileActions: { openGameProfileModal(options: { gameId: string; gameProfileModalChecks: { shouldOpenGameProfile: boolean; gameId: string; }; source: string; }): void; } = findByPropsLazy("openGameProfileModal");
 const PAGE_SIZE = 60;
 
@@ -31,6 +33,7 @@ function spoof(app: DetectableApp) {
 }
 
 function stopSpoof(app: DetectableApp) {
+    if (stopRotation()) notify("Stopped, and rotation is now off.");
     settings.store.games = settings.store.games.split(",").map(s => s.trim())
         .filter(e => e && e !== app.id && e.toLowerCase() !== app.name.toLowerCase())
         .join(", ");
@@ -63,11 +66,32 @@ function scrollParent(el: Element | null) {
     return null;
 }
 
-function openGameProfile(id: string) {
+// openGameProfileModal lazy-loads the page's code and drops that promise, so a failed load can't be seen
+// through it. Loading the same chunks first, here, puts that failure in our catch; once they're in,
+// Discord's own lazy load finishes straight away. Only success is cached so a network blip can be retried.
+let gameProfileLoaded = false;
+let gameProfileOpening = false;
+
+async function openGameProfile(id: string) {
+    if (gameProfileOpening) return;
+    gameProfileOpening = true;
     try {
+        if (!gameProfileLoaded) {
+            // Discord shows its own spinner after 300 ms; loading ahead of it skips that, so say something instead.
+            const slow = setTimeout(() => notify("Loading the game page…"), 300);
+            try {
+                // false means the lookup broke, not the load; Discord's own call below still loads it the old way.
+                gameProfileLoaded = await extractAndLoadChunks(["Passed a false value for [gameProfileModalChecks]"]);
+            } finally {
+                clearTimeout(slow);
+            }
+        }
         GameProfileActions.openGameProfileModal({ gameId: id, gameProfileModalChecks: { shouldOpenGameProfile: true, gameId: id }, source: "quick_switcher" });
-    } catch {
+    } catch (e) {
+        logger.warn("Couldn't open the game page", e);
         notify("Discord's game page couldn't be opened.", "critical");
+    } finally {
+        gameProfileOpening = false;
     }
 }
 
@@ -185,14 +209,16 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
             ? "Loading games..."
             : tab === "favorites" && !favoriteSet.size
                 ? "No favorites yet. Click the star on a game to add it here."
-                : "No games match your search.";
+                : tab === "detected" && !detectedSet.size
+                    ? "Discord hasn't detected any games on this PC yet."
+                    : "No games match your search.";
 
     return (
         <Modal
             {...modalProps}
             size="xxl"
             title="Game Browser"
-            subtitle={apps ? `${filtered.length.toLocaleString()} games` : undefined}
+            subtitle={apps ? `${filtered.length.toLocaleString()} game${filtered.length === 1 ? "" : "s"}` : undefined}
         >
             <Conflicts spoofing />
             <div className={cl("toolbar")}>
@@ -229,21 +255,23 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
                     />
                 </div>
             </div>
-            {filtered.length
-                ? (
-                    <div className={cl("grid")}>
-                        {filtered.slice(0, limit).map(app => (
-                            <GameCard key={app.id} app={app} spoofing={isSpoofing(app, games)} favorite={favoriteSet.has(app.id)} />
-                        ))}
-                    </div>
-                )
-                : (
-                    <div className={cl("empty")}>
-                        {emptyText}
-                        {error && <Button size="small" variant="secondary" className={cl("retry")} onClick={() => setAttempt(a => a + 1)}>Try again</Button>}
-                    </div>
-                )}
-            {limit < filtered.length && <div ref={sentinel} className={cl("sentinel")} />}
+            <div className={cl("results")}>
+                {filtered.length
+                    ? (
+                        <div className={cl("grid")}>
+                            {filtered.slice(0, limit).map(app => (
+                                <GameCard key={app.id} app={app} spoofing={isSpoofing(app, games)} favorite={favoriteSet.has(app.id)} />
+                            ))}
+                        </div>
+                    )
+                    : (
+                        <div className={cl("empty")}>
+                            {emptyText}
+                            {error && <Button size="small" variant="secondary" className={cl("retry")} onClick={() => setAttempt(a => a + 1)}>Try again</Button>}
+                        </div>
+                    )}
+                {limit < filtered.length && <div ref={sentinel} className={cl("sentinel")} />}
+            </div>
         </Modal>
     );
 }
