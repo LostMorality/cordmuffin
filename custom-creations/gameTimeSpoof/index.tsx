@@ -43,6 +43,7 @@ const REPORT_INTERVAL = 10 * 60_000;
 const MAX_REPORT = REPORT_INTERVAL + 2 * 60_000;
 const FAKE_PID_BASE = 0x7f000001;
 const LOAD_RETRY_MS = 60_000;
+const MAX_LOAD_RETRY_MS = 15 * 60_000;
 
 export const settings = definePluginSettings({
     games: {
@@ -108,6 +109,8 @@ let active = false;
 let generation = 0;
 let trackRealPlay = false;
 let rotationTimer: ReturnType<typeof setInterval> | undefined;
+let rotationRun = 0;
+let loadFailures = 0;
 let reportTimer: ReturnType<typeof setInterval> | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let lastTick = 0;
@@ -127,31 +130,45 @@ export function loadDetectable() {
 const parseGames = (value: string) => value.split(",").map(s => s.trim()).filter(Boolean);
 const isFakePid = (pid: number | undefined) => pid != null && pid >= FAKE_PID_BASE && pid % 2 === 1;
 
-async function rotate() {
+// A rotation still waiting on the game list must not write a game once rotation was changed or turned off.
+async function rotate(announce = false) {
     if (!active) return;
+    const run = rotationRun;
+    const current = () => active && run === rotationRun;
     try {
         const { favorites, games, rotation } = settings.store;
         if (rotation === "random") {
-            const apps = (await loadDetectable()).filter(a => a.cover_image_hash && a.id !== games.trim());
-            if (active && apps.length) settings.store.games = apps[Math.floor(Math.random() * apps.length)].id;
-        } else if (favorites.length) {
-            const ids = new Set((await loadDetectable()).map(a => a.id));
-            const valid = favorites.filter(id => ids.has(id));
-            if (active && valid.length) settings.store.games = valid[(valid.indexOf(games.trim()) + 1) % valid.length];
+            const apps = (await loadDetectable()).filter(a => a.id !== games.trim());
+            if (current() && apps.length) settings.store.games = apps[Math.floor(Math.random() * apps.length)].id;
+            return;
         }
+        const ids = new Set(favorites.length ? (await loadDetectable()).map(a => a.id) : []);
+        const valid = favorites.filter(id => ids.has(id));
+        if (!current()) return;
+        if (valid.length) settings.store.games = valid[(valid.indexOf(games.trim()) + 1) % valid.length];
+        else if (announce) notify("Rotation has no favorites to switch to. Star games in the Game Browser to add them.", "critical");
+        else logger.warn("Rotation has no favorites to switch to");
     } catch (e) {
-        logger.error("Couldn't switch games", e);
+        if (current()) logger.error("Couldn't switch games", e);
     }
 }
 
 function updateRotation(switchNow: boolean) {
     clearInterval(rotationTimer);
     rotationTimer = undefined;
+    rotationRun++;
     if (!active) return;
     const { rotation, favorites, games, rotateMinutes } = settings.store;
     if (rotation === "off") return;
-    if (switchNow || rotation === "favorites" && !favorites.includes(games.trim())) rotate();
-    rotationTimer = setInterval(rotate, rotateMinutes * 60_000);
+    if (switchNow || !games.trim() || rotation === "favorites" && !favorites.includes(games.trim())) rotate(switchNow);
+    rotationTimer = setInterval(() => rotate(), rotateMinutes * 60_000);
+}
+
+// Stopping a game while rotation runs would only last until the next switch, so Stop turns rotation off too.
+export function stopRotation() {
+    if (settings.store.rotation === "off") return false;
+    settings.store.rotation = "off";
+    return true;
 }
 
 function resolveApp(apps: DetectableApp[], entry: string) {
@@ -302,10 +319,14 @@ async function apply() {
     } catch (e) {
         if (run !== generation || !active) return;
         logger.error("Failed to fetch detectable games", e);
-        notify("GameTimeSpoof couldn't load Discord's game list. It'll try again in a minute.", "critical");
-        retryTimer = setTimeout(() => run === generation && apply(), LOAD_RETRY_MS);
+        // One notice per outage; retries back off so a long outage doesn't flood the notification log.
+        if (!loadFailures) notify("GameTimeSpoof couldn't load Discord's game list. It'll keep trying in the background.", "critical");
+        const delay = Math.min(LOAD_RETRY_MS * 2 ** loadFailures, MAX_LOAD_RETRY_MS);
+        loadFailures++;
+        retryTimer = setTimeout(() => run === generation && apply(), delay);
         return;
     }
+    loadFailures = 0;
     if (run !== generation || !active) return;
 
     const resolved: DetectableApp[] = [];
@@ -366,6 +387,8 @@ function restart() {
     const key = parseGames(settings.store.games).join(",").toLowerCase();
     if (key === appliedKey) return;
     appliedKey = key;
+    // A new game list from the user is a fresh attempt, so a failure gets its own notice and a short retry.
+    loadFailures = 0;
     clear();
     apply();
 }
@@ -434,6 +457,8 @@ export default definePlugin({
         clearInterval(reportTimer);
         clearInterval(badgeTimer);
         rotationTimer = reportTimer = badgeTimer = undefined;
+        rotationRun++;
+        loadFailures = 0;
         const index = FluxDispatcher._interceptors.indexOf(interceptor);
         if (index !== -1) FluxDispatcher._interceptors.splice(index, 1);
         reportElapsed([...realGames.values()]);
