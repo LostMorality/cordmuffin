@@ -17,6 +17,8 @@ import { toast } from "./toast";
 import type { TrackingState } from "./tracking";
 
 const logger = new Logger("StreamTimeFarmer");
+// For calls into the window's desktop half that nothing waits on: a failure there is logged, never left unhandled.
+const logFail = (what: string) => (e: unknown) => logger.warn(what, e);
 
 // The second account runs inside this Discord instead of a second Discord: a hidden window with its own login
 // (see native.ts). This side starts it, sets it up as the viewer and reads back who it is and how it's doing. The
@@ -221,7 +223,7 @@ async function tick() {
             if (stale()) return;
             expectNew = false;
             // Rebuilt while the user was logging in: its window has to be shown again, without jumping in front.
-            if (loggingIn) void Native.openSecondAccount(true, loginKey(), false);
+            if (loggingIn) void Native.openSecondAccount(true, loginKey(), false).catch(logFail("Couldn't show the second account's window"));
         }
         const r = await Native.secondAccountEval(READ) as { ready: boolean; loggedIn: boolean; noVencord?: boolean; account?: SecondAccountInfo; viewer?: StreamStatus | null; presence?: string; tracking?: TrackingState | null; } | null;
         if (stale()) return;
@@ -255,7 +257,7 @@ async function tick() {
             if (!loggingIn) {
                 loggingIn = true;
                 // It opened by itself, so it's shown without taking the keyboard from whatever the user is doing.
-                void Native.openSecondAccount(true, loginKey(), false);
+                void Native.openSecondAccount(true, loginKey(), false).catch(logFail("Couldn't show the second account's window"));
             }
             return setStatus({ phase: "login", account: null, viewer: null });
         }
@@ -272,7 +274,7 @@ async function tick() {
         if (loggingIn) {
             // Its window was only shown to log in; that's done, so it goes back to hiding, or closes if there's no call.
             loggingIn = false;
-            void Native.hideSecondAccount();
+            void Native.hideSecondAccount().catch(logFail("Couldn't hide the second account's window"));
             if (role !== "streamer") return startSecondAccount();
         }
         const configured = await Native.secondAccountEval(setUp(me, role === "streamer", appliedPresence === secondPresence ? "" : secondPresence)) as { ok: boolean; presence: string; applied: boolean; } | false | null;
@@ -352,7 +354,7 @@ export function stopSecondAccount(close = true) {
     timer = undefined;
     if (close) {
         loggingIn = false;
-        void Native?.closeSecondAccount();
+        void Native?.closeSecondAccount().catch(logFail("Couldn't close the second account's window"));
     }
     setStatus({ phase: Native ? "off" : "restart", account: null, viewer: null });
 }
@@ -434,7 +436,10 @@ export function showSecondAccount() {
         deadRebuilds = deadSince = failedReads = 0;
         setStatus({ phase: "starting", account: status.account ?? profile().account, viewer: null });
     }
-    const opened = Native?.openSecondAccount(true, loginKey());
+    const opened = Native?.openSecondAccount(true, loginKey()).catch(e => {
+        logger.error("Couldn't open the second account's window", e);
+        return false as const;
+    });
     if (parked) void opened?.then(result => {
         if (run !== generation) return;
         // This window was asked for, so the next check must not take it for a crashed one's replacement.
@@ -443,7 +448,7 @@ export function showSecondAccount() {
     }, () => { });
     return opened;
 }
-export const hideSecondAccount = () => Native?.hideSecondAccount();
+export const hideSecondAccount = () => Native?.hideSecondAccount().catch(logFail("Couldn't hide the second account's window"));
 
 // Forgets the second account completely: ends any call, closes its window and clears its saved login.
 export async function signOutSecondAccount() {
