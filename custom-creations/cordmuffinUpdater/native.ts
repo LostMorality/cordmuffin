@@ -53,6 +53,8 @@ export interface ChangelogSection {
 
 export interface CheckResult extends Info {
     equicordOutdated?: boolean;
+    // The last update was cut off while putting files in place, so the build has to be redone.
+    repair?: boolean;
     plugins?: string[];
     changedPlugins?: string[];
     changedMuffinshelf?: string[];
@@ -98,8 +100,10 @@ async function github(path: string, accept = "application/vnd.github+json") {
         headers: { Accept: accept, "User-Agent": "cordmuffin-updater" },
         signal: AbortSignal.timeout(30_000),
     });
-    if (res.status === 403 || res.status === 429)
-        throw new Error("GitHub's hourly limit for update checks was reached. It tries again later by itself.");
+    // GitHub sends 403 for other refusals too; only these headers mean a rate limit.
+    const limited = res.status === 429
+        || (res.status === 403 && (res.headers.get("x-ratelimit-remaining") === "0" || res.headers.has("retry-after")));
+    if (limited) throw new Error("GitHub's hourly limit for update checks was reached. It tries again later by itself.");
     return res;
 }
 
@@ -196,10 +200,16 @@ async function whatsNew(state: State): Promise<ChangelogSection[]> {
         const latest = parseChangelog(await changelogAt("main"));
         let installedText = installedChangelogText(state);
         if (installedText === null && SHA.test(state.cordmuffin)) installedText = await changelogAt(state.cordmuffin);
-        const installed = new Set(parseChangelog(installedText ?? "").flatMap(s => s.items));
+        const installed = new Map(parseChangelog(installedText ?? "").map(s => [s.title, new Set(s.items)]));
+        // Sections are newest first. Everything above the newest section the installed copy has is new; that section
+        // only counts lines it didn't have yet, and older ones count nothing, so rewording an old line isn't news.
+        const newest = latest.findIndex(s => installed.has(s.title));
+        // With no section in common (renamed headings), any line the installed copy has anywhere isn't new.
+        const anyInstalled = new Set([...installed.values()].flatMap(items => [...items]));
+        const isOld = (title: string, item: string) => newest === -1 ? anyInstalled.has(item) : !!installed.get(title)?.has(item);
         let left = CHANGELOG_ITEMS;
-        return latest
-            .map(s => ({ title: s.title, items: s.items.filter(i => !installed.has(i)) }))
+        return (newest === -1 ? latest : latest.slice(0, newest + 1))
+            .map(s => ({ title: s.title, items: s.items.filter(i => !isOld(s.title, i)) }))
             .filter(s => s.items.length)
             .slice(0, CHANGELOG_SECTIONS)
             .map(s => {
@@ -322,7 +332,10 @@ export async function check(_: IpcMainInvokeEvent, includeMuffinshelf: boolean, 
         ]);
         // Only fetched when cordmuffin has something new, to stay well under GitHub's hourly limit.
         const notes = changed.length || installer ? await whatsNew(state) : [];
-        return { ...base, equicordOutdated: eq, changedPlugins: changed, installer, changedMuffinshelf: muffinshelf, whatsNew: notes };
+        // The installer clears the recorded Equicord while it copies files over the old build, and with no recorded
+        // Equicord it rebuilds even when Equicord updates are off.
+        const repair = !SHA.test(state.equicord);
+        return { ...base, equicordOutdated: eq || repair, repair, changedPlugins: changed, installer, changedMuffinshelf: muffinshelf, whatsNew: notes };
     } catch (e) {
         return { ...base, error: e instanceof Error ? e.message : String(e) };
     }
@@ -382,7 +395,10 @@ async function doUpdate(includeMuffinshelf: boolean, includeEquicord: boolean): 
     // The installer only logs it when it can't save its result; its exit code still says how it went.
     if (code === EXIT_OK) return { ok: true, needsRestart: true, updated: [] };
     if (code === EXIT_UP_TO_DATE) return { ok: true, upToDate: true };
-    return { ok: false, error: `The updater stopped without saying why (code ${code}). Its log is at ${join(work, "update.log")}` };
+    // Cut off while copying files over the old build (timeout, crash), it leaves no result but a cleared Equicord.
+    const partial = !SHA.test(readState()?.equicord ?? "");
+    const finish = partial ? " Part of the new version may already be in place; the next update finishes it." : "";
+    return { ok: false, partial, error: `The updater stopped without saying why (code ${code}).${finish} Its log is at ${join(work, "update.log")}` };
 }
 
 let running: Promise<UpdateResult> | null = null;
@@ -390,8 +406,4 @@ let running: Promise<UpdateResult> | null = null;
 export function runUpdate(_: IpcMainInvokeEvent, includeMuffinshelf: boolean, includeEquicord: boolean) {
     running ??= doUpdate(includeMuffinshelf === true, includeEquicord === true).finally(() => running = null);
     return running;
-}
-
-export function logPath(_: IpcMainInvokeEvent) {
-    return join(work, "update.log");
 }
