@@ -10,7 +10,7 @@ import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
 import { AuthenticationStore, SessionsStore, useStateFromStores } from "@webpack/common";
 
-import { currentPlatform, reconnect, settings, useRefused } from ".";
+import { applyPlatform, currentPlatform, isSpoofedNow, needsReconnect, settings, useEnabled, useRefused, useSentPlatform } from ".";
 import { platformLabel, PLATFORMS, SHOWS_LABEL } from "./platforms";
 
 const cl = classNameFactory("vc-platform-spoofer-");
@@ -31,6 +31,8 @@ const KEYS: "platform"[] = ["platform"];
 export function StatusPanel() {
     settings.use(KEYS);
     const refused = useRefused();
+    const active = useEnabled();
+    useSentPlatform();
     const rows = useStateFromStores([SessionsStore, AuthenticationStore], () => {
         const mine = AuthenticationStore.getSessionId();
         return Object.values(SessionsStore.getSessions())
@@ -40,7 +42,7 @@ export function StatusPanel() {
     }, [], sameRows);
 
     const picked = currentPlatform();
-    const want = picked === "off" || refused ? null : PLATFORMS[picked].shows;
+    const want = !active || picked === "off" || refused ? null : PLATFORMS[picked].shows;
     const me = rows.find(r => r.mine);
     const ok = !want || me?.client === want;
 
@@ -49,7 +51,10 @@ export function StatusPanel() {
             <Heading>What Discord sees right now</Heading>
             <Paragraph>
                 Picked: <b>{platformLabel(picked)}</b>
-                {refused && ". Discord refused it, so you're on your real platform until you pick again"}
+                {!active && (isSpoofedNow()
+                    ? ". The plugin is off, but the spoof stays until Discord reconnects"
+                    : ". The plugin is off or waiting for a restart, so nothing is spoofed")}
+                {active && refused && ". Discord refused it, so you're on your real platform until you pick again"}
                 {me && <>. This session shows as <b className={cl(ok ? "ok" : "bad")}>{SHOWS_LABEL[me.client] ?? me.client}</b>.</>}
             </Paragraph>
 
@@ -65,13 +70,15 @@ export function StatusPanel() {
                 </ul>
             )}
 
-            <Button
-                size="small"
-                variant="secondary"
-                onClick={reconnect}
-            >
-                Reconnect now
-            </Button>
+            {needsReconnect() && (
+                <Button
+                    size="small"
+                    variant="secondary"
+                    onClick={applyPlatform}
+                >
+                    Reconnect now
+                </Button>
+            )}
         </div>
     );
 }
