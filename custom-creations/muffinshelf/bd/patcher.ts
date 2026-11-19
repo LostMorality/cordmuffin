@@ -13,6 +13,8 @@ type AnyFn = (...args: any[]) => any;
 
 interface ChildPatch {
     caller: string;
+    /** The plugin file whose code added the patch, so it goes away with that plugin whatever caller name it used. */
+    owner?: string;
     type: PatchType;
     id: number;
     callback: AnyFn;
@@ -30,6 +32,23 @@ interface Patch {
 }
 
 const patches: Patch[] = [];
+
+const PLUGIN_FRAME = /muffinshelf-bd\/([^\s:)]+)/;
+const ErrorWithLimit = Error as ErrorConstructor & { stackTraceLimit: number; };
+
+// The BetterDiscord plugin file whose code is running, from the sourceURL runtime.ts gives every plugin.
+export function callerFile() {
+    const limit = ErrorWithLimit.stackTraceLimit;
+    ErrorWithLimit.stackTraceLimit = 50;
+    try {
+        const file = new Error().stack?.match(PLUGIN_FRAME)?.[1];
+        return file ? decodeURIComponent(file) : undefined;
+    } catch {
+        return undefined;
+    } finally {
+        ErrorWithLimit.stackTraceLimit = limit;
+    }
+}
 
 function runChildren(patch: Patch, thisArg: any, args: any[]) {
     const { children, original } = patch;
@@ -121,6 +140,7 @@ export function pushPatch(caller: string, module: any, functionName: PropertyKey
     const patch = patches.find(p => p.module === module && p.functionName === functionName) ?? makePatch(module, functionName);
     const child: ChildPatch = {
         caller,
+        owner: callerFile(),
         type,
         id: patch.counter++,
         callback,
@@ -141,6 +161,21 @@ export function unpatchAll(caller: string) {
         for (const child of [...patch.children]) {
             if (child.caller === caller) child.unpatch();
         }
+    }
+}
+
+// keepCallers: patches a file (a library, say) added under another loaded plugin's name belong to that plugin.
+export function unpatchOwner(file: string, keepCallers: Set<string>) {
+    for (const patch of [...patches]) {
+        for (const child of [...patch.children]) {
+            if (child.owner === file && !keepCallers.has(child.caller)) child.unpatch();
+        }
+    }
+}
+
+export function unpatchEverything() {
+    for (const patch of [...patches]) {
+        for (const child of [...patch.children]) child.unpatch();
     }
 }
 
