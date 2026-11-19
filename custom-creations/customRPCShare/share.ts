@@ -14,6 +14,8 @@ const FORMAT = "cordmuffin.customRpcPresets";
 const VERSION = 1;
 const CODE_PREFIX = "RPC1.";
 const MAX_TEXT = 500_000;
+// A UTF-16 character is at most 3 bytes of UTF-8, so a file bigger than this can't fit in MAX_TEXT.
+const MAX_FILE_BYTES = MAX_TEXT * 3;
 const MAX_PRESETS = 200;
 const NAME_MAX = 200;
 const DEFAULT_NAME = "Imported preset";
@@ -35,6 +37,8 @@ export interface Dropped {
     preset: string;
     field: string;
     reason: string;
+    /** Left out because it could identify the account, not because CustomRPC wouldn't take it. */
+    privacy?: true;
 }
 
 export interface CheckedPreset {
@@ -134,8 +138,15 @@ function fieldProblem(rule: Rule, value: unknown, config: Record<string, unknown
     }
 }
 
+// Control, invisible, text-direction and line-break characters, which can make a name look like a different one.
+const HIDDEN_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+// ZWNJ, ZWJ and tag characters are part of emoji and some scripts' spelling, so they stay.
+const KEEP_CHARS = /^[\u200C\u200D\u{E0020}-\u{E007F}]$/u;
+
 export function cleanName(raw: unknown) {
-    const name = typeof raw === "string" ? raw.replace(/[\p{Cc}]/gu, "").trim().slice(0, NAME_MAX) : "";
+    const name = typeof raw === "string"
+        ? raw.replace(HIDDEN_CHARS, c => KEEP_CHARS.test(c) ? c : "").trim().slice(0, NAME_MAX)
+        : "";
     return name || DEFAULT_NAME;
 }
 
@@ -150,28 +161,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function checkPreset(name: unknown, config: unknown, dropped: Dropped[]): CheckedPreset {
     const clean = cleanName(name);
     const out: Record<string, Json> = {};
+    // Only reported once the preset itself passes; a rejected preset is reported whole, not field by field.
+    const left: Dropped[] = [];
     if (!isRecord(config)) throw new Error(`"${clean}" has no settings in it.`);
 
     const nameProblem = privacyProblem(clean);
     const finalName = nameProblem ? DEFAULT_NAME : clean;
-    if (nameProblem) dropped.push({ preset: DEFAULT_NAME, field: "name", reason: `${nameProblem}, renamed` });
+    if (nameProblem) left.push({ preset: DEFAULT_NAME, field: "name", reason: `${nameProblem}, renamed`, privacy: true });
 
     for (const [key, value] of Object.entries(config)) {
         if (SWITCHES.has(key) || value === undefined || value === null) continue;
         const rule = isField(key) ? FIELDS[key] : undefined;
         if (!rule) {
-            dropped.push({ preset: finalName, field: key.slice(0, 40), reason: "not a CustomRPC field" });
+            left.push({ preset: finalName, field: key.slice(0, 40), reason: "not a CustomRPC field" });
             continue;
         }
-        const problem = fieldProblem(rule, value, config) ?? (typeof value === "string" ? privacyProblem(value) : null);
+        const problem = fieldProblem(rule, value, config);
         if (problem) {
-            dropped.push({ preset: finalName, field: key, reason: problem });
+            left.push({ preset: finalName, field: key, reason: problem });
+            continue;
+        }
+        const privacy = typeof value === "string" ? privacyProblem(value) : null;
+        if (privacy) {
+            left.push({ preset: finalName, field: key, reason: privacy, privacy: true });
             continue;
         }
         out[key] = value as Json;
     }
 
     if (!Object.keys(out).length) throw new Error(`"${finalName}" has no usable CustomRPC settings.`);
+    // CustomRPC shows nothing without an application name, so a preset without one would blank the presence when loaded.
+    if (!out.appName) throw new Error(`"${finalName}" has no application name, which CustomRPC needs.`);
+    dropped.push(...left);
     return { name: finalName, config: out };
 }
 
@@ -218,6 +239,9 @@ export function fileNameFor(data: SharedFile) {
     return `${base || "presets"}.customrpc.json`;
 }
 
+export const fileTooBig = (bytes: number) => bytes > MAX_FILE_BYTES;
+export const TOO_BIG = "That's far too big to be a CustomRPC preset.";
+
 export interface ImportCheck {
     presets: CheckedPreset[];
     dropped: Dropped[];
@@ -231,7 +255,7 @@ export interface ImportCheck {
 export function parseImport(text: string): ImportCheck {
     const trimmed = text.trim();
     if (!trimmed) throw new Error("Paste a preset code or choose a file first.");
-    if (trimmed.length > MAX_TEXT) throw new Error("That's far too big to be a CustomRPC preset.");
+    if (trimmed.length > MAX_TEXT) throw new Error(TOO_BIG);
 
     let raw: unknown;
     try {
@@ -250,10 +274,11 @@ export function parseImport(text: string): ImportCheck {
         list = raw.presets;
     } else if (Array.isArray(raw)) {
         list = raw;
+    } else if (isRecord(raw) && Object.keys(raw).some(isField)) {
+        // A raw settings dump can also carry CustomRPC's own "config" key, so this is checked before the preset shape.
+        list = [{ name: raw.appName, config: raw }];
     } else if (isRecord(raw) && isRecord(raw.config)) {
         list = [raw];
-    } else if (isRecord(raw) && Object.keys(raw).some(isField)) {
-        list = [{ name: raw.appName, config: raw }];
     } else {
         throw new Error("That isn't a CustomRPC preset.");
     }
