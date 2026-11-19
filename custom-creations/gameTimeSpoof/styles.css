@@ -21,6 +21,11 @@
     width: 200px;
 }
 
+/* Keeps the modal from shrinking and re-centring while the results change, so the toolbar stays put. */
+.vc-gts-results {
+    min-height: calc(100vh - 340px);
+}
+
 .vc-gts-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -226,8 +231,24 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    cursor: pointer;
     user-select: none;
+}
+
+.vc-gts-job-head-toggle {
+    cursor: pointer;
+}
+
+.vc-gts-job-close {
+    padding: 0 2px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
+    line-height: 1;
+}
+
+.vc-gts-job-close:focus-visible {
+    outline: 2px solid var(--focus-primary);
 }
 
 .vc-gts-job-title {
