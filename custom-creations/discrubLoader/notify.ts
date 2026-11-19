@@ -6,22 +6,22 @@
 
 import { showNotification } from "@api/Notifications";
 import { findByCodeLazy } from "@webpack";
-import { showToast } from "@webpack/common";
+import type { showToast } from "@webpack/common";
 
 type ToastOptions = Parameters<typeof showToast>[0];
 
-// Equicord's own showToast lookup broke with a Discord update in November 2026, so fall back to Discord's toast
-// function directly. A failed toast must never break what the plugin was doing.
+// Discord's own toast function, looked up directly. Equicord's showToast quietly turns into a console log when its
+// lookup misses, so it can't tell us a toast failed. This lazy throws when called if the lookup misses, which sends the
+// message to a notification instead. A failed toast must never break what the plugin was doing.
 const discordToast: (options: ToastOptions) => void = findByCodeLazy("currentToastMap.get(", "toastKey");
 
 function toast(options: ToastOptions) {
-    for (const show of [showToast, discordToast]) {
-        try {
-            show(options);
-            return true;
-        } catch { }
+    try {
+        discordToast(options);
+        return true;
+    } catch {
+        return false;
     }
-    return false;
 }
 
 // Discord's toasts cut text off after about two lines, so longer messages go to a notification that shows all of it.
