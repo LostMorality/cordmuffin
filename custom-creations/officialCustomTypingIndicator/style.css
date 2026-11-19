@@ -11,8 +11,12 @@
     overflow: visible;
 }
 
-/* Discord pushes the text 24px right to clear its dots, but our emoji already take up their own space. */
-[class*="typingDots_"] > .vc-cti-live ~ [class*="text_"] {
+/*
+ * Discord leaves room for its dots before the text, but our emoji take up their own space.
+ * :where() keeps this weaker than Discord's own customIndicatorGlyph rules (our emoji carry that class),
+ * so the typing bar inside the channel lines them up with the message avatars like Discord's own.
+ */
+:where([class*="typingDots_"]) > .vc-cti-live ~ [class*="text_"] {
     margin-inline-start: 6px;
 }
 
