@@ -24,11 +24,12 @@ import definePlugin from "@utils/types";
 import { ChannelStore, Menu } from "@webpack/common";
 
 import { settings } from "./settings";
-import { Accessory, handleTranslate } from "./utils/accessory";
+import { Accessory, clearTranslations, getMessageText, handleTranslate } from "./utils/accessory";
 import { Icon } from "./utils/icon";
+import { clearTranslatorCaches } from "./utils/translator";
 
 const messageCtxPatch: NavContextMenuPatchCallback = (children, { message }) => {
-    if (!message.content) return;
+    if (!message || !getMessageText(message)) return;
 
     const group = findGroupChildrenByChildId("copy-text", children);
     if (!group) return;
@@ -52,13 +53,19 @@ export default definePlugin({
     authors: [Devs.Ven, EquicordDevs.Prince527, { name: "nolifepops", id: 221807880053981184n }],
     settings,
     contextMenus: {
-        "message": messageCtxPatch
+        "message": messageCtxPatch,
+        // FullSearchContext's menu on search results
+        "message-actions": messageCtxPatch
+    },
+    stop() {
+        clearTranslations();
+        clearTranslatorCaches();
     },
     renderMessageAccessory: props => <Accessory message={props.message} />,
     messagePopoverButton: {
         icon: Icon,
         render(message) {
-            if (!message.content) return null;
+            if (!getMessageText(message)) return null;
             return {
                 label: "Translate",
                 icon: Icon,
