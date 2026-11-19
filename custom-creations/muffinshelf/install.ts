@@ -6,15 +6,10 @@
 
 import { Settings } from "@api/Settings";
 
-import { installBd, removeBd } from "./bd/runtime";
-import { Native, setBdOrigin } from "./settings";
+import { enableBd, installBd, removeBd } from "./bd/runtime";
+import { librariesUsedBy } from "./libraries";
+import { Native, setBdOrigin, settings } from "./settings";
 import { fetchBdCode, ShelfEntry } from "./sources";
-
-const LIBRARIES = [
-    { test: /ZeresPluginLibrary|ZLibrary/, file: "0PluginLibrary.plugin.js", url: "https://raw.githubusercontent.com/zerebos/BDPluginLibrary/master/release/0PluginLibrary.plugin.js" },
-    { test: /BDFDB_Global/, file: "0BDFDB.plugin.js", url: "https://raw.githubusercontent.com/mwittrien/BetterDiscordAddons/master/Library/0BDFDB.plugin.js" },
-    { test: /XenoLib/, file: "1XenoLib.plugin.js", url: "https://raw.githubusercontent.com/1Lighty/BetterDiscordPlugins/master/Plugins/1XenoLib.plugin.js" },
-];
 
 const REBUILD_STEP = "Rebuilding Equicord. This usually takes under a minute...";
 
@@ -25,10 +20,15 @@ export async function installBdEntry(entry: ShelfEntry) {
 
     const present = new Set(await Native.listBdFiles());
     const added: string[] = [];
-    for (const lib of LIBRARIES) {
-        if (lib.file === entry.bd.file || !lib.test.test(code) || present.has(lib.file)) continue;
-        await installBd(lib.file, await fetchBdCode(lib.url));
-        added.push(lib.file);
+    const willRun = !present.has(entry.bd.file) || settings.store.bdEnabled.includes(entry.bd.file);
+    for (const lib of librariesUsedBy(code, entry.bd.file)) {
+        // A library that is turned off hides its globals, so the plugin wouldn't find it.
+        if (present.has(lib.file)) {
+            if (willRun) enableBd(lib.file);
+        } else {
+            await installBd(lib.file, await fetchBdCode(lib.url));
+            added.push(lib.file);
+        }
     }
 
     await installBd(entry.bd.file, code, !present.has(entry.bd.file));
@@ -73,6 +73,7 @@ export async function installUserpluginEntries(entries: ShelfEntry[], onStep: (t
                 sourceId: entry.sourceId,
                 entryKey: entry.key,
                 version: entry.version,
+                fingerprint: up.fingerprint,
             });
             if (marker.pluginName) names.push(marker.pluginName);
         }
