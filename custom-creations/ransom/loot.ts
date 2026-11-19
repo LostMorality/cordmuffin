@@ -6,6 +6,7 @@
 
 import { addGoldFound, addHoneyPot, isRunning, onGoldGrabbed } from "./challenge";
 import { image } from "./images";
+import { notify } from "./notify";
 import { settings } from "./settings";
 import { play } from "./sound";
 
@@ -30,18 +31,42 @@ interface Loot {
     value: number;
     pot?: boolean;
     spilled?: boolean;
+    // Dropped from the toolbox: it stays even with loose gold turned off.
+    byHand?: boolean;
 }
 
 const loot = new Set<Loot>();
 let field: HTMLElement | undefined;
 let checkTimer: ReturnType<typeof setInterval> | undefined;
 let frame = 0;
+let poll: ReturnType<typeof setInterval> | undefined;
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
 function remove(item: Loot) {
     loot.delete(item);
     item.el.remove();
+    if (!loot.size) stopFollowing();
+}
+
+const schedule = () => void (frame ||= requestAnimationFrame(follow));
+
+// Piles stick to what they lie on. Instead of measuring every frame for as long as a pile is out, they're placed again
+// when something scrolls or the window resizes, and a few times a second to catch everything else (new messages).
+function startFollowing() {
+    if (poll) return;
+    poll = setInterval(schedule, 400);
+    document.addEventListener("scroll", schedule, { capture: true, passive: true });
+    window.addEventListener("resize", schedule);
+}
+
+function stopFollowing() {
+    clearInterval(poll);
+    poll = undefined;
+    document.removeEventListener("scroll", schedule, true);
+    window.removeEventListener("resize", schedule);
+    cancelAnimationFrame(frame);
+    frame = 0;
 }
 
 function anchors(exclude: Set<HTMLElement>) {
@@ -56,6 +81,7 @@ function anchors(exclude: Set<HTMLElement>) {
 const pick = <T,>(list: T[]) => list[Math.floor(Math.random() * list.length)];
 
 function follow() {
+    cancelAnimationFrame(frame);
     frame = 0;
     const hide = isRunning();
     for (const item of loot) {
@@ -75,7 +101,6 @@ function follow() {
         const y = Math.min(innerHeight - item.size, Math.max(0, r.top + r.height * item.oy + item.dy - item.size / 2));
         item.el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     }
-    if (loot.size) frame = requestAnimationFrame(follow);
 }
 
 function floatText(x: number, y: number, text: string, big = false) {
@@ -94,7 +119,7 @@ function take(item: Loot) {
     remove(item);
     play("coin", settings.store.soundVolume);
     floatText(r.left + r.width / 2, r.top, `+${item.value}`);
-    void addGoldFound(item.value);
+    addGoldFound(item.value);
     if (!item.spilled) onGoldGrabbed();
 }
 
@@ -120,7 +145,8 @@ function place(item: Omit<Loot, "el">, className: string, src: string, title: st
     });
     loot.add(full);
     field!.appendChild(el);
-    if (!frame) follow();
+    startFollowing();
+    follow();
     return full;
 }
 
@@ -129,13 +155,28 @@ function anchorPoint(anchor: HTMLElement) {
     return { ox: wide ? rand(0.3, 0.92) : rand(0.55, 0.8), oy: rand(0.3, 0.7) };
 }
 
+const piles = () => [...loot].filter(l => !l.pot && !l.spilled).length;
+
 /** Drops one gold pile on something visible in Discord. Returns false when there's nowhere to put it. */
-export function dropGold() {
-    if (!field || isRunning() || [...loot].filter(l => !l.pot && !l.spilled).length >= MAX_PILES) return false;
+function dropGold(byHand = false) {
+    if (!field || isRunning() || piles() >= MAX_PILES) return false;
     const anchor = pick(anchors(new Set([...loot].map(l => l.anchor))));
     if (!anchor) return false;
-    place({ anchor, ...anchorPoint(anchor), dx: 0, dy: 0, size: 26, value: 5 * Math.round(rand(2, 8)) }, "vc-ransom-loot", image("coin"), "Gold", take);
+    place({ anchor, ...anchorPoint(anchor), dx: 0, dy: 0, size: 26, value: 5 * Math.round(rand(2, 8)), byHand }, "vc-ransom-loot", image("coin"), "Gold", take);
     return true;
+}
+
+/** The toolbox's "Drop some gold": says why when no pile can be dropped. */
+export function dropGoldByHand() {
+    if (!field) return notify("Turn Ransom on first.", "critical");
+    if (isRunning()) return notify("Not while Ransom is here.", "critical");
+    if (piles() >= MAX_PILES) return notify(`There are already ${MAX_PILES} piles out.`, "critical");
+    if (!dropGold(true)) notify("No spot for gold on this screen.", "critical");
+}
+
+/** Loose gold was turned off: the piles that turned up by themselves go right away. */
+export function clearLooseGold() {
+    for (const item of [...loot]) if (!item.pot && !item.spilled && !item.byHand) remove(item);
 }
 
 /** Shakes the pot, breaks it in two and spills its gold around where it stood. */
@@ -156,7 +197,7 @@ function breakPot(pot: Loot) {
             setTimeout(() => half.remove(), 700);
         }
         play("goldUp", settings.store.soundVolume);
-        void addHoneyPot();
+        addHoneyPot();
         // A random amount, spilled as a ring of piles to pick up.
         const total = 5 * Math.round(rand(20, 100));
         const count = Math.max(4, Math.min(10, Math.round(total / 50)));
@@ -193,10 +234,7 @@ export function dropHoneyPot() {
 
 function check() {
     const chance = CHANCE[settings.store.looseGold] ?? 0;
-    if (!chance) {
-        for (const item of [...loot]) if (!item.pot && !item.spilled) remove(item);
-        return;
-    }
+    if (!chance) return clearLooseGold();
     if (document.hidden || !document.hasFocus() || Math.random() > chance) return;
     dropGold();
 }
@@ -212,8 +250,7 @@ export function startLoot() {
 export function stopLoot() {
     clearInterval(checkTimer);
     checkTimer = undefined;
-    cancelAnimationFrame(frame);
-    frame = 0;
+    stopFollowing();
     for (const item of [...loot]) remove(item);
     field?.remove();
     field = undefined;
