@@ -16,13 +16,13 @@ const DAY_KEY = "Ransom_day";
 const DAILY_CAP = 20;
 
 export const ITEMS = [
-    { id: "gold", emoji: "💰", name: "Gold", weight: 30 },
-    { id: "key", emoji: "🗝️", name: "Room key", weight: 20 },
-    { id: "candle", emoji: "🕯️", name: "Candle", weight: 18 },
-    { id: "flashlight", emoji: "🔦", name: "Flashlight", weight: 15 },
-    { id: "vitamins", emoji: "💊", name: "Vitamins", weight: 12 },
-    { id: "lockpick", emoji: "🪛", name: "Lockpick", weight: 4 },
-    { id: "golden", emoji: "🔑", name: "Golden key", weight: 1 }
+    { id: "gold", emoji: "💰", name: "Gold", article: "some", weight: 30 },
+    { id: "key", emoji: "🗝️", name: "Room key", article: "a", weight: 20 },
+    { id: "candle", emoji: "🕯️", name: "Candle", article: "a", weight: 18 },
+    { id: "flashlight", emoji: "🔦", name: "Flashlight", article: "a", weight: 15 },
+    { id: "vitamins", emoji: "💊", name: "Vitamins", article: "some", weight: 12 },
+    { id: "lockpick", emoji: "🪛", name: "Lockpick", article: "a", weight: 4 },
+    { id: "golden", emoji: "🔑", name: "Golden key", article: "a", weight: 1 }
 ] as const;
 
 export type ItemId = typeof ITEMS[number]["id"];
@@ -130,7 +130,7 @@ function show(channelId: string, guildId: string | undefined, spot: Spot, tries 
     el.title = "Something spooky";
     el.style.left = `${rect.left + 20 + spot.x * (rect.width - 80)}px`;
     el.style.top = `${rect.top + 40 + spot.y * (rect.height - 120)}px`;
-    el.addEventListener("click", () => void collect(channelId, guildId, spot.item));
+    el.addEventListener("click", () => void collect(channelId, guildId, spot.item).catch(() => notify("Couldn't save that find.", "critical")));
     document.body.appendChild(el);
     shown.push(el);
 
@@ -155,18 +155,18 @@ async function collect(channelId: string, guildId: string | undefined, item: Ite
     await DataStore.set(FOUND_KEY, found);
     play("coin", settings.store.soundVolume);
     const info = itemInfo(item);
-    notify(`You found ${info.name === "Gold" ? "some" : "a"} ${info.name} ${info.emoji}! That's ${found.length} found so far.`, "success");
+    notify(`You found ${info.article} ${info.name} ${info.emoji}! That's ${found.length} found so far.`, "success");
     listeners.forEach(l => l());
 }
 
-export async function onChannelSelect(channelId: string | null | undefined, guildId: string | null | undefined) {
-    clearShown();
-    current = undefined;
-    if (!channelId || !settings.store.hunt) return;
-    const inServer = !!guildId;
-    if (inServer ? !settings.store.huntServers : !settings.store.huntDMs) return;
-    current = { channelId, guildId: guildId ?? undefined };
+/** Runs `then` once the open chat's message list is on screen. Forums and the like have none, so nothing is hidden there. */
+function whenChatShows(channelId: string, then: () => void, tries = 0) {
+    if (current?.channelId !== channelId) return;
+    if (chatArea()) return then();
+    if (tries < 10) showTimer = setTimeout(() => whenChatShows(channelId, then, tries + 1), 300);
+}
 
+async function rollAndShow(channelId: string) {
     const d = await loadDay();
     if (current?.channelId !== channelId) return;
     let spot = d.pending[channelId];
@@ -180,20 +180,33 @@ export async function onChannelSelect(channelId: string | null | undefined, guil
         await saveDay(d);
         if (current?.channelId !== channelId) return;
     }
-    clearTimeout(showTimer);
-    if (spot && !isRunning()) showTimer = setTimeout(() => show(channelId, current?.guildId, spot), 600);
+    if (spot && !isRunning()) show(channelId, current?.guildId, spot);
+}
+
+export function onChannelSelect(channelId: string | null | undefined, guildId: string | null | undefined) {
+    clearShown();
+    current = undefined;
+    if (!channelId || !settings.store.hunt) return;
+    const inServer = !!guildId;
+    if (inServer ? !settings.store.huntServers : !settings.store.huntDMs) return;
+    current = { channelId, guildId: guildId ?? undefined };
+    // The roll waits until the chat itself is showing, so a channel without a message list never uses up an item.
+    showTimer = setTimeout(() => whenChatShows(channelId, () => void rollAndShow(channelId).catch(() => { })), 600);
 }
 
 export function refreshHunt() {
-    if (current) void onChannelSelect(current.channelId, current.guildId);
+    if (current) onChannelSelect(current.channelId, current.guildId);
     else clearShown();
 }
 
+/** Hides an item in the open chat. False when it has no message list to hide it in. */
 export async function hideHere(channelId: string, guildId: string | undefined) {
+    if (!chatArea()) return false;
     const d = await loadDay();
     d.pending[channelId] = { item: pick(), x: Math.random(), y: Math.random() };
     await saveDay(d);
-    void onChannelSelect(channelId, guildId);
+    onChannelSelect(channelId, guildId);
+    return true;
 }
 
 export function stopHunt() {
