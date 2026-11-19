@@ -19,7 +19,7 @@
 }
 
 .vc-muffinshelf-select {
-    width: 190px;
+    width: 220px;
 }
 
 .vc-muffinshelf-grid {
@@ -270,4 +270,111 @@
 
 .vc-muffinshelf-modal-content {
     padding: 4px 0;
+}
+
+/* BDFDB's own modals (its settings, for one) style their content with Discord's old modal classes, which are gone,
+   so BDFDB tags the content "BDFDB_undefined_<random>" and it loses its padding. modal_e62d17 and settingsPanel_3aa079
+   are BDFDB's own class names; the rule stops matching on its own once BDFDB finds a real class again. */
+.modal_e62d17 [class*="BDFDB_undefined_"]:has(.settingsPanel_3aa079) {
+    padding: 0 8px 20px 16px;
+}
+
+/* Discord's sizeMedium button is a fixed 100px wide, so with nowrap a longer label ("Check for Updates") spills out. */
+.modal_e62d17 .settingsPanel_3aa079 button {
+    flex-shrink: 0;
+    white-space: nowrap;
+    width: auto;
+    min-width: max-content;
+}
+
+/* BDFDB builds its text/number inputs from Discord classes it can no longer find, so they render as bare white boxes. */
+.modal_e62d17 .settingsPanel_3aa079 input:is([type="text"], [type="number"], [type="search"], [type="url"], [type="email"], [type="password"], :not([type])),
+.modal_e62d17 .settingsPanel_3aa079 textarea {
+    box-sizing: border-box;
+    background-color: var(--input-background-default);
+    border: 1px solid var(--input-border-default);
+    border-radius: var(--radius-sm);
+    color: var(--text-default);
+    font-size: 16px;
+    padding: 8px 10px;
+    outline: none;
+}
+
+/* BDFDB's number arrows sit inside the box; its own padding rules target classes that don't resolve. */
+.modal_e62d17 .settingsPanel_3aa079 .numberInputWrapperDefault_afe673 input {
+    padding-right: 25px;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 .numberInputWrapperMini_afe673 input {
+    padding-left: 6px;
+    padding-right: 17px;
+}
+
+/* The arrows are placed against the wrapper's right edge, and the wrapper is a full-width block, so they end up at
+   the far side of the panel. Sizing the wrapper to its input puts them back inside the box. */
+.modal_e62d17 .settingsPanel_3aa079 .numberInputWrapper_afe673 {
+    display: inline-block;
+    width: auto;
+    max-width: 100%;
+}
+
+/* BDFDB lays out a settings row (label left, control right) with Discord's old SettingsItems classes, which are gone,
+   so the row becomes BDFDB_undefined_<random> and each switch drops under its label. settingsRow_c94a44 is BDFDB's
+   own class and data-layout is set by BDFDB on the row; the rule stops matching once the row gets a real class. */
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] {
+    display: flex;
+    align-items: center;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :last-child:not(:first-child) {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+/* SettingsItem gives the control an inline flex-grow of 1, so a switch takes half the row and BDFDB's TextScroller
+   caps the label at the other half. Switches and buttons only need their own width. */
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :last-child:not(:first-child):not(:has(input:not([type=checkbox]), [class*="select"])) {
+    flex-grow: 0 !important;
+}
+
+/* A row's note (the line under its label) loses its size and margin classes too, and its TextScroller is capped at
+   the width it had on mount. Show it smaller and muted under the label, wrapped instead of cut off. */
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :first-child > .flexChild_hkRWAH ~ * {
+    font-size: 0.875em;
+    line-height: 1.3;
+    color: var(--text-muted) !important;
+    margin-top: 2px;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :first-child > .flexChild_hkRWAH ~ * .textScroller_72a89f {
+    max-width: 100% !important;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44 > [data-layout="horizontal"][class*="BDFDB_undefined_"] > :first-child > .flexChild_hkRWAH ~ * .textScroller_72a89f > div {
+    display: block !important;
+    white-space: normal !important;
+    left: 0 !important;
+}
+
+/* The rows' margin class is gone as well, so they touch each other. */
+.modal_e62d17 .settingsPanel_3aa079 .settingsRow_c94a44:not(:last-child) {
+    margin-bottom: 8px;
+}
+
+.modal_e62d17 .settingsPanel_3aa079 input::placeholder,
+.modal_e62d17 .settingsPanel_3aa079 textarea::placeholder {
+    color: var(--input-placeholder-text-default);
+}
+
+.modal_e62d17 .settingsPanel_3aa079 input:focus,
+.modal_e62d17 .settingsPanel_3aa079 textarea:focus {
+    border-color: var(--text-link);
 }
