@@ -4,15 +4,20 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { registerCommand, sendBotMessage, unregisterCommand } from "@api/Commands";
+import { BUILT_IN, commands, registerCommand, sendBotMessage, unregisterCommand } from "@api/Commands";
 import { showNotification } from "@api/Notifications";
 import { BaseText } from "@components/BaseText";
 import { Button } from "@components/Button";
+import { Text as VcText } from "@components/Text";
 import { openInviteModal } from "@utils/discord";
+import { Logger } from "@utils/Logger";
+import { classes } from "@utils/misc";
 import { Checkbox, closeModal, ColorPicker, Modal, openModal, React, Select, Slider, TextInput, useEffect, useReducer, useRef, useState } from "@webpack/common";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 
 // BdApi pieces modelled on BetterDiscord's own versions (src/betterdiscord/ui, stores/base, modules/nodepatcher).
+
+const logger = new Logger("Muffinshelf");
 
 const MEMO = Symbol.for("react.memo");
 const FORWARD_REF = Symbol.for("react.forward_ref");
@@ -294,6 +299,38 @@ export const Inputs = {
     },
 };
 
+// BetterDiscord's Text, on Equicord's: its Sizes and Colors map to Equicord's sizes and colors, and anything else
+// a plugin passes there is kept as a class name.
+const TEXT_SIZES = Object.freeze({ SIZE_10: "xxs", SIZE_12: "xs", SIZE_14: "sm", SIZE_16: "md", SIZE_20: "lg", SIZE_24: "xl", SIZE_32: "xxl" } as const);
+const TEXT_COLORS = Object.freeze({
+    STANDARD: "text-default",
+    MUTED: "text-muted",
+    ERROR: "text-feedback-critical",
+    BRAND: "text-brand",
+    SUCCESS: "text-feedback-positive",
+    WARNING: "text-feedback-warning",
+    HEADER_PRIMARY: "text-strong",
+    HEADER_SECONDARY: "text-subtle",
+    LINK: "text-link",
+} as const);
+
+const isOneOf = <T extends Record<string, string>>(value: unknown, list: T): value is T[keyof T] => Object.values(list).includes(value as string);
+
+export const Text = Object.assign(({ tag = "div", className, children, color = TEXT_COLORS.STANDARD, size = TEXT_SIZES.SIZE_14, selectable, strong, style, ...rest }: Record<string, any>) => (
+    <VcText
+        {...rest}
+        tag={tag}
+        size={isOneOf(size, TEXT_SIZES) ? size : "sm"}
+        color={isOneOf(color, TEXT_COLORS) ? color : undefined}
+        weight={strong ? "semibold" : "normal"}
+        selectable={!!selectable}
+        className={classes(className, typeof size === "string" && !isOneOf(size, TEXT_SIZES) && size, typeof color === "string" && !isOneOf(color, TEXT_COLORS) && color)}
+        style={style}
+    >
+        {children}
+    </VcText>
+), { Sizes: TEXT_SIZES, Colors: TEXT_COLORS });
+
 export const Spinner = Object.assign(({ type }: { type?: string; }) => (
     <div className="vc-muffinshelf-spinner" role="status" aria-label="Loading" data-type={type}>
         <span />
@@ -309,11 +346,14 @@ export const Spinner = Object.assign(({ type }: { type?: string; }) => (
     }),
 });
 
-// BetterDiscord's Modal parts, mapped onto Discord's own modal.
+// BetterDiscord's Modal parts, mapped onto Discord's own modal, whose sizes are named differently.
+const MODAL_SIZES: Record<string, string> = { small: "sm", medium: "md", large: "lg", dynamic: "md" };
+const modalSize = (size: unknown) => typeof size === "string" ? MODAL_SIZES[size] ?? size : undefined;
+
 const BdModal = Object.assign(
-    ({ children, ...props }: Record<string, any>) => <Modal {...props as any} title={props.title ?? ""}>{children}</Modal>,
+    ({ children, ...props }: Record<string, any>) => <Modal {...props as any} size={modalSize(props.size)} title={props.title ?? ""}>{children}</Modal>,
     {
-        Root: ({ children, ...props }: Record<string, any>) => <Modal {...props as any} title="">{children}</Modal>,
+        Root: ({ children, ...props }: Record<string, any>) => <Modal {...props as any} size={modalSize(props.size)} title="">{children}</Modal>,
         Header: ({ children }: { children?: ReactNode; }) => <div className="vc-muffinshelf-modal-header">{children}</div>,
         Content: ({ children }: { children?: ReactNode; }) => <div className="vc-muffinshelf-modal-content">{children}</div>,
         Footer: ({ children }: { children?: ReactNode; }) => <div className="vc-muffinshelf-modal-footer">{children}</div>,
@@ -457,19 +497,52 @@ interface BdCommand {
     execute(options: any[], ctx: { channel: any; guild?: any; }): any;
 }
 
+// Discord's own commands (shrug, me, tts...) have no name, only untranslatedName, so Equicord's name check misses them.
+// A command with subcommands only sits in `commands`; BUILT_IN holds its "<name> <sub>" entries.
+const nameTaken = (name: string) => Object.hasOwn(commands, name)
+    || !!BUILT_IN?.some(c => c.name === name || c.untranslatedName === name || c.name?.startsWith(`${name} `));
+
+// Equicord keeps every command in one list by name, while BetterDiscord keeps one per plugin. A name that's already
+// taken (by Discord, Equicord or another plugin) gets the plugin's name in front instead of failing the plugin.
+function registerUnderFreeName(vcCommand: any, caller: string) {
+    const wanted = vcCommand.name;
+    const prefixed = `${caller}-${wanted}`.toLowerCase().replace(/[^\w-]+/g, "-").slice(0, 32);
+    for (const name of [wanted, prefixed]) {
+        if (nameTaken(name)) continue;
+        // registerCommand fills these from the name, so a retry under the prefixed name must start clean.
+        vcCommand.name = name;
+        delete vcCommand.untranslatedName;
+        delete vcCommand.untranslatedDescription;
+        try {
+            registerCommand(vcCommand, `Muffinshelf (${caller})`);
+            return true;
+        } catch (e) {
+            if (commands[name] === vcCommand) unregisterCommand(name);
+            // Equicord's only name clash error is "Command '<name>' already exists." (also thrown for a "<name> <sub>" entry).
+            // Anything else is wrong with the command itself, so another name wouldn't help.
+            const message = e instanceof Error ? e.message : String(e);
+            if (!/^Command '.*' already exists\.$/.test(message)) {
+                logger.warn(`${caller} couldn't add its /${wanted} command: ${message}`);
+                return false;
+            }
+        }
+    }
+    logger.warn(`${caller} couldn't add its /${wanted} command: that name is taken`);
+    return false;
+}
+
 function registerBdCommand(caller: string, command: BdCommand) {
     if (!caller || typeof command !== "object" || !command?.id || !command.name || typeof command.execute !== "function") return undefined;
     const mine = registered.get(caller) ?? new Map();
     if (mine.has(command.id)) throw new Error(`Command with id bd-${caller}-${command.id} is already registered`);
-    const builtIn = command.inputType === undefined || command.inputType === InputTypes.BUILT_IN;
+    // Always BUILT_IN, as BetterDiscord does: a result is shown as a local bot message and never sent as the user.
     const vcCommand: any = {
         name: command.name,
         description: command.description || command.name,
         options: (command.options ?? []).map(o => ({ ...o, description: o.description || o.name, required: !!o.required })),
-        inputType: builtIn ? InputTypes.BUILT_IN : command.inputType,
+        inputType: InputTypes.BUILT_IN,
         execute: async (args: any[], ctx: any) => {
             const result = await command.execute(args, { channel: ctx.channel, guild: ctx.guild });
-            if (!builtIn) return result;
             if (result && typeof result === "object" && !Array.isArray(result) && (typeof result.content === "string" || result.embeds)) {
                 const embeds = result.embeds ? [result.embeds].flat().map((e: any) => ({ ...e, type: e.type || "rich" })) : undefined;
                 sendBotMessage(ctx.channel.id, { content: typeof result.content === "string" ? result.content : undefined, embeds, author: { username: caller } as any });
@@ -477,7 +550,7 @@ function registerBdCommand(caller: string, command: BdCommand) {
             return undefined;
         },
     };
-    registerCommand(vcCommand, `Muffinshelf (${caller})`);
+    if (!registerUnderFreeName(vcCommand, caller)) return () => { };
     mine.set(command.id, vcCommand);
     registered.set(caller, mine);
     return () => unregisterBdCommand(caller, command.id);
