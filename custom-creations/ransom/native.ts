@@ -40,7 +40,7 @@ const FILES = {
     riser: { path: "5/58/Ransom_encounter.wav", kind: "audio" },
     coin: { path: "2/2b/Ransomgold.mp3", kind: "audio" },
     goldUp: { path: "6/6a/Ransomgold_increase_%2897004792231127%29.ogg", kind: "audio" },
-    paid: { path: "7/78/Ransom_paid_in-game.mp3", kind: "audio" },
+    paid: { path: "9/99/Ransom_paid_%28in-game%29.mp3", kind: "audio" },
     success: { path: "8/83/Ransomsuccess_74683588362771.ogg", kind: "audio" },
     error: { path: "b/bc/Ransom_UI_-_Error_%2880099403859001%29.ogg", kind: "audio" },
     deathMusic: { path: "c/ce/Guiding_Light.ogg", kind: "audio" },
@@ -50,8 +50,10 @@ const FILES = {
 export type DoorsFile = keyof typeof FILES;
 
 const MAX_BYTES = 4 * 1024 * 1024;
-const root = join(app.getPath("userData"), "RansomPlugin");
-const cacheDir = join(root, "doors-wiki");
+// Read on each call, not when this file loads: Equicord loads plugin natives before Discord points userData at its
+// own folder (discordptb, discordcanary...), so a path taken at load time lands in the stable client's folder.
+const root = () => join(app.getPath("userData"), "RansomPlugin");
+const cacheDir = () => join(root(), "doors-wiki");
 
 const MAGIC: Record<"image" | "audio", number[][]> = {
     image: [[0x89, 0x50, 0x4e, 0x47], [0xff, 0xd8, 0xff], [0x47, 0x49, 0x46, 0x38], [0x52, 0x49, 0x46, 0x46]],
@@ -120,7 +122,7 @@ export type EasterEggFile = keyof typeof EASTER_EGG;
 export function getEasterEggFile(_: IpcMainInvokeEvent, name: EasterEggFile): Uint8Array | null {
     if (!Object.hasOwn(EASTER_EGG, name)) return null;
     try {
-        const bytes = new Uint8Array(readFileSync(join(root, "EasterEgg", EASTER_EGG[name].file)));
+        const bytes = new Uint8Array(readFileSync(join(root(), "EasterEgg", EASTER_EGG[name].file)));
         const ok = bytes.length > 16 && bytes.length <= EASTER_EGG_MAX && MAGIC[EASTER_EGG[name].kind].some(sig => sig.every((b, i) => bytes[i] === b));
         return ok ? bytes : null;
     } catch {
@@ -132,16 +134,17 @@ export async function getDoorsFile(_: IpcMainInvokeEvent, name: DoorsFile): Prom
     if (!Object.hasOwn(FILES, name)) return null;
     if (!oldCacheGone) {
         oldCacheGone = true;
-        try { rmSync(join(root, "doors-cache"), { recursive: true, force: true }); } catch { }
+        try { rmSync(join(root(), "doors-cache"), { recursive: true, force: true }); } catch { }
     }
-    const file = join(cacheDir, name);
+    const dir = cacheDir();
+    const file = join(dir, name);
     try {
         if (existsSync(file)) {
             const cached = new Uint8Array(readFileSync(file));
             if (looksRight(cached, FILES[name].kind)) return cached;
         }
         const bytes = await download(name);
-        mkdirSync(cacheDir, { recursive: true });
+        mkdirSync(dir, { recursive: true });
         // Written to a side file first, so a cut-off write never leaves a broken file in the cache.
         writeFileSync(`${file}.part`, bytes);
         renameSync(`${file}.part`, file);
