@@ -15,7 +15,7 @@ import type { RenderModalProps } from "@vencord/discord-types";
 import { Modal, openModal, TextInput, useEffect, useMemo, useState } from "@webpack/common";
 
 import { DetectableApp, exeName } from ".";
-import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, nextUpdate, tierFor } from "./badges";
+import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, nextUpdate, prunePending, tierFor } from "./badges";
 import { Conflicts } from "./conflicts";
 import { startCredit, useCrediting } from "./job";
 import { notify } from "./notify";
@@ -109,7 +109,10 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
 
     useEffect(() => {
         loadPlayedIds().then(setPlayed, () => setPlayed("failed"));
-        loadBadges().then(setBadges, () => setBadges("failed"));
+        loadBadges().then(b => {
+            setBadges(b);
+            prunePending(b);
+        }, () => setBadges("failed"));
     }, []);
 
     const available = useMemo(() => {
@@ -191,7 +194,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
             {pool && (
                 <>
                     <FormSwitch
-                        title="Only games I haven't played"
+                        title="Only unplayed games"
                         description={`New games count toward the Game Variety badge. ${playedNote}`}
                         value={newOnly}
                         onChange={setNewOnly}
