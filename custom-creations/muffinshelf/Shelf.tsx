@@ -9,7 +9,9 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import { FormSwitch } from "@components/FormSwitch";
 import { Heading } from "@components/Heading";
 import { Paragraph } from "@components/Paragraph";
+import { Switch } from "@components/Switch";
 import { classNameFactory } from "@utils/css";
+import { Logger } from "@utils/Logger";
 import { escapeRegExp } from "@utils/text";
 import type { RenderModalProps } from "@vencord/discord-types";
 import { Alerts, Modal, openModal, Select, TextInput, useEffect, useMemo, useState } from "@webpack/common";
@@ -17,11 +19,13 @@ import { Alerts, Modal, openModal, Select, TextInput, useEffect, useMemo, useSta
 import { BdApi, toNode } from "./bd/api";
 import * as Runtime from "./bd/runtime";
 import { BuildResult, installBdEntry, installUserpluginEntries, rebuild, removeBdFile, removeUserplugin } from "./install";
+import { LIBRARY_FILES, librariesUsedBy } from "./libraries";
 import { notify } from "./notify";
 import { getBdOrigin, getBroken, Native, settings } from "./settings";
 import { allSources, checkSourceUrl, customSource, equicordEquivalent, loadSource, ShelfEntry, SourceDef } from "./sources";
 
 const cl = classNameFactory("vc-muffinshelf-");
+const logger = new Logger("Muffinshelf");
 const PAGE_SIZE = 60;
 const SOURCE_KEYS: ("customSources" | "disabledSources")[] = ["customSources", "disabledSources"];
 const RUN_KEYS: "runBetterDiscord"[] = ["runBetterDiscord"];
@@ -31,7 +35,6 @@ const TABS = { browse: "Browse", installed: "Installed", sources: "Sources", abo
 type Tab = keyof typeof TABS;
 
 const KIND_LABEL = { userplugin: "Equicord plugin", bd: "BetterDiscord plugin", browse: "Can't run here" } as const;
-const LIBRARY_FILES = new Set(["0PluginLibrary.plugin.js", "0BDFDB.plugin.js", "1XenoLib.plugin.js"]);
 
 type Info = Awaited<ReturnType<typeof Native.getInfo>>;
 type InstalledUserplugin = Awaited<ReturnType<typeof Native.listUserplugins>>[number];
@@ -62,6 +65,7 @@ function useRuntimeTick() {
 }
 
 const errorText = (e: unknown) => e instanceof Error ? e.message : String(e);
+const sentence = (text: string) => /[.!?]$/.test(text.trimEnd()) ? text.trimEnd() : `${text.trimEnd()}.`;
 const openLink = (url: string) => /^https?:\/\//.test(url) && VencordNative.native.openExternal(url);
 
 function isNewer(installed: string, available: string) {
@@ -71,9 +75,16 @@ function isNewer(installed: string, available: string) {
 }
 
 function openBdSettings(file: string) {
-    const panel = Runtime.openSettings(file);
-    if (!panel) return;
     const plugin = Runtime.find(file);
+    let panel: unknown;
+    try {
+        panel = Runtime.openSettings(file);
+    } catch (e) {
+        logger.error(`${plugin?.meta.name ?? file} settings failed to open`, e);
+        notify(`${plugin?.meta.name ?? file}'s settings didn't open: ${errorText(e)}`, "critical");
+        return;
+    }
+    if (!panel) return;
     openModal(props => (
         <ErrorBoundary>
             <Modal {...props} size="lg" title={`${plugin?.meta.name ?? file} settings`} actions={[{ text: "Done", variant: "primary", onClick: props.onClose }]}>
@@ -85,6 +96,18 @@ function openBdSettings(file: string) {
 
 function confirm(title: string, body: string, confirmText: string) {
     return new Promise<boolean>(resolve => Alerts.show({ title, body, confirmText, cancelText: "Cancel", onConfirm: () => resolve(true), onCancel: () => resolve(false), onCloseCallback: () => resolve(false) }));
+}
+
+// Removing a library that turned-on plugins use names them in the warning.
+function removeBdText(file: string) {
+    const base = "Muffinshelf stops it and deletes its file. Its saved settings are kept.";
+    if (!LIBRARY_FILES.has(file)) return base;
+    const users = Runtime.getAll()
+        .filter(o => o.file !== file && o.enabled && librariesUsedBy(o.code, o.file).some(l => l.file === file))
+        .map(o => o.meta.name);
+    if (!users.length) return base;
+    const names = users.length === 1 ? users[0] : `${users.slice(0, -1).join(", ")} and ${users[users.length - 1]}`;
+    return `${base} ${names} ${users.length === 1 ? "uses" : "use"} this library and may stop working without it.`;
 }
 
 function showBuildError(result: BuildResult) {
@@ -141,6 +164,7 @@ interface CardProps {
 }
 
 function EntryCard({ entry, source, installed, bdFiles, busy, onInstall }: CardProps) {
+    const [imageFailed, setImageFailed] = useState(false);
     const upInstalled = entry.userplugin ? installed.find(p => p.entryKey === entry.key) : undefined;
     const bdInstalled = entry.bd ? bdFiles.has(entry.bd.file) : false;
     const isInstalled = !!upInstalled || bdInstalled;
@@ -154,15 +178,19 @@ function EntryCard({ entry, source, installed, bdFiles, busy, onInstall }: CardP
 
     return (
         <div className={cl("card", `card-${entry.kind}`)}>
-            {entry.image && <img className={cl("thumb")} src={entry.image} loading="lazy" alt="" />}
+            {entry.image && !imageFailed && <img className={cl("thumb")} src={entry.image} loading="lazy" alt="" onError={() => setImageFailed(true)} />}
             <div className={cl("card-head")}>
                 <Heading tag="h4" className={cl("card-title")}>{entry.name}</Heading>
                 <span className={cl("badge", `badge-${entry.kind}`)}>{KIND_LABEL[entry.kind]}</span>
             </div>
             {meta && <Paragraph size="xs" className={cl("meta")}>{meta}</Paragraph>}
             <Paragraph size="sm" className={cl("desc")}>{entry.description || "No description."}</Paragraph>
-            {builtIn && <Paragraph size="xs" className={cl("builtin")}>Equicord already has this as {builtIn}. Turn it on in Equicord's Plugins page.</Paragraph>}
-            {broken && <Paragraph size="xs" className={cl("error")}>Won't work in Muffinshelf: {broken.reason}</Paragraph>}
+            {builtIn && !broken && <Paragraph size="xs" className={cl("builtin")}>Equicord already has this as {builtIn}. Turn it on in Equicord's Plugins page.</Paragraph>}
+            {broken && (
+                <Paragraph size="xs" className={cl("error")}>
+                    Won't work in Muffinshelf: {builtIn && !broken.reason.includes(builtIn) ? `${sentence(broken.reason)} Equicord has its own ${builtIn}.` : broken.reason}
+                </Paragraph>
+            )}
             <Paragraph size="xs" className={cl("meta")}>From {source?.name ?? entry.sourceId}</Paragraph>
             <div className={cl("card-actions")}>
                 {entry.kind !== "browse" && (
@@ -199,7 +227,7 @@ const KINDS = [
     { label: "Equicord plugins", value: "userplugin" },
     { label: "BetterDiscord plugins", value: "bd" },
     { label: "Can't run here", value: "browse" },
-    { label: "Won't work in Muffinshelf", value: "broken" },
+    { label: "Won't work here", value: "broken" },
 ];
 
 interface BrowseProps {
@@ -310,7 +338,7 @@ function BrowseTab({ states, sources, installed, bdFiles, info, busy, onInstall 
                 : <Paragraph className={cl("empty")}>{loading ? "Loading plugins..." : "No plugins match."}</Paragraph>}
             {limit < entries.length && (
                 <div className={cl("more")}>
-                    <Button variant="secondary" onClick={() => setLimit(l => l + PAGE_SIZE)}>Show more ({(entries.length - limit).toLocaleString()} left)</Button>
+                    <Button variant="secondary" onClick={() => setLimit(l => l + PAGE_SIZE)}>Show more ({(entries.length - limit).toLocaleString()})</Button>
                 </div>
             )}
         </>
@@ -359,14 +387,15 @@ function InstalledTab({ installed, info, busy }: { installed: InstalledUserplugi
 
             <Heading tag="h3" className={cl("section")}>BetterDiscord plugins</Heading>
             <FormSwitch
-                title="Run BetterDiscord plugins"
-                description="Turning this off stops every BetterDiscord plugin right away. Their files are kept."
+                title="Run BD plugins"
+                description="Runs the BetterDiscord plugins below. Turning this off stops every one of them right away. Their files are kept."
                 value={runBetterDiscord}
+                disabled={busy}
                 onChange={v => settings.store.runBetterDiscord = v}
             />
             <div className={cl("row-buttons")}>
-                <Button size="small" variant="secondary" onClick={() => Native.openFolder("bd")}>Open plugin folder</Button>
-                <Button size="small" variant="secondary" disabled={!runBetterDiscord} onClick={() => { Runtime.stopRuntime(); Runtime.startRuntime(); }}>Reload all</Button>
+                <Button size="small" variant="secondary" onClick={() => Native.openFolder("bd").catch(e => notify(errorText(e), "critical"))}>Open plugin folder</Button>
+                <Button size="small" variant="secondary" disabled={!runBetterDiscord || busy} onClick={() => { Runtime.stopRuntime(); Runtime.startRuntime(); }}>Reload all</Button>
             </div>
             {!runBetterDiscord && <Paragraph size="sm" className={cl("meta")}>Turned off. Turn it on to see and use your BetterDiscord plugins.</Paragraph>}
             {runBetterDiscord && (bdPlugins.length
@@ -380,12 +409,13 @@ function InstalledTab({ installed, info, busy }: { installed: InstalledUserplugi
                         {p.running && typeof p.instance?.getSettingsPanel === "function" && (
                             <Button size="small" variant="secondary" onClick={() => openBdSettings(p.file)}>Settings</Button>
                         )}
-                        <FormSwitch title="" value={p.enabled} onChange={v => Runtime.setEnabled(p.file, v)} hideBorder />
+                        <Switch checked={p.enabled} disabled={busy} onChange={v => Runtime.setEnabled(p.file, v)} />
                         <Button
                             size="small"
                             variant="dangerSecondary"
+                            disabled={busy}
                             onClick={async () => {
-                                if (!await confirm(`Remove ${p.meta.name}?`, "Muffinshelf stops it and deletes its file. Its saved settings are kept.", "Remove")) return;
+                                if (!await confirm(`Remove ${p.meta.name}?`, removeBdText(p.file), "Remove")) return;
                                 try {
                                     await removeBdFile(p.file);
                                 } catch (e) {
@@ -463,10 +493,8 @@ function SourcesTab({ states, reload }: { states: Record<string, SourceState>; r
                         {s.custom && (
                             <Button size="small" variant="dangerSecondary" onClick={() => settings.store.customSources = customSources.filter(c => `custom:${c}` !== s.id)}>Remove</Button>
                         )}
-                        <FormSwitch
-                            title=""
-                            value={on}
-                            hideBorder
+                        <Switch
+                            checked={on}
                             onChange={v => settings.store.disabledSources = v ? disabledSources.filter(d => d !== s.id) : [...disabledSources, s.id]}
                         />
                     </div>
@@ -499,8 +527,8 @@ function AboutTab({ info }: { info: Info | null; }) {
                 the BetterDiscord plugins folder, but nothing outside it.
             </Paragraph>
             <Paragraph>
-                Most BetterDiscord plugins work. Every plugin in the BetterDiscord store was tried in Muffinshelf, and the versions that failed are
-                hidden from Browse (pick "Won't work in Muffinshelf" to see them and why). When a plugin you install fails to load or start, that
+                Most BetterDiscord plugins work. The BetterDiscord store's plugins were tried in Muffinshelf, and the versions that failed are
+                hidden from Browse (pick "Won't work here" to see them and why). When a plugin you install fails to load or start, that
                 version is hidden too. A newer version of the plugin shows up again, in case it was fixed.
             </Paragraph>
             <Paragraph>
@@ -565,11 +593,12 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
     };
 
     useEffect(() => {
-        Native.getInfo().then(setInfo);
+        Native.getInfo().then(setInfo, e => logger.error("Couldn't read where Muffinshelf keeps its files", e));
         const STILL_RUNNING = "A rebuild is still running...";
         let timer: ReturnType<typeof setInterval> | undefined;
         let closed = false;
         // No runBuild owns a build left over from before a reload, so watch for it to end here.
+        const watchFailed = (e: unknown) => logger.error("Couldn't check for a running rebuild", e);
         Native.isBuilding().then(running => {
             if (closed || (status.step && status.step !== STILL_RUNNING)) return;
             if (!running) {
@@ -581,8 +610,8 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
                 if (still || closed) return;
                 clearInterval(timer);
                 if (status.step === STILL_RUNNING) setStatus({ step: null });
-            }), 3000);
-        });
+            }, watchFailed), 3000);
+        }, watchFailed);
         return () => {
             closed = true;
             clearInterval(timer);
@@ -590,11 +619,11 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
     }, []);
 
     useEffect(() => {
-        if (!step) Native.listUserplugins().then(setInstalled);
+        if (!step) Native.listUserplugins().then(setInstalled, e => notify(`Couldn't list your Equicord plugins: ${errorText(e)}`, "critical"));
     }, [step]);
 
     useEffect(() => {
-        Native.listBdFiles().then(files => setBdFiles(new Set(files)));
+        Native.listBdFiles().then(files => setBdFiles(new Set(files)), e => notify(`Couldn't list your BetterDiscord plugins: ${errorText(e)}`, "critical"));
     }, [runtimeTick, step]);
 
     useEffect(() => {
@@ -608,7 +637,7 @@ function Shelf({ modalProps }: { modalProps: RenderModalProps; }) {
                 const libs = await installBdEntry(entry);
                 const extra = libs.length ? ` and ${libs.join(", ")}` : "";
                 if (settings.store.runBetterDiscord) notify(`Installed ${entry.name}${extra}.`, "success");
-                else notify(`Saved ${entry.name}${extra}. Turn on "Run BetterDiscord plugins" in the Installed tab to use it.`);
+                else notify(`Saved ${entry.name}${extra}. Turn on "Run BD plugins" in the Installed tab to use it.`);
             } catch (e) {
                 notify(errorText(e), "critical");
             } finally {
