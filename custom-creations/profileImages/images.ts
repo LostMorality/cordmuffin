@@ -25,13 +25,25 @@ export interface ProfileImages {
 }
 
 // Banner colours as the banner itself paints them, so a colour picked from the avatar (no Nitro theme) is right too.
+// Keyed by user and server, because a server profile can have its own theme colour.
 const bannerColors = new Map<string, string>();
 const colorListeners = new Set<() => void>();
+const MAX_COLORS = 200;
 
-export function setBannerColor(userId: string, hex: string) {
-    if (bannerColors.get(userId) === hex) return;
-    bannerColors.set(userId, hex);
+const guildOf = (guildId: string | null | undefined, displayProfile?: any): string | null => guildId ?? displayProfile?.guildId ?? null;
+const colorKey = (userId: string, gid: string | null) => `${userId}:${gid ?? ""}`;
+
+export function setBannerColor(userId: string, guildId: string | null | undefined, displayProfile: any, hex: string) {
+    const key = colorKey(userId, guildOf(guildId, displayProfile));
+    if (bannerColors.get(key) === hex) return;
+    bannerColors.delete(key);
+    bannerColors.set(key, hex);
+    if (bannerColors.size > MAX_COLORS) bannerColors.delete(bannerColors.keys().next().value!);
     colorListeners.forEach(fn => fn());
+}
+
+export function clearBannerColors() {
+    bannerColors.clear();
 }
 
 export function subscribeBannerColors(fn: () => void) {
@@ -61,13 +73,13 @@ const toHex = (n?: number | null) => n == null ? null : "#" + n.toString(16).pad
 
 export function collectImages(user: User, guildId: string | null | undefined, displayProfile?: any): ProfileImages {
     const serverFirst = settings.store.prefer === "server";
-    const gid = guildId ?? displayProfile?.guildId ?? null;
+    const gid = guildOf(guildId, displayProfile);
 
     const avatars: ProfileImage[] = [];
     const memberAvatar = gid ? GuildMemberStore.getMember(gid, user.id)?.avatar : null;
     if (memberAvatar) {
         avatars.push(sized(IconUtils.getGuildMemberAvatarURLSimple({
-            userId: user.id, guildId: gid, avatar: memberAvatar, canAnimate: true
+            userId: user.id, guildId: gid!, avatar: memberAvatar, canAnimate: true
         }), isAnimated(memberAvatar), 512, 512, "Server Avatar"));
     }
     avatars.push(sized(IconUtils.getUserAvatarURL(user, true), isAnimated(user.avatar), 512, 512, memberAvatar ? "Main Avatar" : "Avatar"));
@@ -79,7 +91,7 @@ export function collectImages(user: User, guildId: string | null | undefined, di
         : null;
     const mainBanner = UserProfileStore.getUserProfile(user.id)?.banner ?? displayProfile?._userProfile?.banner ?? (user as any).banner;
     if (memberBanner) {
-        const url = IconUtils.getGuildMemberBannerURL({ id: user.id, guildId: gid, banner: memberBanner, canAnimate: true, size: 1024 });
+        const url = IconUtils.getGuildMemberBannerURL({ id: user.id, guildId: gid!, banner: memberBanner, canAnimate: true, size: 1024 });
         if (url) banners.push(sized(url, isAnimated(memberBanner), 1024, 410, "Server Banner"));
     }
     if (mainBanner) {
@@ -92,10 +104,10 @@ export function collectImages(user: User, guildId: string | null | undefined, di
     const deco = user.avatarDecorationData ?? (user as any).avatarDecoration;
     if (deco) {
         const url = IconUtils.getAvatarDecorationURL({ avatarDecoration: deco, size: 1024, canAnimate: true });
-        if (url) decoration = { label: "Avatar Decoration", url, original: url, width: 512, height: 512 };
+        if (url) decoration = { label: "Decoration", url, original: url, width: 512, height: 512 };
     }
 
-    const color = bannerColors.get(user.id)
+    const color = bannerColors.get(colorKey(user.id, gid))
         ?? toHex(displayProfile?.primaryColor ?? displayProfile?.accentColor ?? UserProfileStore.getUserProfile(user.id)?.accentColor);
 
     return { avatars, banners, decoration, color };
