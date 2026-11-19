@@ -10,7 +10,7 @@ import { Heading } from "@components/Heading";
 import { Notice } from "@components/Notice";
 import { Paragraph } from "@components/Paragraph";
 import { classNameFactory } from "@utils/css";
-import { copyWithToast } from "@utils/discord";
+import { copyToClipboard } from "@utils/clipboard";
 import { useAwaiter } from "@utils/react";
 import { chooseFile, saveFile } from "@utils/web";
 import type { ModalAction, RenderModalProps } from "@vencord/discord-types";
@@ -18,10 +18,11 @@ import { findByCodeLazy } from "@webpack";
 import { Modal, openModal, Select, showToast as equicordShowToast, TextArea, useMemo, useState } from "@webpack/common";
 import type { ReactNode } from "react";
 
-import { buildExport, conflictsWith, Dropped, fileNameFor, ImportCheck, loadPresets, parseImport, savePresets, toCode, toFileText } from "./share";
+import { buildExport, conflictsWith, Dropped, fileNameFor, fileTooBig, ImportCheck, loadPresets, parseImport, savePresets, TOO_BIG, toCode, toFileText } from "./share";
 
-// Discord's toast function, found directly. Equicord's own lookup broke once in November 2026 and then quietly logs
-// instead of throwing, so it's only the fallback. A failed toast must never break what the plugin was doing.
+// Discord's toast function, found directly. Equicord's own lookup broke once in November 2026, and when it fails it
+// logs instead of throwing, so it can only be the fallback: a failed direct lookup throws here and falls through to it.
+// A failed toast must never break what the plugin was doing.
 const discordToast: typeof equicordShowToast = findByCodeLazy("currentToastMap.get(", "toastKey");
 
 function showToast(options: Parameters<typeof equicordShowToast>[0]) {
@@ -42,6 +43,36 @@ function plural(n: number, word: string) {
 
 function errorText(e: unknown) {
     return e instanceof Error ? e.message : String(e);
+}
+
+function DroppedNotices({ items, verb, privacyText, checkText }: { items: Dropped[]; verb: string; privacyText: string; checkText: string; }) {
+    const privacy = useMemo(() => items.filter(d => d.privacy), [items]);
+    const checks = useMemo(() => items.filter(d => !d.privacy), [items]);
+    return (
+        <>
+            {privacy.length > 0 && (
+                <>
+                    <Notice.Info className={cl("notice")}>{verb} {plural(privacy.length, "field")} {privacyText}</Notice.Info>
+                    <DroppedList items={privacy} />
+                </>
+            )}
+            {checks.length > 0 && (
+                <>
+                    <Notice.Info className={cl("notice")}>{verb} {plural(checks.length, "field")} {checkText}</Notice.Info>
+                    <DroppedList items={checks} />
+                </>
+            )}
+        </>
+    );
+}
+
+function CodeBox(props: { value: string; onChange(value: string): void; readOnly?: boolean; placeholder?: string; }) {
+    // Discord's TextArea lets a className prop replace its own classes, so the code styling goes on a wrapper instead.
+    return (
+        <div className={cl("code")}>
+            <TextArea rows={4} {...props} />
+        </div>
+    );
 }
 
 function open(render: (props: RenderModalProps) => ReactNode) {
@@ -73,10 +104,19 @@ function ExportModal({ modalProps }: { modalProps: RenderModalProps; }) {
     const [presets, , pending] = useAwaiter(loadPresets, { fallbackValue: [] });
     const [choice, setChoice] = useState(ALL);
 
-    const picked = choice === ALL ? presets : presets.filter(p => p.name === choice);
+    const picked = useMemo(() => choice === ALL ? presets : presets.filter(p => p.name === choice), [presets, choice]);
     const { data, dropped, skipped } = useMemo(() => buildExport(picked), [picked]);
     const code = useMemo(() => toCode(data), [data]);
     const empty = !data.presets.length;
+
+    async function copyCode() {
+        try {
+            await copyToClipboard(code);
+            showToast({ text: "Preset code copied.", variant: "success" });
+        } catch (e) {
+            showToast({ text: `Couldn't copy the code: ${errorText(e)}`, variant: "critical" });
+        }
+    }
 
     async function saveJson() {
         try {
@@ -98,7 +138,7 @@ function ExportModal({ modalProps }: { modalProps: RenderModalProps; }) {
             actions={[
                 { text: "Close", variant: "secondary", onClick: modalProps.onClose },
                 { text: "Save File", variant: "secondary", onClick: saveJson, disabled: empty },
-                { text: "Copy Code", variant: "primary", onClick: () => copyWithToast(code, "Preset code copied."), disabled: empty },
+                { text: "Copy Code", variant: "primary", onClick: copyCode, disabled: empty },
             ]}
         >
             {pending
@@ -118,17 +158,20 @@ function ExportModal({ modalProps }: { modalProps: RenderModalProps; }) {
                                 isSelected={v => v === choice}
                                 serialize={String}
                             />
-                            {dropped.length
-                                ? <Notice.Info className={cl("notice")}>Left out {plural(dropped.length, "field")} so nothing about your account is shared:</Notice.Info>
-                                : !empty && <Notice.Positive className={cl("notice")}>Nothing private found, so nothing was left out.</Notice.Positive>}
-                            <DroppedList items={dropped} />
+                            {!dropped.length && !skipped.length && !empty &&<Notice.Positive className={cl("notice")}>Nothing private found, so nothing was left out.</Notice.Positive>}
+                            <DroppedNotices
+                                items={dropped}
+                                verb="Left out"
+                                privacyText="so nothing about your account is shared:"
+                                checkText="that CustomRPC wouldn't accept:"
+                            />
                             {skipped.map(s => <Notice.Warning key={s} className={cl("notice")}>Not exported: {s}</Notice.Warning>)}
                             {!empty && (
                                 <>
                                     <Heading tag="h5" className={cl("label")}>
                                         Code for {plural(data.presets.length, "preset")}
                                     </Heading>
-                                    <TextArea value={code} onChange={() => { }} readOnly rows={4} className={cl("code")} />
+                                    <CodeBox value={code} onChange={() => { }} readOnly />
                                 </>
                             )}
                         </>
@@ -161,6 +204,13 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
         }
     }
 
+    function fail(message: string) {
+        setText("");
+        setFileText(null);
+        setCheck(null);
+        setError(message);
+    }
+
     async function pickFile() {
         try {
             let content: string | null = null;
@@ -168,10 +218,16 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
                 const [file] = await DiscordNative.fileManager.openFiles({
                     filters: [{ name: "CustomRPC presets", extensions: ["json"] }, { name: "all", extensions: ["*"] }]
                 });
-                if (file) content = new TextDecoder().decode(file.data);
+                if (file) {
+                    if (fileTooBig(file.data.byteLength)) return fail(TOO_BIG);
+                    content = new TextDecoder().decode(file.data);
+                }
             } else {
                 const file = await chooseFile("application/json");
-                if (file) content = await file.text();
+                if (file) {
+                    if (fileTooBig(file.size)) return fail(TOO_BIG);
+                    content = await file.text();
+                }
             }
             if (content === null) return;
             const cut = content.length > 20000;
@@ -179,8 +235,7 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
             setFileText(cut ? content : null);
             run(content);
         } catch (e) {
-            setCheck(null);
-            setError(`Couldn't read that file: ${errorText(e)}`);
+            fail(`Couldn't read that file: ${errorText(e)}`);
         }
     }
 
@@ -225,13 +280,11 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
             actions={actions}
         >
             <div className={cl("import-row")}>
-                <TextArea
+                <CodeBox
                     value={text}
                     onChange={v => { setText(v); setFileText(null); run(v); }}
                     readOnly={fileText !== null}
                     placeholder="RPC1...."
-                    rows={4}
-                    className={cl("code")}
                 />
                 <Button size="small" variant="secondary" onClick={pickFile}>Choose File</Button>
             </div>
@@ -247,7 +300,7 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
                     <Heading tag="h5" className={cl("label")}>{plural(check.presets.length, "preset")} found</Heading>
                     <div className={cl("chips")}>
                         {check.presets.map(p => (
-                            <span key={p.name} className={cl("chip", conflicts.includes(p.name) && "chip-warn")}>{p.name}</span>
+                            <span key={p.name} title={p.name} className={cl("chip", conflicts.includes(p.name) && "chip-warn")}>{p.name}</span>
                         ))}
                     </div>
                     {conflicts.length > 0 && (
@@ -257,12 +310,12 @@ function ImportModal({ modalProps, onImported }: { modalProps: RenderModalProps;
                             overwrites yours and can't be undone.
                         </Notice.Warning>
                     )}
-                    {check.dropped.length > 0 && (
-                        <>
-                            <Notice.Info className={cl("notice")}>Skipped {plural(check.dropped.length, "field")} that didn't pass CustomRPC's checks:</Notice.Info>
-                            <DroppedList items={check.dropped} />
-                        </>
-                    )}
+                    <DroppedNotices
+                        items={check.dropped}
+                        verb="Skipped"
+                        privacyText="that could identify an account:"
+                        checkText="that didn't pass CustomRPC's checks:"
+                    />
                     {check.rejected.map(r => <Notice.Warning key={r} className={cl("notice")}>Skipped: {r}</Notice.Warning>)}
                 </>
             )}
