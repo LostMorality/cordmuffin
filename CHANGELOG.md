@@ -2,6 +2,11 @@
 
 Newest changes come first, grouped under each date by plugin. The Cordmuffin Updater page in Discord shows the lines that are new for you. Lines under a plugin's heading only show for people who have that plugin.
 
+## 2026-11-21
+
+### New plugins
+- Autocorrect brings phone-style autocorrect to the chat box: suggestions above the word you type, typos fixed when you press space, and Backspace to undo a fix.
+
 ## 2026-11-18
 
 ### New plugins
