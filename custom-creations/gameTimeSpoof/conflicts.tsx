@@ -10,6 +10,7 @@ import { getUserSettingLazy } from "@api/UserSettings";
 import { Button } from "@components/Button";
 import { Notice } from "@components/Notice";
 import { classNameFactory } from "@utils/css";
+import { RestAPI, UserStore, useEffect, useState } from "@webpack/common";
 
 const cl = classNameFactory("vc-gts-");
 
@@ -36,6 +37,75 @@ export function trackingBlockers() {
     return found;
 }
 
+// Discord's badge page names "Use data to personalize my Discord experience" as required for Game Time and Game
+// Variety progress. With it off, the play time is accepted and then never counted.
+const PERSONALIZE = "personalization";
+type Consent = boolean | null | "unknown";
+let consent: Consent = null;
+let consentFor = "";
+let consentLoad: Promise<void> | null = null;
+const consentListeners = new Set<() => void>();
+
+function setConsent(next: Consent) {
+    consent = next;
+    consentListeners.forEach(l => l());
+}
+
+function readConsent(body: any): Consent {
+    const entry = body?.[PERSONALIZE];
+    return entry && typeof entry.consented === "boolean" ? entry.consented : "unknown";
+}
+
+function loadConsent() {
+    const me = UserStore.getCurrentUser()?.id ?? "";
+    if (consentLoad || consentFor === me && consent !== null && consent !== "unknown") return consentLoad;
+    consentFor = me;
+    consentLoad = RestAPI.get({ url: "/users/@me/consent" })
+        .then(res => setConsent(readConsent(res?.body)), () => setConsent("unknown"))
+        .finally(() => void (consentLoad = null));
+    return consentLoad;
+}
+
+async function grantConsent() {
+    const res = await RestAPI.post({ url: "/users/@me/consent", body: { grant: [PERSONALIZE], revoke: [] } });
+    setConsent(readConsent(res?.body));
+}
+
+/** true = on, false = off (play time won't count), null = still checking, "unknown" = couldn't check. */
+export function usePersonalization() {
+    const [, rerender] = useState(0);
+    useEffect(() => {
+        const listener = () => rerender(n => n + 1);
+        consentListeners.add(listener);
+        void loadConsent();
+        return () => void consentListeners.delete(listener);
+    }, []);
+    return consent;
+}
+
+function ConsentWarning() {
+    const state = usePersonalization();
+    const [busy, setBusy] = useState(false);
+    const [failed, setFailed] = useState(false);
+    if (state !== false) return null;
+
+    const turnOn = () => {
+        setBusy(true);
+        setFailed(false);
+        grantConsent().catch(() => setFailed(true)).finally(() => setBusy(false));
+    };
+
+    return (
+        <Notice.Danger
+            className={cl("notice")}
+            action={<Button size="small" onClick={turnOn} disabled={busy}>{busy ? "Turning on..." : "Turn On"}</Button>}
+        >
+            Discord's "Use data to personalize my Discord experience" setting is off, so Discord ignores the play time. Turn it on first (Settings → Data &amp; Privacy).
+            {failed && " Couldn't change it from here, so switch it on in Discord's settings."}
+        </Notice.Danger>
+    );
+}
+
 function list(names: string[]) {
     return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
@@ -46,6 +116,7 @@ export function Conflicts({ spoofing }: { spoofing?: boolean; }) {
 
     return (
         <>
+            <ConsentWarning />
             {spoofing && showing === false && (
                 <Notice.Warning
                     className={cl("notice")}
