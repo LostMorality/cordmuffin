@@ -32,6 +32,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). You'll find t
 | Plugin | What it does |
 |---|---|
 | [Dictation](#dictation) | Talk instead of typing. Adds punctuation. Runs on your own computer. |
+| [Autocorrect](#autocorrect) | Phone-style autocorrect: suggestions over the word you type, typos fixed when you press space, Backspace undoes. |
 | [ShrinkUploads](#shrinkuploads) | Shrinks pictures, GIFs, videos and audio to fit your upload limit. Runs on your own computer. |
 | [ProfileImages](#profileimages) | One-click buttons to see profile pictures, banners and server icons full size. |
 | [PluginPresets](#pluginpresets) | Save which plugins are on as presets. Switch between them and share them. |
@@ -337,6 +338,88 @@ Talk instead of typing. Your words show up in the message box with commas, perio
 - Both unload themselves after 5 minutes without use.
 
 </details>
+
+---
+
+### Autocorrect
+
+`autocorrect` · Off by default · English only
+
+**Connects to:** cdn.jsdelivr.net, once, to download two English word lists. Works offline after that.
+
+Autocorrect like on your phone. Suggestions show right above the word you're typing, typos get fixed when you press space, and Backspace puts your word back.
+
+<img src="docs/autocorrect-strip.png" alt="Suggestions above the word being typed in the message box" width="720">
+
+**What it does**
+- Shows up to three suggestions above the word you're typing. The highlighted one is its best guess.
+- Fixes typos when you press space or type `.` `,` `!` `?`. It only fixes when it's very sure, and you can make it bolder in settings.
+- Backspace (or Ctrl+Z) right after a fix undoes it. Undo the same fix twice and it stops making it, and adds your word to your dictionary.
+- Click a suggestion to use it. Right-click the word you typed to add it to your dictionary, or right-click a suggestion so it's never suggested again.
+- Suggests the next word after you type a space.
+- Leaves alone: code, links, mentions, emoji, slang and chat words like "lol", "ngl" and "tmrw", and the names of people in the server or chat when you type them with a capital.
+- Learns which words you use from messages you send, so its guesses get better over time.
+- Works when editing a message too.
+
+<details>
+<summary><b>How to use it</b></summary>
+
+- Just type. When it's sure a word is a typo, the fix above it shows **Space**, and space puts it in.
+- When it's not sure, it only highlights its best guess and space leaves your word alone. **Ctrl+Space** (**Ctrl+Enter** on Mac) uses the highlighted guess anyway.
+- **Alt+1**, **Alt+2** and **Alt+3** pick the first, second or third suggestion (**Ctrl+1** to **Ctrl+3** on Mac).
+- **Esc** hides the suggestions for the word you're on.
+- Right-click the message box and open **Autocorrect** to switch between **Fix typos**, **Suggestions only** and **Off**.
+
+</details>
+
+<details>
+<summary><b>Settings</b></summary>
+
+- **What happens while you type:** fix typos when you press space (default), only show suggestions, or off.
+- **How sure it has to be:** "Very sure" (default) fixes fewer words, "Fairly sure" fixes more.
+- **Suggest the next word** after a space. On by default.
+- **Capitalize the first word of a sentence** when fixing it. Off by default.
+- **Tab picks the highlighted suggestion.** Off by default, so Tab keeps working as usual.
+- **Also work when editing a message.** On by default.
+- **Where the suggestions sit:** above the word you're typing (default), or on the right, left or middle of the message box.
+- **Show which key picks the highlighted suggestion.** On by default.
+- **Learn from messages you send.** On by default. It stays on your PC.
+- **Share your dictionary with Discord's spellcheck,** so added words lose their red underline too. On by default.
+
+**Your dictionary**
+- Add words by hand, search them, and remove them.
+- **Import** a plain text list (one word per line, up to 5 MB and 20,000 words) and **Export** yours.
+- **Forget learned typing** clears what it learned from your messages. Your dictionary stays.
+- **Never suggested** lists the words you blocked, so you can bring them back.
+
+</details>
+
+<details>
+<summary><b>Things to know</b></summary>
+
+- It knows English words only. If you mostly chat in another language, pick **Only show suggestions** or leave it off.
+- Until the word lists finish downloading (or if the download fails), it uses a built-in list of 20,000 common words. Settings show **Try again** if a download failed.
+- Discord in a web browser can't download the lists, so it always uses the built-in list there.
+
+</details>
+
+<details>
+<summary><b>Privacy, connections and files</b></summary>
+
+**What it talks to**
+- Only cdn.jsdelivr.net, once, for SymSpell's English word list and word-pair list (about 6.5 MB). They are pinned to one version and checked against a fingerprint built into the plugin.
+- Nothing you type or send is uploaded anywhere.
+
+**Where files go:** `%APPDATA%\Equicord\autocorrect` (the two word lists). Delete the folder to remove them.
+
+**Stays inside Discord:** your dictionary, what it learned from your messages, and your blocked words, in Equicord's own storage.
+
+**Discord's spellcheck:** with **Share your dictionary with Discord's spellcheck** on, your dictionary words are also added to Discord's own spellcheck dictionary. They stay there if you turn the plugin off, so remove words in the plugin first if you want them gone from Discord too.
+
+</details>
+
+> [!NOTE]
+> The word lists come from [SymSpell](https://github.com/wolfgarbe/SymSpell) by Wolf Garbe (MIT License), built from Google Books Ngram counts and SCOWL. The full notice is in [`custom-creations/autocorrect/LICENSE-SymSpell.txt`](custom-creations/autocorrect/LICENSE-SymSpell.txt).
 
 ---
 
@@ -1681,3 +1764,5 @@ For install or update problems, attach `install.log` or `update.log` from `%LOCA
 ## License
 
 GPL-3.0. See [LICENSE](LICENSE).
+
+Autocorrect's word lists are from SymSpell by Wolf Garbe (MIT). See [`custom-creations/autocorrect/LICENSE-SymSpell.txt`](custom-creations/autocorrect/LICENSE-SymSpell.txt).
