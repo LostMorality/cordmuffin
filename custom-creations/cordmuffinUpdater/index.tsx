@@ -88,10 +88,11 @@ const pluginNames: Record<string, string> = {
     profileimages: "ProfileImages",
     ransom: "Ransom",
     translateitall: "TranslateItAll",
+    autocorrect: "Autocorrect",
 };
 const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
 // Every plugin in custom-creations/, so changelog lines about one can be hidden from people who don't have it.
-const cordmuffinPlugins = ["badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "noQuestsOnStartup", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
+const cordmuffinPlugins = ["autocorrect", "badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "noQuestsOnStartup", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
