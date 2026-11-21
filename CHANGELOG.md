@@ -7,6 +7,10 @@ Newest changes come first, grouped under each date by plugin. The Cordmuffin Upd
 ### New plugins
 - Autocorrect brings phone-style autocorrect to the chat box: suggestions above the word you type, typos fixed when you press space, and Backspace to undo a fix.
 
+### Game Browser
+- Add Play Time and the game browser now warn when Discord's "Use data to personalize my Discord experience" setting is off, with a button to turn it on. Discord needs it on to count play time toward the Game Time and Game Variety badges, and quietly ignores the time otherwise.
+- Add Time stays greyed out while that setting is off, so a run can't go to waste.
+
 ## 2026-11-18
 
 ### New plugins
