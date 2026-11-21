@@ -16,7 +16,7 @@ import { Modal, openModal, TextInput, useEffect, useMemo, useState } from "@webp
 
 import { DetectableApp, exeName } from ".";
 import { BadgeKind, BadgeProgress, formatWhen, getPending, loadBadges, nextUpdate, prunePending, tierFor } from "./badges";
-import { Conflicts } from "./conflicts";
+import { Conflicts, usePersonalization } from "./conflicts";
 import { startCredit, useCrediting } from "./job";
 import { notify } from "./notify";
 import { CreditProgress, loadPlayedIds, planCredit } from "./science";
@@ -106,6 +106,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
     const [played, setPlayed] = useState<Set<string> | null | "failed">(null);
     const [badges, setBadges] = useState<Badges | null | "failed">(null);
     const busy = useCrediting();
+    const personalized = usePersonalization();
 
     useEffect(() => {
         loadPlayedIds().then(setPlayed, () => setPlayed("failed"));
@@ -125,6 +126,7 @@ function AddTime({ modalProps, apps, pool, label }: { modalProps: RenderModalPro
     const sessions = gameCount * Math.ceil(durationMs / 86_400_000);
     const estimateMs = Math.ceil(sessions / SESSIONS_PER_REQUEST) * MS_PER_REQUEST;
     const problem = busy ? "Play time is already being added. Wait for it to finish, or stop it from the box in the corner."
+        : personalized === false ? "Turn on \"Use data to personalize my Discord experience\" first, or Discord won't count the time."
         : gameCount < 1 ? (pool && !available.length ? "No games left that you haven't played. Turn off the switch above to include them." : "Pick at least one game.")
         : durationMs < 60_000 ? "Add at least 1 minute."
             : null;
