@@ -1,0 +1,257 @@
+.vc-autocorrect-strip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    max-width: min(560px, calc(100% - 24px));
+    height: 2rem;
+    padding: 3px;
+    box-sizing: border-box;
+    border: 1px solid var(--border-subtle, var(--background-modifier-accent));
+    border-radius: var(--radius-sm, 8px);
+    background: var(--background-surface-highest, var(--background-floating));
+    box-shadow: var(--shadow-border, none), var(--shadow-medium, 0 4px 12px rgb(0 0 0 / 24%));
+    font: 500 0.875rem/1.125rem var(--font-primary);
+    user-select: none;
+    pointer-events: auto;
+}
+
+/* Discord's "is typing" and slowmode bar sits 24px above the chat box while it shows; stay clear of it */
+form:has([class*="inTextChannel_"][class*="base_"]) .vc-autocorrect-strip {
+    bottom: calc(100% + 30px);
+}
+
+.vc-autocorrect-strip-word {
+    left: 12px;
+    transition: left 0.08s ease-out;
+}
+
+.vc-autocorrect-strip-right {
+    inset-inline-end: 12px;
+}
+
+.vc-autocorrect-strip-left {
+    inset-inline-start: 12px;
+}
+
+.vc-autocorrect-strip-center {
+    inset-inline: 12px;
+    width: max-content;
+    margin-inline: auto;
+}
+
+.vc-autocorrect-chip {
+    position: relative;
+    display: inline-flex;
+    flex: 0 1 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 4rem;
+    max-width: 11rem;
+    height: 100%;
+    padding: 0 12px;
+    box-sizing: border-box;
+    border-radius: calc(var(--radius-sm, 8px) - 3px);
+    color: var(--interactive-text-default, var(--interactive-normal));
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.1s ease, color 0.1s ease, transform 0.08s ease;
+}
+
+.vc-autocorrect-chip + .vc-autocorrect-chip::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: -2px;
+    top: 50%;
+    width: 1px;
+    height: 1rem;
+    translate: 0 -50%;
+    background: var(--border-subtle, var(--background-modifier-accent));
+    transition: opacity 0.1s ease;
+}
+
+.vc-autocorrect-chip:hover::before,
+.vc-autocorrect-chip:hover + .vc-autocorrect-chip::before,
+.vc-autocorrect-chip-primary::before,
+.vc-autocorrect-chip-primary + .vc-autocorrect-chip::before {
+    opacity: 0;
+}
+
+.vc-autocorrect-chip:hover {
+    background: var(--interactive-background-hover, var(--background-modifier-hover));
+    color: var(--interactive-text-hover, var(--interactive-hover));
+}
+
+.vc-autocorrect-chip:active {
+    background: var(--interactive-background-active, var(--background-modifier-active));
+    transform: scale(0.97);
+}
+
+.vc-autocorrect-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.vc-autocorrect-chip-literal,
+.vc-autocorrect-chip-undo {
+    color: var(--text-muted);
+}
+
+.vc-autocorrect-chip-primary {
+    font-weight: 600;
+    color: var(--text-strong, var(--header-primary));
+    background: var(--background-mod-subtle, var(--background-modifier-selected));
+}
+
+.vc-autocorrect-chip-fix {
+    background: var(--interactive-accent-background-selected, var(--background-mod-subtle, var(--background-modifier-selected)));
+    box-shadow: inset 0 -2px 0 var(--control-brand-foreground, var(--brand-500));
+}
+
+.vc-autocorrect-undo-icon {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.vc-autocorrect-hint {
+    padding: 0 4px;
+    border-radius: 3px;
+    background: var(--background-mod-normal, var(--background-modifier-accent));
+    color: var(--text-subtle, var(--text-muted));
+    font: 500 0.625rem/0.875rem var(--font-code);
+    letter-spacing: 0.02em;
+}
+
+.vc-autocorrect-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+.vc-autocorrect-mark {
+    position: fixed;
+    z-index: 1000;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text-link, var(--brand-500));
+    pointer-events: none;
+    animation: vc-autocorrect-fade 2.6s ease-in forwards;
+}
+
+@keyframes vc-autocorrect-fade {
+    0%, 60% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes vc-autocorrect-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .vc-autocorrect-strip {
+        animation: vc-autocorrect-in 0.12s cubic-bezier(0.2, 0, 0, 1);
+    }
+}
+
+.reduced-motion .vc-autocorrect-strip,
+.reduced-motion .vc-autocorrect-mark {
+    animation: none;
+}
+
+.reduced-motion .vc-autocorrect-mark {
+    display: none;
+}
+
+.enable-forced-colors .vc-autocorrect-strip {
+    border-color: CanvasText;
+}
+
+.enable-forced-colors .vc-autocorrect-chip-primary {
+    outline: 2px solid Highlight;
+}
+
+.vc-autocorrect-status,
+.vc-autocorrect-empty,
+.vc-autocorrect-subhead {
+    margin: 8px 0;
+    color: var(--text-muted);
+}
+
+.vc-autocorrect-subhead {
+    color: var(--text-default, var(--text-normal));
+    font-weight: 600;
+}
+
+.vc-autocorrect-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.vc-autocorrect-row > :first-child:not(button) {
+    flex: 1;
+}
+
+.vc-autocorrect-search {
+    margin: 8px 0;
+}
+
+.vc-autocorrect-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-height: 240px;
+    margin: 8px 0;
+    overflow-y: auto;
+}
+
+.vc-autocorrect-word {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 4px 2px 10px;
+    border-radius: var(--radius-round, 999px);
+    background: var(--background-mod-normal, var(--background-modifier-accent));
+    color: var(--text-default, var(--text-normal));
+    font-size: 0.875rem;
+}
+
+.vc-autocorrect-word-remove {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.vc-autocorrect-word-remove:hover {
+    background: var(--interactive-background-hover, var(--background-modifier-hover));
+    color: var(--text-default, var(--text-normal));
+}
+
+.vc-autocorrect-more {
+    align-self: center;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.vc-autocorrect-credit {
+    margin: 16px 0 0;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
