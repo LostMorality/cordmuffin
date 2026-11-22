@@ -157,6 +157,9 @@ const CHANGELOG = "CHANGELOG.md";
 const CHANGELOG_SECTIONS = 3;
 const CHANGELOG_ITEMS = 12;
 
+// Lines under a "### New plugins" heading come out of parseChangelog as "New plugins: ...".
+const isNewPluginLine = (item: string) => /^New plugins?:\s/i.test(item);
+
 // "## Title" starts a section, "- " starts an item; a line indented under an item continues it.
 function parseChangelog(text: string): ChangelogSection[] {
     const sections: ChangelogSection[] = [];
@@ -216,15 +219,15 @@ async function whatsNew(state: State): Promise<ChangelogSection[]> {
         // With no section in common (renamed headings), any line the installed copy has anywhere isn't new.
         const anyInstalled = new Set([...installed.values()].flatMap(items => [...items]));
         const isOld = (title: string, item: string) => newest === -1 ? anyInstalled.has(item) : !!installed.get(title)?.has(item);
+        // New-plugin lines never count against the limits, so a busy update can't push them off the page.
         let left = CHANGELOG_ITEMS;
         return (newest === -1 ? latest : latest.slice(0, newest + 1))
             .map(s => ({ title: s.title, items: s.items.filter(i => !isOld(s.title, i)) }))
             .filter(s => s.items.length)
-            .slice(0, CHANGELOG_SECTIONS)
-            .map(s => {
-                const items = s.items.slice(0, Math.max(left, 0));
-                left -= items.length;
-                return { ...s, items };
+            .map((s, index) => {
+                const rest = index < CHANGELOG_SECTIONS ? s.items.filter(i => !isNewPluginLine(i)).slice(0, Math.max(left, 0)) : [];
+                left -= rest.length;
+                return { ...s, items: [...s.items.filter(isNewPluginLine), ...rest] };
             })
             .filter(s => s.items.length);
     } catch {
