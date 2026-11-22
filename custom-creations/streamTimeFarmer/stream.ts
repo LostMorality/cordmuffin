@@ -16,6 +16,7 @@ import { findByCodeLazy, findByPropsLazy, findStoreLazy } from "@webpack";
 import { AuthenticationStore, ChannelStore, FluxDispatcher, GuildStore, PermissionStore, SelectedChannelStore, UserStore, VoiceStateStore } from "@webpack/common";
 
 import { changeStreamProfile, settings } from ".";
+import { restUntil } from "./addTime/scheduler";
 import { formatTime } from "./CallWidget";
 import { currentUserId, FARM_SOURCE, type FarmGame, type GoLiveSettings, profileFor, type StreamProfile, updateProfileFor } from "./profile";
 import { BROKEN_TEXT, onSecondStatus, RESTART_TEXT, type SecondStatus, secondStatus } from "./secondAccount";
@@ -221,6 +222,9 @@ let farmRetryAt = 0;
 let fallbackNote = "";
 // Since when the streamer hasn't counted any time (0 while it counts), and whether that outage got its toast.
 let notCountingSince = 0;
+// Part Time Streaming is waiting for the next send.
+let resting = false;
+let restClosed = false;
 let downToastShown = false;
 let unsavedDown = 0;
 let secondSlowSince = 0;
@@ -499,6 +503,24 @@ function setFarmGame(game: FarmGame | null, pid = 0, handle: string | null = nul
 
 const farmGameNow = () => gameSlotTaken() ? null : prof().farmGame;
 
+// Told once per Discord launch when hiding was asked for and the helper couldn't be built or loaded.
+let hidingNoticed = false;
+
+async function checkHiding() {
+    if (hidingNoticed || !Native) return;
+    for (let i = 0; i < 20; i++) {
+        const { mode, folder } = await Native.farmWindowMode().catch(() => ({ mode: "" as const, folder: "" }));
+        if (mode === "hidden") return;
+        if (mode === "plain") {
+            hidingNoticed = true;
+            logger.warn("The farm window's taskbar helper couldn't be built or loaded in", folder);
+            toast({ text: `Couldn't hide the farm window's taskbar button: your antivirus probably blocked its helper. Add ${folder} to your antivirus exclusions, then restart Discord. The farm window still works and stays invisible.`, variant: "critical" });
+            return;
+        }
+        await sleep(500);
+    }
+}
+
 async function farmAlive() {
     return farmPid !== 0 && await Native?.farmWindowPid().catch(() => 0) === farmPid;
 }
@@ -519,7 +541,7 @@ async function farmSource(): Promise<CaptureSource | null> {
     }
     if (!alive || !farmPid) {
         farmSince ||= Date.now();
-        const pid = await Native.startFarmWindow(game?.name || FARM_TITLE, game?.cover ?? "", farmSince);
+        const pid = await Native.startFarmWindow(game?.name || FARM_TITLE, game?.cover ?? "", farmSince, settings.store.farmFolder ?? "", !!settings.store.hideTaskbarButton);
         // Stopped or restarted while it was starting: this window belongs to nobody now.
         if (myRun !== run) {
             void Native.stopFarmWindow(pid).catch(() => { });
@@ -527,6 +549,7 @@ async function farmSource(): Promise<CaptureSource | null> {
         }
         farmPid = pid;
         farmWindowFor = game?.id ?? "";
+        if (settings.store.hideTaskbarButton) void checkHiding();
     }
     const pid = farmPid;
     for (let i = 0; i < 60; i++) {
@@ -587,7 +610,7 @@ async function farmOrFallback(): Promise<CaptureSource | null> {
         } finally {
             if (farmOpeningFor === myRun) farmOpeningFor = -1;
         }
-        if (myRun !== run) return null;
+        if (myRun !== run || restUntil(Date.now())) return null;
         if (source) {
             farmFails = farmRetryAt = 0;
             fallbackNote = "";
@@ -666,6 +689,8 @@ async function goLive(now: number, where: Target) {
     };
     const source = await pickSource();
     if (myRun !== run) return;
+    // A rest began while the source was being found.
+    if (restUntil(Date.now())) return flatWait();
     if (!source) {
         flatWait();
         const wanted = prof().source.trim().toLowerCase();
@@ -698,6 +723,14 @@ async function goLive(now: number, where: Target) {
         // set the farm's quality after the user's was already put back. The stream key is the same for every stream in
         // the call, so once a newer start (after a source change) has begun, the stream is that one's and stays.
         if (ok && myStart === starts) {
+            stopStream(key, false);
+            ownEndedAt = Date.now();
+        }
+        if (!isFarmGoLive(before)) applyGoLive(before);
+        return;
+    }
+    if (restUntil(Date.now())) {
+        if (ok) {
             stopStream(key, false);
             ownEndedAt = Date.now();
         }
@@ -788,6 +821,11 @@ const isLive = (stream: AppStream | null, channelId: string): stream is AppStrea
 // back to, a window the user picked, or a Go Live the user started themselves.
 export function streamingOwnWindow() {
     if (!canUseFarmWindow() || !isFarmSource() || fallbackNote || !startedOwnWindow) return false;
+    return streamingFarmStream();
+}
+
+// Whether what's live is a Go Live the farm started itself, whatever it shows: not one the user started themselves.
+export function streamingFarmStream() {
     try {
         const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
         // A stream of the farm's that was just ended can stay listed for a moment.
@@ -836,7 +874,7 @@ export function notCountingFor(): number | null {
 
 // Runs after every streamer tick: a tick that didn't count starts (or continues) an outage.
 function noteDowntime(now: number, elapsed: number) {
-    if (status.phase === "counting") return;
+    if (status.phase === "counting" || resting) return;
     notCountingSince ||= now;
     unsavedDown += elapsed;
     save();
@@ -872,6 +910,10 @@ export function nextReportMs() {
 }
 
 function streamerTick(now: number, elapsed: number) {
+    // Known before any early return (offline, rejoining the call), so time spent resting is never counted as downtime.
+    const wakeAt = restUntil(now);
+    resting = wakeAt > 0;
+    if (resting) notCountingSince = 0;
     const where = target(now);
     if (typeof where === "string") return setStatus("setup", where);
     // Every start and restart fails while offline, which would only look like Discord's error 2012. Failures from
@@ -912,6 +954,26 @@ function streamerTick(now: number, elapsed: number) {
     aloneSince = others ? 0 : aloneSince || now;
 
     const stream = ApplicationStreamingStore.getCurrentUserActiveStream();
+    // Part Time Streaming between sends: the call stays, the farm's own stream (if any) is ended and its window closed.
+    if (wakeAt) {
+        // A farm stream that dropped out of Discord's list for a moment and came back is still the farm's.
+        if (!startedKey && stream && isLive(stream, where.id) && streamKey(stream) === lastStartedKey && now - lostStreamAt < LOST_STREAM_MS) startedKey = lastStartedKey;
+        if (startedKey && stream && streamKey(stream) === startedKey) endOwnStream();
+        startedKey = "";
+        watchedSinceReport = liveSince = 0;
+        liveError = "";
+        // Closed on the first rest tick (the window can be from before a reload, which farmPid doesn't know) and again
+        // whenever one shows up, such as from a Go Live that was already starting.
+        if (!restClosed || farmPid) closeFarmWindow();
+        restClosed = true;
+        // Every wake gives the farm window a fresh try, even after it fell back to the screen.
+        farmFails = farmRetryAt = 0;
+        fallbackNote = "";
+        downToastShown = false;
+        const at = new Date(wakeAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return setStatus("waiting", `Part Time Streaming: resting until ${at}, then going live for the next send.`);
+    }
+    restClosed = false;
     if (!startedKey && stream && isLive(stream, where.id) && streamKey(stream) === lastStartedKey && now - lostStreamAt < LOST_STREAM_MS) {
         startedKey = lastStartedKey;
         liveSince ||= now;
@@ -1365,6 +1427,7 @@ function teardown() {
     setProf({ joinedCall: "" });
     startedKey = watchedKey = lastStartedKey = "";
     watchedSinceReport = liveSince = 0;
+    resting = restClosed = false;
     undeafen();
     closeFarmWindow();
 }
