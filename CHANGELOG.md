@@ -2,6 +2,15 @@
 
 Newest changes come first, grouped under each date by plugin. The Cordmuffin Updater page in Discord shows the lines that are new for you. Lines under a plugin's heading only show for people who have that plugin.
 
+## 2026-11-22
+
+### StreamTimeFarmer
+- The farm window stays out of your way: it sits behind your other windows, is almost fully see-through and hands focus straight back.
+- New Farm Folder setting picks where the farm window's files go, so you can add that one folder to your antivirus exclusions.
+- New Part Time Streaming setting: while an Add Streaming Time job runs, the farm only goes live for a few minutes around each hourly send and closes its window in between. The job adds the same time, since Discord only counts one report an hour.
+- New Add Time Any Source setting lets Add Streaming Time send while the farm streams your screen or a window you picked.
+- New Hide Taskbar Button setting hides the farm window's taskbar button. It builds a small helper that antivirus often flags, so add the Farm Folder to your exclusions first.
+
 ## 2026-11-21
 
 ### New plugins
