@@ -89,10 +89,11 @@ const pluginNames: Record<string, string> = {
     ransom: "Ransom",
     translateitall: "TranslateItAll",
     autocorrect: "Autocorrect",
+    soundboardcloner: "SoundboardCloner",
 };
 const prettyName = (name: string) => pluginNames[name.toLowerCase()] ?? name;
 // Every plugin in custom-creations/, so changelog lines about one can be hidden from people who don't have it.
-const cordmuffinPlugins = ["autocorrect", "badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "noQuestsOnStartup", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "streamTimeFarmer", "translateItAll"];
+const cordmuffinPlugins = ["autocorrect", "badgeTierViewer", "cordmuffinUpdater", "customRPCShare", "dictation", "discrubLoader", "gameTimeSpoof", "greetStickerPickerPlus", "hideClientBadges", "muffinshelf", "noQuestsOnStartup", "officialCustomTypingIndicator", "platformSpooferPlus", "pluginPresets", "profileImages", "questRunner", "ransom", "shrinkUploads", "soundboardCloner", "streamTimeFarmer", "translateItAll"];
 
 const EQUICORD_EVERY: Record<string, number> = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000 };
 
@@ -363,6 +364,19 @@ function relevant(sections: ChangelogSection[], installed: string[]) {
         .filter(s => s.items.length);
 }
 
+// Lines under a "### New plugins" heading arrive as "New plugins: ..." (same test as native.ts).
+const isNewPluginLine = (item: string) => /^New plugins?:\s/i.test(item);
+
+// New plugins go above every other change, in one "New plugins" group, newest first.
+function newPluginsFirst(sections: ChangelogSection[]): ChangelogSection[] {
+    const added = sections.flatMap(s => s.items.filter(isNewPluginLine).map(i => i.replace(/^New plugins?:\s*/i, "")));
+    if (!added.length) return sections;
+    const rest = sections
+        .map(s => ({ ...s, items: s.items.filter(i => !isNewPluginLine(i)) }))
+        .filter(s => s.items.length);
+    return [{ title: "New plugins", items: added }, ...rest];
+}
+
 function Changelog({ title, sections }: { title: string; sections: ChangelogSection[]; }) {
     return (
         <Card className={Margins.top8} defaultPadding>
@@ -412,8 +426,8 @@ function UpdaterPage() {
     const info = s.info?.supported ? s.info : null;
     const variant = s.phase === "error" ? "warning" : s.phase === "updated" ? "success" : "primary";
     const installedPlugins = info?.plugins ?? [];
-    const pending = ["available", "updating", "updated"].includes(s.phase) ? relevant(s.whatsNew, installedPlugins) : [];
-    const recent = relevant(info?.changelog ?? [], installedPlugins);
+    const pending = ["available", "updating", "updated"].includes(s.phase) ? newPluginsFirst(relevant(s.whatsNew, installedPlugins)) : [];
+    const recent = newPluginsFirst(relevant(info?.changelog ?? [], installedPlugins));
 
     return (
         <SettingsTab>
