@@ -4,6 +4,12 @@ Newest changes come first, grouped under each date by plugin. The Cordmuffin Upd
 
 ## 2026-11-22
 
+### New plugins
+- SoundboardCloner copies soundboard sounds from any server you're in into servers you manage, in bulk, or saves them to your PC. Right-click a server and pick Clone Sounds.
+
+### CordmuffinUpdater
+- New plugins now show first on the updater page, so you don't miss them under other changes.
+
 ### StreamTimeFarmer
 - The farm window stays out of your way: it sits behind your other windows, is almost fully see-through and hands focus straight back.
 - New Farm Folder setting picks where the farm window's files go, so you can add that one folder to your antivirus exclusions.
