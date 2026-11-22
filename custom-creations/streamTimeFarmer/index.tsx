@@ -61,6 +61,27 @@ export const settings = definePluginSettings({
         description: "Show a small call widget in the bottom-right corner while a second account is logged in, to call, hang up and open its window.",
         default: true
     },
+    farmFolder: {
+        type: OptionType.STRING,
+        description: "Folder for the farm window's files, like C:\\StreamFarm. Leave empty for Discord's own folder. If your antivirus blocks the farm window, pick a folder here and add it to your antivirus exclusions.",
+        default: "",
+        restartNeeded: false
+    },
+    hideTaskbarButton: {
+        type: OptionType.BOOLEAN,
+        description: "Hide the farm window's taskbar button and let clicks pass through it. This builds a small helper in the Farm Folder that antivirus often flags as suspicious, so add that folder to your exclusions first.",
+        default: false
+    },
+    addTimeAnySource: {
+        type: OptionType.BOOLEAN,
+        description: "Let Add Streaming Time send while the farm streams your screen or a window you picked, not only its own window. Your second account sees whatever is streamed.",
+        default: false
+    },
+    partTimeStreaming: {
+        type: OptionType.BOOLEAN,
+        description: "While an Add Streaming Time job runs, only go live for a few minutes around each hourly send and close the farm window in between. Discord only counts one report an hour, so the job adds the same time. The farm's own counter stops adding up while it rests.",
+        default: false
+    },
     reportEvery: {
         type: OptionType.SELECT,
         description: "How often the farm restarts the stream to send Discord its time.",
