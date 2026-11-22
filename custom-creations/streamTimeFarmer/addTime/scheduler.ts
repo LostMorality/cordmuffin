@@ -10,7 +10,8 @@ import { findByCodeLazy, findStoreLazy } from "@webpack";
 import { SelectedChannelStore } from "@webpack/common";
 
 import { currentUserId, FARM_SOURCE, profileFor } from "../profile";
-import { ownStreamEndedAt, streamFarmOwner, streamFarmRunning, streamingOwnWindow, streamStatus } from "../stream";
+import { settings } from "..";
+import { ownStreamEndedAt, streamFarmOwner, streamFarmRunning, streamingFarmStream, streamingOwnWindow, streamStatus } from "../stream";
 import { notify } from "./job";
 import { hourDone, hourTaken, ledgerLoaded } from "./ledger";
 import { hooksInPlace, HOUR_MS, installHooks, utcHour } from "./raiser";
@@ -43,6 +44,9 @@ const FARM_GRACE_MS = 10 * 60_000;
 const OTHER_SOURCE_MS = 60_000;
 // The farm notes an end this scheduler made on its own next tick, a few seconds later.
 const OWN_END_MS = 15_000;
+// Part Time Streaming starts Go Live this long before an hour's send window opens, so the farm window, the stream and
+// the other account's viewer are all up by then.
+const WARM_MS = 2 * 60_000;
 const STATE_KEY = "AddStreamTime_scheduler";
 const MISS_NOTE = "No time was added in the last hour because the send didn't go through.";
 
@@ -217,7 +221,11 @@ function resolvePending(now: number) {
 type Blocker = "" | "off" | "loading" | "farm" | "screen" | "watch" | "own" | "live" | "done" | "ended" | "minute";
 
 // Only the farm's own window is streamed for sends, never the user's screen or a random window of theirs.
-export const streamsFarmWindow = (me = currentUserId()) => !!me && profileFor(me).source.trim().toLowerCase() === FARM_SOURCE;
+// "Add Time Any Source" lets a send go out whatever the farm streams; it's still only ever a Go Live the farm started.
+const anySource = () => !!settings.store.addTimeAnySource;
+const partTime = () => !!settings.store.partTimeStreaming;
+const farmShowing = () => anySource() ? streamingFarmStream() : streamingOwnWindow();
+export const streamsFarmWindow = (me = currentUserId()) => !!me && (anySource() || profileFor(me).source.trim().toLowerCase() === FARM_SOURCE);
 
 // A second end in an hour is only for a first one known to have failed, never while its answer is still out.
 const canRetry = (hour: number) => state.endedHour === hour && state.tries < MAX_TRIES && !state.pendingCheck && !hourTaken(hour);
@@ -233,7 +241,7 @@ function blocker(now: number): Blocker {
     const minute = new Date(now).getUTCMinutes();
     if (minute < FIRST_MINUTE || minute > LAST_MINUTE) return "minute";
     if (streamStatus().phase !== "counting") return "watch";
-    if (!streamingOwnWindow()) return "own";
+    if (!farmShowing()) return "own";
     if (!liveSeenAt || now - liveSeenAt < MIN_LIVE_MS) return "live";
     return "";
 }
@@ -249,7 +257,7 @@ function watchStall(now: number, why: Blocker) {
     const hour = utcHour(now);
     if (stallHour !== -1 && hour > stallHour) {
         // A problem the user has fixed since isn't told. The first minutes of an hour never get as far as "own".
-        const still = why === "farm" || why === "screen" || stallWhy === "own" && !streamingOwnWindow();
+        const still = why === "farm" || why === "screen" || stallWhy === "own" && !farmShowing();
         const note = stallWhy ? still ? stallNote : "" : state.endedHour === stallHour ? MISS_NOTE : "";
         if (note && !stallTold && !hourTaken(stallHour)) {
             stallTold = true;
@@ -283,7 +291,7 @@ function tick() {
         else liveSeenAt ||= now;
         farmEndedAt();
         if (isLive(stream)) {
-            const own = streamingOwnWindow();
+            const own = farmShowing();
             if (own && farmStreamingHere(me)) ownLiveAt = now;
             // While the farm is still starting its Go Live, the new stream isn't known as the farm's yet.
             else if (!own && !(farmStreamingHere(me) && streamStatus().phase === "starting")) otherSourceAt = now;
@@ -300,7 +308,7 @@ function tick() {
         // Sending the saved report again keeps the farm's stream up, and a stream that is never ended can
         // never fail to come back. The stream is only ended when no report is fresh enough to send again,
         // which both sends that hour's time and leaves a new report for the hours after it.
-        if (state.resentHour !== hour && canResend(me, now)) {
+        if (!partTime() && state.resentHour !== hour && canResend(me, now)) {
             setState({ resentHour: hour });
             if (resendReport(me, now)) {
                 logger.info("Sent this hour's time with the saved report, leaving the stream running");
@@ -387,10 +395,21 @@ export function plan(now = Date.now()): Plan {
         case "watch": return none("Waiting for your other account to watch.");
         case "own": return none("Waiting for the farm to stream its own window.");
         case "live": return next(Math.max(now, (liveSeenAt || now) + MIN_LIVE_MS), "Letting the stream run a bit first.");
-        default: return next(now, state.resentHour !== hour && canResend(currentUserId(), now)
+        default: return next(now, !partTime() && state.resentHour !== hour && canResend(currentUserId(), now)
             ? "Sending now, without stopping the stream."
             : "Sending now.");
     }
+}
+
+// Part Time Streaming: only one report per UTC hour counts, so while a job runs the farm only needs to be live around
+// each send. Returns when the farm should go live again, or 0 when it should be live now (or the setting is off, or no
+// send could happen anyway, where the farm streams as usual and the job box says why).
+export function restUntil(now = Date.now()): number {
+    if (!partTime() || !enabled() || !stateLoaded || !ledgerLoaded() || !reportLoaded() || !streamsFarmWindow()) return 0;
+    const hour = utcHour(now);
+    const open = !hourTaken(hour) && (state.endedHour !== hour || canRetry(hour)) && new Date(now).getUTCMinutes() <= LAST_MINUTE;
+    const wake = (open ? windowOpen(hour) : windowOpen(hour + 1)) - WARM_MS;
+    return now < wake ? wake : 0;
 }
 
 // When the first send of a new job could go out: this hour if it has no send yet and the window is still open.
