@@ -15,6 +15,16 @@ Extra plugins for [Equicord](https://github.com/Equicord/Equicord), a mod for th
 
 ---
 
+## Newest plugins
+
+| Plugin | Added | What it does |
+|---|---|---|
+| [SoundboardCloner](#soundboardcloner) | Nov 22 | Copies soundboard sounds from any server into yours in bulk, or saves them to your PC. |
+| [Autocorrect](#autocorrect) | Nov 21 | Phone-style autocorrect: suggestions over the word you type, typos fixed when you press space. |
+| [NoQuestsOnStartup](#noquestsonstartup) | Nov 18 | Stops Discord opening the Quests page every time it starts. |
+
+---
+
 ## Plugins at a glance
 
 Each plugin is a folder in [`custom-creations`](custom-creations). You'll find the folder name under each plugin's heading.
@@ -34,6 +44,7 @@ Each plugin is a folder in [`custom-creations`](custom-creations). You'll find t
 | [Dictation](#dictation) | Talk instead of typing. Adds punctuation. Runs on your own computer. |
 | [Autocorrect](#autocorrect) | Phone-style autocorrect: suggestions over the word you type, typos fixed when you press space, Backspace undoes. |
 | [ShrinkUploads](#shrinkuploads) | Shrinks pictures, GIFs, videos and audio to fit your upload limit. Runs on your own computer. |
+| [SoundboardCloner](#soundboardcloner) | Copies soundboard sounds from any server into servers you manage, in bulk. Can also save them to your PC. |
 | [ProfileImages](#profileimages) | One-click buttons to see profile pictures, banners and server icons full size. |
 | [PluginPresets](#pluginpresets) | Save which plugins are on as presets. Switch between them and share them. |
 | [CustomRPCShare](#customrpcshare) | Share your Rich Presence setups: export and import CustomRPC presets as a code or a .json file. |
@@ -522,6 +533,42 @@ Videos, GIFs and audio need ffmpeg, a free video tool. Pictures don't need it.
 - It works through your computer's proxy settings, like Discord does.
 - Moving pictures (animated WebP, PNG or AVIF) aren't shrunk yet. They go to Discord as they are and get no Shrink button.
 - .ts files only count as video when they really are one (MPEG-TS). Code files named .ts are left alone.
+
+</details>
+
+---
+
+### SoundboardCloner
+
+`soundboardCloner` · Off by default
+
+**Connects to:** Discord only. Sounds are downloaded from Discord's own file server and uploaded through Discord's normal API.
+
+Copy soundboard sounds from any server you're in, or Discord's own default sounds, into servers where you can manage expressions. You can also save them to your PC.
+
+<img src="docs/soundboard-cloner.png" alt="The Clone Sounds window: servers on the left, their sounds on the right, with a volume slider" width="640">
+
+**What it does**
+- Right-click a server and open **Clone Sounds**:
+  - **Pick Sounds…** opens the picker on that server.
+  - **Clone All Sounds…** selects all of them.
+  - **Save All Sounds…** saves them to your PC.
+- The picker lists every server with sounds. Search looks through all of them at once.
+- **▶︎** plays a sound before you copy it. The volume slider above the sounds sets how loud, starting at 50%, because some sounds are very loud.
+- **⭳** saves one sound. **Save Selected** saves the sounds you picked. Two or more go into one .zip, with a folder per server.
+- Then pick where they go: a server where you're allowed to add expressions, or **Create a new server**. Each server shows how many sound slots it has used, and the **Plan** box says how many of your sounds fit.
+
+<details>
+<summary><b>How copying works</b></summary>
+
+- Each sound keeps its name, volume and emoji.
+- **Skip duplicates:** sounds whose name the server already has aren't copied again.
+- **Keep emojis:** Discord won't take a custom emoji from another server. The sound is still copied, just without that emoji.
+- **New servers when full:** once the server runs out of slots, it makes new servers named **Sound Vault** and keeps going, 3 at most. Both can be changed.
+- Without it, sounds that don't fit are skipped and shown in the log.
+- Uploads wait 1.5 seconds between each other (setting **Upload Delay**). If Discord asks it to slow down, it waits and tries again.
+- You can close the window while it runs. Right-click any server and open **Clone Sounds** to see the progress or cancel.
+- Discord's limits: a sound can be at most 512 KB and 5.2 seconds. A server starts with 8 sound slots and gets more with boosts.
 
 </details>
 
