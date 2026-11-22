@@ -5,9 +5,10 @@
  */
 
 import { ChildProcess, spawn } from "child_process";
+import { createHash } from "crypto";
 import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, powerSaveBlocker, screen, session } from "electron";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
+import { isAbsolute, join } from "path";
 
 import { VIEWER_AGENT } from "./viewerAgent";
 
@@ -438,16 +439,22 @@ export async function secondAccountEval(_: IpcMainInvokeEvent, code: string): Pr
     }
 }
 
-// The farm's own window to stream: a small borderless window in a corner of the main screen, behind every other window,
-// almost fully see-through (1/255) and letting clicks pass through, with no taskbar button and kept out of Alt+Tab, so
-// it can't be seen or bumped into. Windows only redraws the parts of a window that are on a screen, so parking it
-// off-screen froze the stream on its first picture; see-through, it's on screen and Go Live still captures it at full
-// brightness. Go Live can't capture minimized windows either, so it puts itself back when minimized. Its clock and a
-// sweeping bar keep changing, which keeps frames reaching the viewer, and nothing private is ever in it. It closes by
-// itself when Discord goes away.
+// The farm's own window to stream: a small borderless window in the bottom-right corner of the main screen, sent behind
+// other windows and almost fully see-through (1/255), so it can't be seen. Windows only redraws the parts of a window
+// that are on a screen, so parking it off-screen froze the stream on its first picture; see-through, it's on screen and
+// Go Live still captures it at full brightness. Go Live only lists windows that have a taskbar button, so it keeps one,
+// and it can't capture minimized windows, so it puts itself back when minimized. Its clock and a sweeping bar keep
+// changing, which keeps frames reaching the viewer, and nothing private is ever in it. It closes by itself when Discord
+// goes away. By default it uses only WinForms and other parts that ship with Windows and compiles nothing.
+// With "Hide Taskbar Button" on (STF_HIDE), it also builds a small helper into the farm folder that takes the
+// taskbar button off and lets clicks pass through. Antivirus often flags a compiled helper like that, which is why it's
+// opt-in and why the user picks the folder (so it can go in their exclusions). When the helper can't be built or
+// loaded, the window simply stays in its default mode. The script writes which mode it got to STF_STATUS.
 const FARM_WINDOW_SCRIPT = String.raw`
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-Add-Type -TypeDefinition @"
+$full = $false
+if ($env:STF_HIDE -eq "1") {
+    $helperCode = @"
 using System;
 using System.Runtime.InteropServices;
 namespace StfFarm {
@@ -457,16 +464,13 @@ namespace StfFarm {
     public static class Win {
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
-        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hWnd, int index);
         [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr hWnd, int index, int value);
-        [DllImport("user32.dll")] static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint key, byte alpha, uint flags);
-        // Layered (see-through), clicks pass through, and never activated (which also keeps it out of Alt+Tab).
-        const int GHOST = 0x80000 | 0x20 | 0x08000000;
+        // Clicks pass through and it's never activated (which also keeps it out of Alt+Tab).
+        const int GHOST = 0x20 | 0x08000000;
         public static void Ghost(IntPtr hwnd) {
             int style = GetWindowLong(hwnd, -20);
             if ((style & GHOST) != GHOST) SetWindowLong(hwnd, -20, style | GHOST);
-            SetLayeredWindowAttributes(hwnd, 0, 1, 2);
         }
         static ITaskbarList list;
         public static void HideButton(IntPtr hwnd) {
@@ -478,8 +482,30 @@ namespace StfFarm {
     }
 }
 "@
-# Real pixels, so the window fits its corner exactly at any display scaling.
-[StfFarm.Win]::SetProcessDPIAware() | Out-Null
+    # A helper that's already in the folder is used. When this start may build (once per Discord launch), a missing
+    # or unloadable one is built again.
+    $build = $env:STF_BUILD -eq "1"
+    try {
+        if (Test-Path -LiteralPath $env:STF_HELPER) { Add-Type -LiteralPath $env:STF_HELPER -ErrorAction Stop }
+    } catch {
+        if ($build) { Remove-Item -LiteralPath $env:STF_HELPER -Force -ErrorAction SilentlyContinue }
+    }
+    if ($build -and -not ("StfFarm.Win" -as [type])) {
+        try {
+            Add-Type -TypeDefinition $helperCode -OutputAssembly $env:STF_HELPER -ErrorAction Stop
+            if (-not ("StfFarm.Win" -as [type])) { Add-Type -LiteralPath $env:STF_HELPER -ErrorAction Stop }
+        } catch { Remove-Item -LiteralPath $env:STF_HELPER -Force -ErrorAction SilentlyContinue }
+    }
+    $full = [bool]("StfFarm.Win" -as [type])
+}
+try { Set-Content -LiteralPath $env:STF_STATUS -Value $(if ($full) { "hidden" } else { "plain" }) -ErrorAction Stop } catch { }
+# WinForms takes the keyboard when it shows the window. The app that had it (by its process) gets it straight back,
+# through Windows' own UI Automation and Visual Basic parts.
+$focusOwner = 0
+try {
+    Add-Type -AssemblyName UIAutomationClient, Microsoft.VisualBasic
+    $focusOwner = [Windows.Automation.AutomationElement]::FocusedElement.Current.ProcessId
+} catch { }
 $parent = [int]$env:STF_PARENT
 # Compared on every check too, so a new program that gets Discord's old process id doesn't keep the window open.
 $parentStart = [Diagnostics.Process]::GetProcessById($parent).StartTime
@@ -491,11 +517,19 @@ $form.ClientSize = New-Object Drawing.Size 640, 360
 $form.FormBorderStyle = "None"
 $form.ShowInTaskbar = $true
 $form.StartPosition = "Manual"
+# See-through from the start, so it never flashes up.
+$form.Opacity = 1 / 255
 # The bottom-right corner of the main screen's free area, worked out again on every check since screens and the
 # taskbar can move. Kept fully on screen, or Windows stops redrawing it.
 function Get-Park { $area = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; New-Object Drawing.Point ($area.Right - $form.Width), ($area.Bottom - $form.Height) }
-# Behind every other window, without taking focus or changing size.
-function Set-Park { $park = Get-Park; [StfFarm.Win]::SetWindowPos($form.Handle, [IntPtr]1, $park.X, $park.Y, 0, 0, 0x0011) | Out-Null }
+# Kept in its corner. With the helper it's also kept behind every other window without taking focus. Without it, its
+# place in the stacking order is set once when it's shown: WinForms can't send it back again without bringing it
+# forward first.
+function Set-Park {
+    $park = Get-Park
+    if ($full) { [StfFarm.Win]::SetWindowPos($form.Handle, [IntPtr]1, $park.X, $park.Y, 0, 0, 0x0011) | Out-Null }
+    elseif ($form.Location -ne $park) { $form.Location = $park }
+}
 $form.Location = Get-Park
 # A bar sweeping across, a "keeping it going" line, and the clock with a blinking live dot.
 $track = New-Object Windows.Forms.Panel
@@ -577,36 +611,62 @@ $tick = {
     try { $gone = [Diagnostics.Process]::GetProcessById($parent).StartTime -ne $parentStart } catch { }
     if ($gone) { [Windows.Forms.Application]::Exit(); return }
     if ($script:coverClient -and (Get-Date) -gt $script:coverDeadline) { $script:coverClient.CancelAsync() }
-    # Go Live only lists ordinary app windows, so the window stays one and just its taskbar button is taken off.
-    # Explorer puts buttons back when it restarts, so this runs every check, and so does making it see-through.
-    [StfFarm.Win]::HideButton($form.Handle)
-    [StfFarm.Win]::Ghost($form.Handle)
-    if ($form.WindowState -eq "Minimized") { [StfFarm.Win]::ShowWindow($form.Handle, 4) | Out-Null }
+    # Explorer puts taskbar buttons back when it restarts, so the helper takes it off again on every check.
+    if ($full) {
+        [StfFarm.Win]::HideButton($form.Handle)
+        [StfFarm.Win]::Ghost($form.Handle)
+        if ($form.WindowState -eq "Minimized") { [StfFarm.Win]::ShowWindow($form.Handle, 4) | Out-Null }
+    } elseif ($form.WindowState -eq "Minimized") { $form.WindowState = "Normal" }
     Set-Park
 }
 $timer = New-Object Windows.Forms.Timer
 $timer.Interval = 250
 $timer.add_Tick($tick)
-# Started hidden, Windows swallows the first show, so it's shown again once the window exists, without taking focus.
-$form.add_Shown({ [StfFarm.Win]::Ghost($form.Handle); [StfFarm.Win]::ShowWindow($form.Handle, 4) | Out-Null; Set-Park; & $tick; $timer.Start(); Add-Cover })
+# Sent to the back once it's up, and the keyboard goes back to whoever had it.
+$form.add_Shown({
+    if ($full) { [StfFarm.Win]::Ghost($form.Handle); [StfFarm.Win]::HideButton($form.Handle) }
+    $form.SendToBack()
+    if ($focusOwner -and $focusOwner -ne $PID) { try { [Microsoft.VisualBasic.Interaction]::AppActivate([int]$focusOwner) } catch { } }
+    Set-Park; & $tick; $timer.Start(); Add-Cover
+})
 $form.add_FormClosing({ param($s, $e) if ($e.CloseReason -eq "UserClosing") { $e.Cancel = $true } })
 [Windows.Forms.Application]::Run($form)
 `;
 
-// Run from a file next to the second account's files, not passed on the command line: a hidden PowerShell given its
-// script encoded on the command line is exactly what antivirus treats as malware. Unsigned local scripts are allowed
-// for this one process only, which is all -ExecutionPolicy changes.
-const farmScript = () => join(webDir(), "farm-window.ps1");
+// Run from a file, not passed on the command line: a hidden PowerShell given its script encoded on the command line is
+// exactly what antivirus treats as malware. Unsigned local scripts are allowed for this one process only, which is all
+// -ExecutionPolicy changes. The file goes in the folder the user picked ("Farm Folder"), or next to the second
+// account's files when none is set.
+function farmDir(folder: string) {
+    const picked = String(folder ?? "").trim().replace(/^"(.*)"$/, "$1");
+    if (!picked) return webDir();
+    if (!isAbsolute(picked) || picked.startsWith("\\\\")) throw new Error(`The farm folder has to be a full path on this computer, like C:\\StreamFarm (it's set to "${picked}").`);
+    return picked;
+}
 
-function writeFarmScript() {
-    const path = farmScript();
+function writeFarmScript(dir: string) {
+    const path = join(dir, "farm-window.ps1");
     try {
         if (readFileSync(path, "utf8") === FARM_WINDOW_SCRIPT) return path;
     } catch { /* not written yet */ }
-    mkdirSync(webDir(), { recursive: true });
-    writeFileSync(path, FARM_WINDOW_SCRIPT);
+    mkdirSync(dir, { recursive: true });
+    try {
+        writeFileSync(path, FARM_WINDOW_SCRIPT);
+    } catch (e: any) {
+        // Antivirus refusing the file shows up as "not permitted"; say so, with what the user can do about it.
+        if (e?.code === "EPERM" || e?.code === "EACCES")
+            throw new Error(`Couldn't write the farm window's file in ${dir}. Your antivirus is probably blocking it: pick another Farm Folder, or add this one to your antivirus exclusions.`);
+        throw e;
+    }
     return path;
 }
+
+// The hiding helper's file is named after the script, so a plugin update that changes the script builds a fresh one.
+const HELPER_NAME = `farm-helper-${createHash("sha256").update(FARM_WINDOW_SCRIPT).digest("hex").slice(0, 12)}.dll`;
+// Built at most once per Discord launch and folder: a blocked build isn't retried on every farm restart, so antivirus
+// doesn't raise an alert each time.
+const helperTriedIn = new Set<string>();
+let lastDir = "";
 
 let farmProcess: ChildProcess | null = null;
 
@@ -618,15 +678,20 @@ function stopFarmProcess() {
 process.once("exit", stopFarmProcess);
 
 // Resolves with the window's process id once it's running. A new window replaces the old one.
-export function startFarmWindow(_: IpcMainInvokeEvent, title: string, imageUrl = "", startedAt = Date.now()): Promise<number> {
+export function startFarmWindow(_: IpcMainInvokeEvent, title: string, imageUrl = "", startedAt = Date.now(), folder = "", hide = false): Promise<number> {
     stopFarmProcess();
     if (process.platform !== "win32") return Promise.reject(new Error("The farm window only works on Windows."));
-    let script: string;
+    let script: string, dir: string;
     try {
-        script = writeFarmScript();
+        dir = farmDir(folder);
+        script = writeFarmScript(dir);
+        rmSync(join(dir, "farm-window.status"), { force: true });
     } catch (e) {
         return Promise.reject(e);
     }
+    lastDir = dir;
+    const build = hide && !helperTriedIn.has(dir);
+    if (build) helperTriedIn.add(dir);
     // The full path, so a powershell.exe in Discord's working folder can never be picked up instead.
     const powershell = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const child = spawn(
@@ -640,7 +705,11 @@ export function startFarmWindow(_: IpcMainInvokeEvent, title: string, imageUrl =
                 STF_TITLE: String(title).slice(0, 120) || "StreamTimeFarmer",
                 STF_IMAGE: /^https:\/\/cdn\.discordapp\.com\//.test(imageUrl) ? imageUrl : "",
                 STF_STARTED: String(Number.isFinite(startedAt) ? Math.floor(startedAt) : Date.now()),
-                STF_PARENT: String(process.pid)
+                STF_PARENT: String(process.pid),
+                STF_HIDE: hide ? "1" : "0",
+                STF_HELPER: join(dir, HELPER_NAME),
+                STF_BUILD: build ? "1" : "0",
+                STF_STATUS: join(dir, "farm-window.status")
             }
         }
     );
@@ -672,4 +741,15 @@ export function stopFarmWindow(_: IpcMainInvokeEvent, pid = 0) {
 // The running window's process id, or 0 when it's gone (closed from Task Manager, or it crashed).
 export function farmWindowPid(_: IpcMainInvokeEvent) {
     return farmProcess && farmProcess.exitCode == null && farmProcess.signalCode == null ? farmProcess.pid ?? 0 : 0;
+}
+
+// Whether the running farm window got its taskbar button hidden ("hidden"), stayed in its default mode ("plain"), or
+// hasn't said yet (""). The folder is where its files are, for the message when hiding was asked for and failed.
+export function farmWindowMode(_: IpcMainInvokeEvent): { mode: "" | "hidden" | "plain"; folder: string; } {
+    let mode: "" | "hidden" | "plain" = "";
+    try {
+        const text = readFileSync(join(lastDir, "farm-window.status"), "utf8").trim();
+        if (text === "hidden" || text === "plain") mode = text;
+    } catch { }
+    return { mode, folder: lastDir };
 }
