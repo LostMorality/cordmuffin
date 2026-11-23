@@ -221,6 +221,12 @@ export async function creditPlaytime(plan: CreditPlan, signal: AbortSignal, onPr
     return sent;
 }
 
+// Only what helps a bug report: no account details.
+export function clientInfo() {
+    const props = SuperProperties.getSuperProperties();
+    return { channel: props.release_channel, build: props.client_build_number, os: props.os, osVersion: props.os_version };
+}
+
 export async function loadPlayedIds() {
     const { body } = await RestAPI.get({ url: "/users/@me/activities/statistics/applications" });
     return new Set((body as { application_id: string; }[]).map(s => s.application_id));
