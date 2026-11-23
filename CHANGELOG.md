@@ -9,7 +9,7 @@ Newest changes come first, grouped under each date by plugin. The Cordmuffin Upd
 - New **Test Session Lengths** button sends 3 test sessions of different lengths. After Discord's next daily update, **Copy Report** shows which ones counted, so it's clear whether Discord drops long or past-dated sessions.
 
 ### Autocorrect
-- Now works in your custom status box too, with the same suggestions, fixes and undo as the chat box.
+- Now works in your custom status box, About Me and the other boxes you write in, with the same suggestions, fixes and undo as the chat box. Name, search and AutoMod keyword boxes are left alone.
 
 ## 2026-11-22
 
