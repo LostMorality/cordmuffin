@@ -302,3 +302,31 @@
 .vc-gts-job-head .vc-gts-job-toggle {
     cursor: pointer;
 }
+
+.vc-gts-about-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.vc-gts-report {
+    max-height: 50vh;
+    overflow: auto;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--background-base-lowest, var(--background-secondary));
+    color: var(--text-default, var(--text-normal));
+    font-family: var(--font-code);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.vc-gts-test-list {
+    margin: 8px 0 12px;
+    padding-left: 20px;
+    list-style: disc;
+}
