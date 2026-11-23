@@ -48,6 +48,8 @@ export const editors = new WeakMap<Field, EditorState>();
 const lastFixes = new WeakMap<Field, LastFix>();
 const autoSpaces = new WeakMap<Field, AutoSpace>();
 const kept = new WeakMap<Field, Set<string>>();
+/** Boxes outside the chat box, which get a floating strip. */
+export const floating = new WeakSet<Field>();
 
 const BLOCKED_NEAR = /[@#:<>/\\_\d=$%^&*+~|[\]{}]/;
 const BOUNDARY_KEYS = new Set([" ", ".", ",", "!", "?", ";", ")"]);
@@ -367,14 +369,13 @@ export function onKeyDown(editor: Field, e: KeyboardEvent): boolean {
             if (view) {
                 st.dismissed = view.key;
                 st.refresh();
-                // in a plain box like the status one, Esc would also close the whole dialog, so only hide the suggestions
-                return editor.kind === "plain";
             }
             return false;
         }
 
+        // only the chat box sends on Enter; elsewhere Enter is a new line and the box's own reset covers it
         if (e.key === "Enter" && !e.shiftKey) {
-            kept.delete(editor);
+            if (!floating.has(editor)) kept.delete(editor);
             return false;
         }
 
