@@ -1152,6 +1152,7 @@ Makes Discord think you're playing any game it can detect. Your Game Time and Ga
 - A badge tracker shows your real badge ranks and when your added time should be counted.
 - Real games count too, even when Equicord's NoTrack blocks Discord's own game reports.
 - Spoofed and real games are each counted once, whatever NoTrack is set to.
+- **Copy Report** and **Test Session Lengths** help when your badges don't move (see "When badges don't move" below).
 
 > [!IMPORTANT]
 > Turn on both "Use data" options in User Settings → Data & Privacy, or Discord ignores the play time and your badges won't move. Details under "What it needs" below.
@@ -1180,6 +1181,15 @@ Makes Discord think you're playing any game it can detect. Your Game Time and Ga
 - When your added time should be counted. This comes from your own account: the plugin learns when Discord's daily update runs for you instead of guessing.
 
 <img src="docs/game-time-badges.png" alt="Add Play Time with the badge tracker (sample numbers)" width="320">
+
+**When badges don't move**
+- **Copy Report** (Game Browser, or the plugin's settings) copies a short report you can paste to whoever is helping you.
+  - It lists your badge numbers, the "Use data" settings, NoTrack and other blockers, and your last 25 Add Time runs with how each went.
+  - It has no token, user ID or username in it. The window shows exactly what was copied.
+- **Test Session Lengths** sends 3 sessions to 3 games you haven't played: 12 hours ending now, 24 hours ending now, and 6 hours that ended a day ago.
+  - That's 42 real hours, and whatever counts stays on your badge.
+  - Each one has a different length, so the rise in your hours shows which ones Discord took.
+  - After Discord's next daily update (give it up to 2 days), press **Copy Report**. Its last part says which sessions counted and what that means.
 
 </details>
 
