@@ -22,7 +22,10 @@ import { analyticsBlocked } from "./conflicts";
 import { openGameBrowser } from "./GameBrowser";
 import { cancelCredit } from "./job";
 import { notify } from "./notify";
+import { openReport } from "./report";
+import type { RunEntry } from "./runLog";
 import { ReportedGame, reportPlaytime } from "./science";
+import { openSessionTest } from "./SessionTest";
 
 const logger = new Logger("GameTimeSpoof");
 
@@ -87,6 +90,11 @@ export const settings = definePluginSettings({
     lastSeen: {
         type: OptionType.CUSTOM,
         default: null as SeenBadges | null,
+        description: ""
+    },
+    runLog: {
+        type: OptionType.CUSTOM,
+        default: [] as RunEntry[],
         description: ""
     },
     reportRealGames: {
@@ -424,7 +432,11 @@ export default definePlugin({
 
     settingsAboutComponent: () => (
         <>
-            <Button onClick={openGameBrowser}>Open Game Browser</Button>
+            <div className="vc-gts-about-buttons">
+                <Button onClick={openGameBrowser}>Open Game Browser</Button>
+                <Button variant="secondary" onClick={openReport}>Copy Report</Button>
+                <Button variant="secondary" onClick={openSessionTest}>Test Session Lengths</Button>
+            </div>
             <Paragraph>
                 Game names must match an entry in <Link href="https://discord.com/api/v9/applications/detectable">Discord's detectable games list</Link>. Press Ctrl+F on that page to search it.
             </Paragraph>
