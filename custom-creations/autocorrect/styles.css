@@ -136,7 +136,7 @@ form:has([class*="inTextChannel_"][class*="base_"]) .vc-autocorrect-strip {
 
 .vc-autocorrect-mark {
     position: fixed;
-    z-index: 1000;
+    z-index: 10001;
     height: 2px;
     border-radius: 1px;
     background: var(--text-link, var(--brand-500));
@@ -254,4 +254,11 @@ form:has([class*="inTextChannel_"][class*="base_"]) .vc-autocorrect-strip {
     margin: 16px 0 0;
     color: var(--text-muted);
     font-size: 0.75rem;
+}
+
+/* sits exactly over a plain text box like the custom status one; the strip inside floats just above it */
+.vc-autocorrect-float {
+    position: fixed;
+    z-index: 10000;
+    pointer-events: none;
 }
