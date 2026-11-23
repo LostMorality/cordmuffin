@@ -11,8 +11,10 @@ import ErrorBoundary from "@components/ErrorBoundary";
 import definePlugin from "@utils/types";
 import { ChannelStore, GuildMemberStore, Menu, RelationshipStore, SelectedChannelStore, UserStore } from "@webpack/common";
 
+import { startPlainFields, stopPlainFields } from "./float";
 import { learnFromMessage, onKeyDown } from "./logic";
 import { settings } from "./settings";
+import { type SlateEditor, slateField } from "./slate";
 import { Strip } from "./strip";
 import { learnText, load, setExtraKnown, startSaving, syncAllToDiscord, unload } from "./words";
 
@@ -83,7 +85,7 @@ let running = { stopped: true };
 
 export default definePlugin({
     name: "Autocorrect",
-    description: "Phone style autocorrect for the chat box. Suggestions show above what you type, typos get fixed when you press space, and Backspace undoes a fix.",
+    description: "Phone style autocorrect for the chat box and your custom status. Suggestions show above what you type, typos get fixed when you press space, and Backspace undoes a fix.",
     authors: [{ name: "nolifepops", id: 221807880053981184n }],
     tags: ["Chat", "Utility"],
     settings,
@@ -110,7 +112,7 @@ export default definePlugin({
     },
 
     renderStrip: ErrorBoundary.wrap(Strip, { noop: true }),
-    onKeyDown,
+    onKeyDown: (editor: SlateEditor, e: KeyboardEvent) => onKeyDown(slateField(editor), e),
 
     onBeforeMessageSend(_, msg) {
         if (settings.store.learnFromMessages && settings.store.mode !== "off" && msg.content) learnText(learnFromMessage(msg.content));
@@ -120,6 +122,7 @@ export default definePlugin({
         running = { stopped: false };
         setExtraKnown(isName);
         startSaving();
+        startPlainFields();
         const signal = running;
         void load(signal).then(() => {
             if (!signal.stopped && settings.store.shareWithDiscord) syncAllToDiscord();
@@ -128,6 +131,7 @@ export default definePlugin({
 
     stop() {
         running.stopped = true;
+        stopPlainFields();
         setExtraKnown(null);
         names = new Set();
         namesKey = "";
