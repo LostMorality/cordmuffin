@@ -6,26 +6,29 @@
 
 import { findByPropsLazy } from "@webpack";
 
-export interface Point { path: number[]; offset: number; }
-export interface SlateRange { anchor: Point; focus: Point; }
+import type { Field, Point, TextRange } from "./field";
+import { wordIn } from "./field";
+import { settings } from "./settings";
+
 interface SlateText { text: string; }
 interface SlateElement { type?: string; children?: SlateNode[]; }
 type SlateNode = SlateText | SlateElement;
 
 export interface SlateEditor {
     children: SlateNode[];
-    selection: SlateRange | null;
+    selection: TextRange | null;
     chatInputType?: { analyticsName?: string; };
 }
 
 const Transforms: {
-    insertText(editor: SlateEditor, text: string, options?: { at?: SlateRange; }): void;
+    insertText(editor: SlateEditor, text: string, options?: { at?: TextRange; }): void;
 } = findByPropsLazy("insertNodes", "textToText");
 
 const Editor: {
     isComposing(editor: SlateEditor): boolean;
     isFocused(editor: SlateEditor): boolean;
     focus(editor: SlateEditor): void;
+    toDOMRange(editor: SlateEditor, range: TextRange): Range;
 } = findByPropsLazy("start", "end", "toSlateRange");
 
 const History: {
@@ -33,18 +36,7 @@ const History: {
     withoutSaving?(editor: SlateEditor, fn: () => void): void;
 } = findByPropsLazy("withSingleEntry", "withMergedEntry");
 
-const WORD_CHAR = /[\p{L}\p{M}'’]/u;
-const INLINE = "\uFFFC";
-const QUOTES = /^['’]+|['’]+$/g;
-
-export interface WordAtCaret {
-    word: string;
-    range: SlateRange;
-    before: string;
-    after: string;
-    path: number[];
-    start: number;
-}
+const INLINE = "￼";
 
 const isText = (node: SlateNode | undefined): node is SlateText => typeof (node as SlateText)?.text === "string";
 
@@ -54,21 +46,14 @@ function nodeAt(editor: SlateEditor, path: number[]): SlateNode | undefined {
     return node;
 }
 
-export function isComposing(editor: SlateEditor) {
-    return Editor.isComposing(editor);
-}
-
-export function isFocused(editor: SlateEditor) {
-    return Editor.isFocused(editor);
-}
-
-export function hasCommand(editor: SlateEditor) {
-    const first = editor.children[0] as SlateElement | undefined;
-    return first?.type === "applicationCommand" || !!first?.children?.some(c => (c as SlateElement).type === "applicationCommand");
+function caretPoint(editor: SlateEditor): Point | null {
+    const sel = editor.selection;
+    if (!sel || sel.anchor.offset !== sel.focus.offset || sel.anchor.path.join() !== sel.focus.path.join()) return null;
+    return sel.anchor;
 }
 
 /** Plain text of the line the caret is on, up to the caret, and everything before that line. */
-export function textBeforeCaret(editor: SlateEditor): { line: string; all: string; } | null {
+function textBeforeCaret(editor: SlateEditor): { line: string; all: string; } | null {
     const sel = editor.selection;
     if (!sel) return null;
     const [blockIndex, leaf] = sel.anchor.path;
@@ -87,61 +72,61 @@ export function textBeforeCaret(editor: SlateEditor): { line: string; all: strin
     return { line, all: earlier ? `${earlier}\n${line}` : line };
 }
 
-export function wordAtCaret(editor: SlateEditor): WordAtCaret | null {
-    const sel = editor.selection;
-    if (!sel || sel.anchor.offset !== sel.focus.offset || sel.anchor.path.join() !== sel.focus.path.join()) return null;
+function hasCommand(editor: SlateEditor) {
+    const first = editor.children[0] as SlateElement | undefined;
+    return first?.type === "applicationCommand" || !!first?.children?.some(c => (c as SlateElement).type === "applicationCommand");
+}
 
-    const { path, offset } = sel.anchor;
-    const leaf = nodeAt(editor, path);
-    if (!isText(leaf)) return null;
+const fields = new WeakMap<SlateEditor, Field>();
 
-    const { text } = leaf;
-    let s = offset;
-    while (s > 0 && WORD_CHAR.test(text[s - 1])) s--;
-    let e = offset;
-    while (e < text.length && WORD_CHAR.test(text[e])) e++;
+/** The chat editor as a Field; the same editor always gets the same Field. */
+export function slateField(editor: SlateEditor): Field {
+    let field = fields.get(editor);
+    if (field) return field;
 
-    const raw = text.slice(s, e);
-    const lead = raw.length - raw.replace(/^['’]+/, "").length;
-    const word = raw.replace(QUOTES, "");
-    const start = s + lead;
-    const end = start + word.length;
-    if (offset < start || offset > end) return { word: "", range: { anchor: { path, offset }, focus: { path, offset } }, before: text.slice(0, offset), after: text.slice(offset), path, start: offset };
-
-    return {
-        word,
-        range: { anchor: { path, offset: start }, focus: { path, offset: end } },
-        before: text.slice(0, start),
-        after: text.slice(end),
-        path,
-        start,
+    field = {
+        kind: "slate",
+        allowed() {
+            const type = editor.chatInputType?.analyticsName;
+            if (!type) return false;
+            return type !== "edit" || settings.store.editMessages;
+        },
+        composing: () => Editor.isComposing(editor),
+        focused: () => Editor.isFocused(editor),
+        focus() {
+            try {
+                Editor.focus(editor);
+            } catch { }
+        },
+        hasCommand: () => hasCommand(editor),
+        caret: () => caretPoint(editor),
+        wordAtCaret() {
+            const point = caretPoint(editor);
+            if (!point) return null;
+            const leaf = nodeAt(editor, point.path);
+            return isText(leaf) ? wordIn(leaf.text, point.offset, point.path) : null;
+        },
+        textBeforeCaret: () => textBeforeCaret(editor),
+        replace(range, text) {
+            History.withSingleEntry(editor, () => Transforms.insertText(editor, text, { at: range }));
+            return true;
+        },
+        // undoes the editor's last history entry, then inserts `after` without recording it, so the next undo goes on to the edit before
+        undoEntry(after) {
+            const ed = editor as SlateEditor & { undo?(): void; };
+            if (typeof ed.undo !== "function" || typeof History.withoutSaving !== "function") return false;
+            ed.undo();
+            if (after) History.withoutSaving(editor, () => Transforms.insertText(editor, after));
+            return true;
+        },
+        rects(range) {
+            try {
+                return Array.from(Editor.toDOMRange(editor, range).getClientRects());
+            } catch {
+                return [];
+            }
+        },
     };
-}
-
-export function replaceRange(editor: SlateEditor, range: SlateRange, text: string) {
-    History.withSingleEntry(editor, () => Transforms.insertText(editor, text, { at: range }));
-}
-
-/**
- * Undoes the editor's last history entry, then inserts `after` at the caret without recording it,
- * so the next undo goes on to the edit before. Returns false when the editor has no history to use.
- */
-export function undoEntry(editor: SlateEditor, after: string) {
-    const ed = editor as SlateEditor & { undo?(): void; };
-    if (typeof ed.undo !== "function" || typeof History.withoutSaving !== "function") return false;
-    ed.undo();
-    if (after) History.withoutSaving(editor, () => Transforms.insertText(editor, after));
-    return true;
-}
-
-export function focusEditor(editor: SlateEditor) {
-    try {
-        Editor.focus(editor);
-    } catch { }
-}
-
-export function caretPoint(editor: SlateEditor): Point | null {
-    const sel = editor.selection;
-    if (!sel || sel.anchor.offset !== sel.focus.offset || sel.anchor.path.join() !== sel.focus.path.join()) return null;
-    return sel.anchor;
+    fields.set(editor, field);
+    return field;
 }
