@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { findByPropsLazy } from "@webpack";
-
 import type { Sensitivity } from "./engine";
 import { settings } from "./settings";
-import { caretPoint, hasCommand, isComposing, replaceRange, type SlateEditor, type SlateRange, textBeforeCaret, undoEntry, wordAtCaret, type WordAtCaret } from "./slate";
+import { type Field, type TextRange, unionRect, type WordAtCaret } from "./field";
 import { addWord, countFix, getEngine, logger, uncountFix } from "./words";
 
 export type SlotKind = "literal" | "fix" | "suggestion" | "typed" | "prediction" | "undo";
@@ -46,12 +44,10 @@ interface AutoSpace {
     offset: number;
 }
 
-export const editors = new WeakMap<SlateEditor, EditorState>();
-const lastFixes = new WeakMap<SlateEditor, LastFix>();
-const autoSpaces = new WeakMap<SlateEditor, AutoSpace>();
-const kept = new WeakMap<SlateEditor, Set<string>>();
-
-const DOM: { toDOMRange(editor: SlateEditor, range: SlateRange): Range; } = findByPropsLazy("start", "end", "toSlateRange");
+export const editors = new WeakMap<Field, EditorState>();
+const lastFixes = new WeakMap<Field, LastFix>();
+const autoSpaces = new WeakMap<Field, AutoSpace>();
+const kept = new WeakMap<Field, Set<string>>();
 
 const BLOCKED_NEAR = /[@#:<>/\\_\d=$%^&*+~|[\]{}]/;
 const BOUNDARY_KEYS = new Set([" ", ".", ",", "!", "?", ";", ")"]);
@@ -72,8 +68,8 @@ function autocompleteOpen(st: EditorState) {
     }
 }
 
-function blockedByContext(editor: SlateEditor, w: WordAtCaret, all: string) {
-    if (hasCommand(editor)) return true;
+function blockedByContext(editor: Field, w: WordAtCaret, all: string) {
+    if (editor.hasCommand()) return true;
     if ((all.match(/```/g)?.length ?? 0) % 2) return true;
     if ((all.replace(/```[\s\S]*?```/g, "").match(/`/g)?.length ?? 0) % 2) return true;
 
@@ -104,19 +100,17 @@ function keyFor(w: WordAtCaret) {
     return `${w.path.join(".")}:${w.start}:${w.word}`;
 }
 
-export function isEditorAllowed(editor: SlateEditor) {
-    const type = editor.chatInputType?.analyticsName;
-    if (!type) return false;
-    return type !== "edit" || settings.store.editMessages;
+export function isEditorAllowed(editor: Field) {
+    return editor.allowed();
 }
 
-export function buildView(editor: SlateEditor, st: EditorState): View | null {
+export function buildView(editor: Field, st: EditorState): View | null {
     const engine = getEngine();
     const { mode, sensitivity, nextWord, capitalizeSentences } = settings.store;
-    if (!engine || mode === "off" || !isEditorAllowed(editor) || isComposing(editor) || autocompleteOpen(st)) return null;
+    if (!engine || mode === "off" || !editor.allowed() || editor.composing() || autocompleteOpen(st)) return null;
 
-    const w = wordAtCaret(editor);
-    const text = textBeforeCaret(editor);
+    const w = editor.wordAtCaret();
+    const text = editor.textBeforeCaret();
     if (!w || !text) return null;
     if (!text.all.trim() && !w.word && !w.after) {
         kept.delete(editor);
@@ -125,7 +119,7 @@ export function buildView(editor: SlateEditor, st: EditorState): View | null {
     }
 
     const undo = currentFix(editor);
-    const caret = caretPoint(editor);
+    const caret = editor.caret();
     if (undo) {
         const slots: Slot[] = [{ kind: "undo", label: undo.original, insert: undo.original }];
         return { slots, primary: 0, word: "", key: `undo:${undo.path}:${undo.start}` };
@@ -181,11 +175,9 @@ export function buildView(editor: SlateEditor, st: EditorState): View | null {
     return { slots, primary: slots.indexOf(typed), word: w.word, key };
 }
 
-function flash(editor: SlateEditor, range: SlateRange) {
+function flash(editor: Field, range: TextRange, doc: Document) {
     try {
-        const dom = DOM.toDOMRange(editor, range);
-        const doc = dom.startContainer.ownerDocument ?? document;
-        for (const r of Array.from(dom.getClientRects())) {
+        for (const r of editor.rects(range)) {
             const mark = doc.createElement("div");
             mark.className = "vc-autocorrect-mark";
             Object.assign(mark.style, { left: `${r.left}px`, top: `${r.bottom - 3}px`, width: `${r.width}px` });
@@ -197,18 +189,15 @@ function flash(editor: SlateEditor, range: SlateRange) {
 }
 
 /** Screen box of what the strip is about: the word at the caret, the word a fix just changed, or the caret itself. */
-export function anchorRect(editor: SlateEditor): DOMRect | null {
+export function anchorRect(editor: Field): DOMRect | null {
     try {
         const fix = currentFix(editor);
-        const w = wordAtCaret(editor);
+        const w = editor.wordAtCaret();
         if (!w) return null;
-        const range: SlateRange = fix
+        const range: TextRange = fix
             ? { anchor: { path: w.path, offset: fix.start }, focus: { path: w.path, offset: fix.start + fix.fixed.length } }
             : w.range;
-        const dom = DOM.toDOMRange(editor, range);
-        const rect = dom.getBoundingClientRect();
-        if (rect.width || rect.height) return rect;
-        return dom.getClientRects()[0] ?? null;
+        return unionRect(editor.rects(range));
     } catch {
         return null;
     }
@@ -224,26 +213,27 @@ function withSpace(w: WordAtCaret) {
 }
 
 /** The last autofix, but only while the caret still sits right after it and the text is unchanged. */
-function currentFix(editor: SlateEditor) {
+function currentFix(editor: Field) {
     const fix = lastFixes.get(editor);
     if (!fix) return null;
-    const caret = caretPoint(editor);
-    const w = caret && wordAtCaret(editor);
+    const caret = editor.caret();
+    const w = caret && editor.wordAtCaret();
     const end = fix.start + fix.fixed.length + fix.sep.length;
     if (caret && w && !w.word && caret.path.join(".") === fix.path && caret.offset === end && w.before.slice(fix.start) === fix.fixed + fix.sep) return fix;
     lastFixes.delete(editor);
     return null;
 }
 
-function insertSlot(editor: SlateEditor, w: WordAtCaret, insert: string) {
+function insertSlot(editor: Field, w: WordAtCaret, insert: string) {
     const space = withSpace(w);
-    replaceRange(editor, w.range, insert + space);
+    if (!editor.replace(w.range, insert + space)) return false;
     if (space) autoSpaces.set(editor, { path: w.path.join("."), offset: w.range.anchor.offset + insert.length + 1 });
+    return true;
 }
 
-export function applySlot(editor: SlateEditor, st: EditorState, slot: Slot) {
+export function applySlot(editor: Field, st: EditorState, slot: Slot) {
     const engine = getEngine();
-    const w = wordAtCaret(editor);
+    const w = editor.wordAtCaret();
     if (!w || !engine) return;
 
     if (slot.kind === "undo") {
@@ -264,21 +254,23 @@ export function applySlot(editor: SlateEditor, st: EditorState, slot: Slot) {
     }
 
     const typo = slot.kind === "fix" || (slot.kind === "suggestion" && !engine.isKnown(w.word));
-    insertSlot(editor, w, slot.insert);
-    if (typo) countFix();
+    if (insertSlot(editor, w, slot.insert) && typo) countFix();
 }
 
-function undoLastFix(editor: SlateEditor, st: EditorState) {
+function undoLastFix(editor: Field, st: EditorState) {
     const fix = currentFix(editor);
-    const caret = caretPoint(editor);
+    const caret = editor.caret();
     if (!fix || !caret) return false;
 
     const end = fix.start + fix.fixed.length + fix.sep.length;
-    const range: SlateRange = { anchor: { path: caret.path, offset: fix.start }, focus: { path: caret.path, offset: end } };
-    lastFixes.delete(editor);
+    const range: TextRange = { anchor: { path: caret.path, offset: fix.start }, focus: { path: caret.path, offset: end } };
     // pop the fix's own history entry so a later Ctrl+Z goes on to older edits instead of bringing the fix back
-    if (!undoEntry(editor, fix.sep)) replaceRange(editor, range, fix.original + fix.sep);
-    else if (!wordAtCaret(editor)?.before.endsWith(fix.original + fix.sep)) logger.warn("Undoing a fix left unexpected text");
+    if (editor.undoEntry(fix.sep)) {
+        if (!editor.wordAtCaret()?.before.endsWith(fix.original + fix.sep)) logger.warn("Undoing a fix left unexpected text");
+    } else if (!editor.replace(range, fix.original + fix.sep)) {
+        return false;
+    }
+    lastFixes.delete(editor);
     uncountFix();
 
     const engine = getEngine();
@@ -289,35 +281,34 @@ function undoLastFix(editor: SlateEditor, st: EditorState) {
 }
 
 /** After a picked suggestion's own space, punctuation replaces that space: "hello ?" becomes "hello?". */
-function swallowSpace(editor: SlateEditor, key: string, space: AutoSpace | undefined) {
+function swallowSpace(editor: Field, key: string, space: AutoSpace | undefined) {
     if (!space || !SWALLOW_KEYS.has(key)) return false;
-    const caret = caretPoint(editor);
-    const w = caret && wordAtCaret(editor);
+    const caret = editor.caret();
+    const w = caret && editor.wordAtCaret();
     if (!caret || !w || w.word || caret.path.join(".") !== space.path || caret.offset !== space.offset || !w.before.endsWith(" ")) return false;
-    replaceRange(editor, { anchor: { path: caret.path, offset: space.offset - 1 }, focus: { path: caret.path, offset: space.offset } }, key);
-    return true;
+    return editor.replace({ anchor: { path: caret.path, offset: space.offset - 1 }, focus: { path: caret.path, offset: space.offset } }, key);
 }
 
-function autoFix(editor: SlateEditor, st: EditorState, sep: string) {
+function autoFix(editor: Field, st: EditorState, sep: string, doc: Document) {
     const view = buildView(editor, st);
     const fix = view?.slots[view.primary];
     if (!view || fix?.kind !== "fix") return false;
 
-    const w = wordAtCaret(editor);
+    const w = editor.wordAtCaret();
     if (!w || w.word !== view.word) return false;
     // "well," and "were." are almost never "we'll," or "we're." so contractions of real words only happen on space
     if (sep !== " " && /['’]/.test(fix.insert) && getEngine()?.isKnown(w.word)) return false;
 
-    replaceRange(editor, w.range, fix.insert + sep);
+    if (!editor.replace(w.range, fix.insert + sep)) return false;
     lastFixes.set(editor, { path: w.path.join("."), start: w.start, original: w.word, fixed: fix.insert, sep });
     countFix();
-    const marked: SlateRange = { anchor: { path: w.path, offset: w.start }, focus: { path: w.path, offset: w.start + fix.insert.length } };
-    requestAnimationFrame(() => flash(editor, marked));
+    const marked: TextRange = { anchor: { path: w.path, offset: w.start }, focus: { path: w.path, offset: w.start + fix.insert.length } };
+    requestAnimationFrame(() => flash(editor, marked, doc));
     st.announce(`Changed ${w.word} to ${fix.insert}. Press Backspace to undo.`);
     return true;
 }
 
-function pick(editor: SlateEditor, st: EditorState, index: number | "primary") {
+function pick(editor: Field, st: EditorState, index: number | "primary") {
     const view = buildView(editor, st);
     if (!view) return false;
     const slot = view.slots[index === "primary" ? view.primary : index];
@@ -337,11 +328,11 @@ function acceptKey(e: KeyboardEvent): number | "primary" | null {
     return null;
 }
 
-export function onKeyDown(editor: SlateEditor, e: KeyboardEvent): boolean {
+export function onKeyDown(editor: Field, e: KeyboardEvent): boolean {
     try {
         const st = editors.get(editor);
-        if (!st || settings.store.mode === "off" || !isEditorAllowed(editor)) return false;
-        if (e.isComposing || isComposing(editor)) return false;
+        if (!st || settings.store.mode === "off" || !editor.allowed()) return false;
+        if (e.isComposing || editor.composing()) return false;
         if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return false;
 
         const mods = e.ctrlKey || e.altKey || e.metaKey;
@@ -376,6 +367,8 @@ export function onKeyDown(editor: SlateEditor, e: KeyboardEvent): boolean {
             if (view) {
                 st.dismissed = view.key;
                 st.refresh();
+                // in a plain box like the status one, Esc would also close the whole dialog, so only hide the suggestions
+                return editor.kind === "plain";
             }
             return false;
         }
@@ -385,7 +378,7 @@ export function onKeyDown(editor: SlateEditor, e: KeyboardEvent): boolean {
             return false;
         }
 
-        if (!mods && BOUNDARY_KEYS.has(e.key) && settings.store.mode === "auto") return autoFix(editor, st, e.key);
+        if (!mods && BOUNDARY_KEYS.has(e.key) && settings.store.mode === "auto") return autoFix(editor, st, e.key, (e.target as Node | null)?.ownerDocument ?? document);
         return false;
     } catch (err) {
         logger.error("Key handling failed", err);
