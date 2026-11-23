@@ -2,6 +2,11 @@
 
 Newest changes come first, grouped under each date by plugin. The Cordmuffin Updater page in Discord shows the lines that are new for you. Lines under a plugin's heading only show for people who have that plugin.
 
+## 2026-11-23
+
+### Autocorrect
+- Now works in your custom status box too, with the same suggestions, fixes and undo as the chat box.
+
 ## 2026-11-22
 
 ### New plugins
