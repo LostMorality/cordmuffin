@@ -8,9 +8,10 @@ import { plugins } from "@api/PluginManager";
 import { openPluginModal } from "@components/settings";
 import { ContextMenuApi, Menu, useEffect, useLayoutEffect, useReducer, useRef, useState } from "@webpack/common";
 
+import type { Field } from "./field";
 import { ACCEPT_HINT, anchorRect, applySlot, buildView, editors, type EditorState, learnedForm, pickHint, type Slot } from "./logic";
 import { cl, settings } from "./settings";
-import { focusEditor, isFocused, type SlateEditor } from "./slate";
+import { type SlateEditor, slateField } from "./slate";
 import { addWord, blockWord, knowsWord, onWordsChange } from "./words";
 
 export interface StripProps {
@@ -21,10 +22,10 @@ export interface StripProps {
 
 const KEY_HINT: Partial<Record<Slot["kind"], string>> = { fix: "Space", undo: "Backspace" };
 
-function openSlotMenu(e: React.MouseEvent, slot: Slot, editor: SlateEditor) {
+function openSlotMenu(e: React.MouseEvent, slot: Slot, editor: Field) {
     const close = () => {
         ContextMenuApi.closeContextMenu();
-        requestAnimationFrame(() => focusEditor(editor));
+        requestAnimationFrame(() => editor.focus());
     };
     const w = slot.label;
     const stored = learnedForm(w);
@@ -47,14 +48,20 @@ function openSlotMenu(e: React.MouseEvent, slot: Slot, editor: SlateEditor) {
     ));
 }
 
-export function Strip({ editorRef, autocompleteRef }: StripProps) {
+interface ViewProps {
+    editor: Field | null;
+    autocompleteRef: EditorState["autocompleteRef"];
+    onRender?(): void;
+}
+
+/** The suggestion strip for one text box. It sits inside a positioned parent and floats just above it. */
+export function StripView({ editor, autocompleteRef, onRender }: ViewProps) {
     const [, refresh] = useReducer((n: number) => n + 1, 0);
     const [announcement, setAnnouncement] = useState("");
     const { position, keyHints } = settings.use(["position", "keyHints", "mode", "sensitivity", "nextWord", "capitalizeSentences", "editMessages"]);
     const stRef = useRef<EditorState | null>(null);
     const liveRef = useRef<HTMLSpanElement | null>(null);
     const stripRef = useRef<HTMLDivElement | null>(null);
-    const editor = editorRef?.current?.ref?.current?.getSlateEditor?.();
 
     // a repeated message gets a zero width space so the live region changes and screen readers say it again
     const announce = (text: string) => setAnnouncement(old => old === text ? text + "​" : text);
@@ -83,14 +90,16 @@ export function Strip({ editorRef, autocompleteRef }: StripProps) {
         doc.addEventListener("focusin", schedule);
         doc.addEventListener("focusout", schedule);
         const off = onWordsChange(schedule);
+        const unsubscribe = editor?.subscribe?.(schedule);
         return () => {
             cancelAnimationFrame(frame);
             doc.removeEventListener("selectionchange", schedule);
             doc.removeEventListener("focusin", schedule);
             doc.removeEventListener("focusout", schedule);
             off();
+            unsubscribe?.();
         };
-    }, []);
+    }, [editor]);
 
     useEffect(() => {
         if (!announcement) return;
@@ -98,11 +107,12 @@ export function Strip({ editorRef, autocompleteRef }: StripProps) {
         return () => clearTimeout(t);
     }, [announcement]);
 
-    const view = editor && isFocused(editor) ? buildView(editor, st) : null;
+    const view = editor && editor.focused() ? buildView(editor, st) : null;
     if (view && st.dismissed && st.dismissed !== view.key) st.dismissed = null;
 
-    // "word" position: centre the highlighted chip over the word being typed, kept inside the chat box
+    // "word" position: centre the highlighted chip over the word being typed, kept inside the text box
     useLayoutEffect(() => {
+        onRender?.();
         const strip = stripRef.current;
         if (!strip) return;
         if (position !== "word" || !editor || !view) {
@@ -148,7 +158,7 @@ export function Strip({ editorRef, autocompleteRef }: StripProps) {
                                 title={`${slot.kind === "undo" ? "Undo, keep" : "Use"} “${slot.label}” (${pickHint(i + 1)})`}
                                 onClick={() => {
                                     applySlot(editor, st, slot);
-                                    focusEditor(editor);
+                                    editor.focus();
                                 }}
                                 onContextMenu={e => openSlotMenu(e, slot, editor)}
                             >
@@ -164,4 +174,10 @@ export function Strip({ editorRef, autocompleteRef }: StripProps) {
             )}
         </>
     );
+}
+
+/** The strip in Discord's chat box, rendered as the first child of the chat box itself. */
+export function Strip({ editorRef, autocompleteRef }: StripProps) {
+    const editor = editorRef?.current?.ref?.current?.getSlateEditor?.();
+    return <StripView editor={editor ? slateField(editor) : null} autocompleteRef={autocompleteRef} />;
 }
