@@ -11,7 +11,8 @@ import { Logger } from "@utils/Logger";
 import { createRoot, useEffect, useState } from "@webpack/common";
 import type { Root } from "react-dom/client";
 
-import { BadgeKind, BadgeProgress, recordCredit } from "./badges";
+import { BadgeKind, BadgeProgress, getPending, recordCredit } from "./badges";
+import { logRun, RunKind, RunStatus, TestPart } from "./runLog";
 import { CreditError, CreditPlan, creditPlaytime, CreditProgress } from "./science";
 
 const cl = classNameFactory("vc-gts-");
@@ -21,6 +22,9 @@ export interface CreditJob {
     plan: CreditPlan;
     played: Set<string> | null;
     badges: Partial<Record<BadgeKind, BadgeProgress>> | null;
+    kind?: RunKind;
+    parts?: TestPart[];
+    spoofing?: boolean;
     describe(sent: number): string;
     progressText(p: CreditProgress): string;
     doneText(): string;
@@ -66,12 +70,37 @@ export function useCrediting() {
     return running();
 }
 
-// Only feeds the badge tracker; a problem here must never turn a good run into a failed one.
-function logSent(job: CreditJob, sent: number) {
+// Only feeds the badge tracker and the run log; a problem here must never turn a good run into a failed one.
+function logSent(job: CreditJob, sent: number, startedAt: number, status: RunStatus, httpStatus: number | null = null) {
+    // Read before tally() adds this run to the waiting list.
+    let waitingHours: number | null = null;
+    try {
+        if (job.badges) waitingHours = Math.floor(getPending(job.badges).hours);
+    } catch (e) {
+        logger.error("Couldn't read the waiting play time", e);
+    }
     try {
         tally(job, sent);
     } catch (e) {
         logger.error("Couldn't save the badge tracker entry", e);
+    }
+    try {
+        logRun({
+            kind: job.kind ?? "add",
+            startedAt,
+            plan: job.plan,
+            sent,
+            played: job.played,
+            baseHours: job.badges?.time?.current ?? null,
+            baseGames: job.badges?.variety?.current ?? null,
+            waitingHours,
+            spoofing: job.spoofing ?? null,
+            status,
+            httpStatus,
+            parts: job.parts ?? null
+        });
+    } catch (e) {
+        logger.error("Couldn't save the run log entry", e);
     }
 }
 
@@ -104,21 +133,24 @@ export async function startCredit(job: CreditJob) {
     if (running()) return;
     clearTimeout(closeTimer);
     const abort = controller = new AbortController();
+    const startedAt = Date.now();
     const first: CreditProgress = { sent: 0, total: job.plan.length, etaMs: null, waitingMs: 0 };
     update({ progress: first, text: "Starting...", stopping: false });
     mount();
     let result: JobResult;
     try {
         const sent = await creditPlaytime(job.plan, abort.signal, p => running() && update({ ...state!, progress: p, text: job.progressText(p) }));
-        logSent(job, sent);
-        result = abort.signal.aborted
+        // Stop pressed after the last batch went out still means everything was sent.
+        const stopped = abort.signal.aborted && sent < job.plan.length;
+        logSent(job, sent, startedAt, stopped ? "stopped" : "done");
+        result = stopped
             ? { kind: "stopped", title: "Stopped", text: sent ? `${job.describe(sent)} were sent and still count.` : "Nothing was sent yet." }
             : { kind: "success", title: "Play time added", text: job.doneText() };
     } catch (e) {
         logger.error("Adding play time failed", e);
         const sent = e instanceof CreditError ? e.sent : 0;
         const status = e instanceof CreditError ? (e.cause as { status?: number; } | undefined)?.status : undefined;
-        logSent(job, sent);
+        logSent(job, sent, startedAt, e instanceof CreditError && !status ? "no answer" : "failed", status ?? null);
         const reason = status ? ` (Discord answered ${status})` : "";
         result = {
             kind: "failed",
