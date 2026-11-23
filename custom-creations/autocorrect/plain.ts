@@ -7,13 +7,36 @@
 import type { Field, TextRange } from "./field";
 import { wordIn } from "./field";
 
-/** Plain text boxes Autocorrect works in, matched by Discord's own ids so it doesn't depend on the app language. */
-export const PLAIN_FIELDS = "textarea#custom-status-input";
-
 export type PlainBox = HTMLTextAreaElement | HTMLInputElement;
 
-export const isPlainField = (el: EventTarget | null): el is PlainBox =>
-    (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) && el.matches(PLAIN_FIELDS);
+/** Boxes that hold code, settings or other non-writing text: Equicord's own settings pages and anything with spellcheck turned off. */
+const NOT_WRITING = '[class*="vc-"], [class*="quickCss"], [spellcheck="false"]';
+
+/**
+ * Every multi-line plain text box people write in: custom status, notes, profile widgets, report and appeal reasons and so on.
+ * Single-line boxes are left alone since Discord uses them for names, searches and links.
+ */
+export function isPlainField(el: EventTarget | null): el is PlainBox {
+    if (!(el instanceof HTMLTextAreaElement)) return false;
+    // Discord's hidden helper textareas that measure text have no class
+    if (!el.className || el.readOnly || el.disabled) return false;
+    return !el.closest(NOT_WRITING) && !isWordList(el);
+}
+
+/**
+ * AutoMod's keyword, allow list and regex boxes take lists of words people misspell on purpose.
+ * They're found through the props React gave the components around them, which don't change with the language.
+ */
+function isWordList(el: Element) {
+    const key = Object.keys(el).find(k => k.startsWith("__reactFiber$"));
+    let fiber = key ? (el as unknown as Record<string, { return?: unknown; memoizedProps?: Record<string, unknown>; }>)[key] : null;
+    for (let i = 0; fiber && i < 15; i++) {
+        const props = fiber.memoizedProps;
+        if (props && typeof props === "object" && ("maxWordCount" in props || (props.rule as { triggerMetadata?: unknown; } | undefined)?.triggerMetadata !== undefined)) return true;
+        fiber = fiber.return as typeof fiber;
+    }
+    return false;
+}
 
 const PATH = [0];
 const MIRRORED = [
