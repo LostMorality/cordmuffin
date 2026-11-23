@@ -370,7 +370,7 @@ Autocorrect like on your phone. Suggestions show right above the word you're typ
 - Suggests the next word after you type a space.
 - Leaves alone: code, links, mentions, emoji, slang and chat words like "lol", "ngl" and "tmrw", and the names of people in the server or chat when you type them with a capital.
 - Learns which words you use from messages you send, so its guesses get better over time.
-- Works when editing a message and in your custom status box too.
+- Works when editing a message and in the other boxes you write in too: custom status, About Me, notes, channel topics, reports and so on. Name, search and AutoMod keyword boxes are left alone.
 
 <details>
 <summary><b>How to use it</b></summary>
@@ -378,7 +378,7 @@ Autocorrect like on your phone. Suggestions show right above the word you're typ
 - Just type. When it's sure a word is a typo, the fix above it shows **Space**, and space puts it in.
 - When it's not sure, it only highlights its best guess and space leaves your word alone. **Ctrl+Space** (**Ctrl+Enter** on Mac) uses the highlighted guess anyway.
 - **Alt+1**, **Alt+2** and **Alt+3** pick the first, second or third suggestion (**Ctrl+1** to **Ctrl+3** on Mac).
-- **Esc** hides the suggestions for the word you're on. In the status box, press Esc again to close it.
+- **Esc** hides the suggestions for the word you're on. In boxes inside a popup (status, About Me), press Esc again to close it.
 - Right-click the message box and open **Autocorrect** to switch between **Fix typos**, **Suggestions only** and **Off**.
 
 </details>
