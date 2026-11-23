@@ -4,6 +4,10 @@ Newest changes come first, grouped under each date by plugin. The Cordmuffin Upd
 
 ## 2026-11-23
 
+### Game Browser
+- New **Copy Report** button copies a short report for getting help when your badges don't move: badge numbers, the "Use data" settings, blockers and your recent Add Time runs. It has no token, user ID or username in it.
+- New **Test Session Lengths** button sends 3 test sessions of different lengths. After Discord's next daily update, **Copy Report** shows which ones counted, so it's clear whether Discord drops long or past-dated sessions.
+
 ### Autocorrect
 - Now works in your custom status box too, with the same suggestions, fixes and undo as the chat box.
 
