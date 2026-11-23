@@ -17,6 +17,8 @@ import { DetectableApp, isSpoofing, loadDetectable, settings, stopRotation } fro
 import { openAddTime } from "./AddTime";
 import { Conflicts } from "./conflicts";
 import { notify } from "./notify";
+import { openReport } from "./report";
+import { openSessionTest } from "./SessionTest";
 
 const cl = classNameFactory("vc-gts-");
 const logger = new Logger("GameTimeSpoof");
@@ -240,6 +242,12 @@ function GameBrowser({ modalProps }: { modalProps: RenderModalProps; }) {
                             Add Time to All
                         </Button>
                     )}
+                    <Button size="small" variant="secondary" onClick={openSessionTest}>
+                        Test Session Lengths
+                    </Button>
+                    <Button size="small" variant="secondary" onClick={openReport}>
+                        Copy Report
+                    </Button>
                 </div>
                 <div className={cl("search")}>
                     <TextInput value={query} onChange={setQuery} placeholder="Search games" autoFocus />
